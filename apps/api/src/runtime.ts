@@ -1,4 +1,6 @@
 import { BotService } from './bots/service.js';
+import { BotAclService } from './bots/acl-service.js';
+import { PostgresBotAclRepository } from './bots/postgres-bot-acl-repository.js';
 import { PostgresBotRepository } from './bots/postgres-bot-repository.js';
 import { OpenIdProvider } from './oidc/provider.js';
 import { PostgresOidcRepository } from './oidc/postgres-repository.js';
@@ -88,6 +90,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     bots: new BotService(new PostgresBotRepository(pool)),
+    botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     groups: new GroupService(new PostgresGroupRepository(pool)),
     apiTokens: new ApiTokenService(new PostgresApiTokenRepository(pool)),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),

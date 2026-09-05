@@ -145,6 +145,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bots-runtime.test.ts
+      # Each suite closes its pools before the next one reprovisions the fixed role.
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-acl-runtime.test.ts
 
   compose:
     needs: code
@@ -382,15 +384,19 @@ jobs:
           bot_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('bots'), ('bot_versions'), ('bot_acl')) AS bot_tables(table_name)")"
-          test "$bot_table_privileges" = 'bot_acl:t,t,f,f,f;bot_versions:t,t,f,f,f;bots:t,t,f,f,f'
+          test "$bot_table_privileges" = 'bot_acl:t,t,f,t,f;bot_versions:t,t,f,f,f;bots:t,t,f,f,f'
           bot_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bots', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bots'")"
-          test "$bot_update_privileges" = 'created_at:false,created_by_user_id:false,current_version_id:true,id:false,visibility:false,workspace_id:false'
+          test "$bot_update_privileges" = 'created_at:false,created_by_user_id:false,current_version_id:true,id:false,visibility:true,workspace_id:false'
+          bot_acl_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bot_acl', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bot_acl'")"
+          test "$bot_acl_update_privileges" = 'bot_id:false,created_at:false,role:true,user_id:false'
           bot_immutable_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
-            --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'bot_versions', 'UPDATE'), has_any_column_privilege('openbot_runtime', 'bot_acl', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_bot_version_mutation()', 'EXECUTE'))")"
-          test "$bot_immutable_update_privileges" = 'f,f,f'
+            --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'bot_versions', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_bot_version_mutation()', 'EXECUTE'))")"
+          test "$bot_immutable_update_privileges" = 'f,f'
 
           api_token_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \

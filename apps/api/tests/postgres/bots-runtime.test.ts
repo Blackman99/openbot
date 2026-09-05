@@ -220,7 +220,10 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
             ])
           ).rows[0].allowed,
           `${table} ${privilege}`,
-        ).toBe(['SELECT', 'INSERT'].includes(privilege));
+        ).toBe(
+          ['SELECT', 'INSERT'].includes(privilege) ||
+            (table === 'bot_acl' && privilege === 'DELETE'),
+        );
     }
     const columns = await admin.query<{
       table_name: string;
@@ -231,8 +234,16 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
        FROM information_schema.columns WHERE table_schema='public' AND table_name=ANY($1::text[])`,
       [tables],
     );
-    expect(columns.rows.filter((column) => column.allowed)).toEqual([
+    expect(
+      columns.rows
+        .filter((column) => column.allowed)
+        .sort((a, b) =>
+          `${a.table_name}.${a.column_name}`.localeCompare(`${b.table_name}.${b.column_name}`),
+        ),
+    ).toEqual([
+      { table_name: 'bot_acl', column_name: 'role', allowed: true },
       { table_name: 'bots', column_name: 'current_version_id', allowed: true },
+      { table_name: 'bots', column_name: 'visibility', allowed: true },
     ]);
     expect(
       (

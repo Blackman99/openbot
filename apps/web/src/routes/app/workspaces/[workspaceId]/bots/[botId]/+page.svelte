@@ -14,6 +14,9 @@
   <p>{data.bot.description || 'No description yet.'}</p>
   <p>{data.bot.visibility === 'private' ? 'Private' : 'Workspace discoverable'}</p>
   <BotBindingStatus status={data.bot.bindingStatus} />
+  {#if data.bot.accessRole === 'owner'}
+    <p><a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/permissions`}>Manage permissions</a></p>
+  {/if}
   {#if version}
     <p>Your Bot role: {data.bot.accessRole}</p>
     <p class="identifier">Bot ID: {data.bot.id}</p>

@@ -5,6 +5,7 @@ Recommended implementation defaults for COL-03 and its COL-02 consumer. This is 
 ## Ownership and ordering
 
 - COL-03 owns the single conversation ledger and sequence allocator. COL-02 consumes that committed foundation for join/removal events and history grants. Record the discovered COL-02 dependency on COL-03 rather than introducing temporary timestamps, counters or a second history table.
+- COL-03 retains required message identity/version columns and a private allocator for its message-only events. COL-02 adds an additive migration and a typed membership-event append method that reuses the same transaction, admission and allocator. Do not expose allocation without a corresponding event and required audit, or a public arbitrary-event endpoint.
 - There is one conversation per group and one private direct conversation per `(workspace, Bot, human creator)`. Canonical UUIDs and unique subject constraints make get-or-create deterministic.
 - Keep immutable conversation subject/creator fields, a mutable `last_sequence`, and append-only conversation events. Initially derive current message projections from events rather than maintaining another mutable content authority.
 - Allocate each sequence by updating the locked conversation row within the append transaction. Never use unlocked `MAX(sequence)+1`; order by sequence, not timestamp or UUID. Event identity includes conversation and sequence, a stable event ID, logical message ID, type/schema version and server-assigned authorship/time.

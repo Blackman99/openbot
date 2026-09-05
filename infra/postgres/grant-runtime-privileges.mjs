@@ -174,7 +174,9 @@ try {
     GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime;
     GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime;
     GRANT UPDATE (name, description) ON workspaces TO openbot_runtime;
-    GRANT UPDATE (current_version_id) ON bots TO openbot_runtime;
+    GRANT UPDATE (current_version_id, visibility) ON bots TO openbot_runtime;
+    GRANT UPDATE (role) ON bot_acl TO openbot_runtime;
+    GRANT DELETE ON bot_acl TO openbot_runtime;
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;
     GRANT UPDATE (role) ON group_memberships TO openbot_runtime;

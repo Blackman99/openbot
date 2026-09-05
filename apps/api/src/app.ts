@@ -1,4 +1,6 @@
 import { registerBotRoutes } from './bots/routes.js';
+import { registerBotAclRoutes } from './bots/acl-routes.js';
+import type { BotAclService } from './bots/acl-service.js';
 import type { BotService } from './bots/service.js';
 import { registerOidcRoutes } from './oidc/routes.js';
 import type { OidcService } from './oidc/service.js';
@@ -47,6 +49,7 @@ export interface BuildAppOptions {
   members?: WorkspaceMemberService;
   groups?: GroupService;
   bots?: BotService;
+  botAcl?: BotAclService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -138,6 +141,7 @@ export function buildApp({
   members,
   groups,
   bots,
+  botAcl,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -181,6 +185,7 @@ export function buildApp({
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
+    if (botAcl) registerBotAclRoutes(app, auth, botAcl, webOrigin);
     if (groups) registerGroupRoutes(app, auth, groups, webOrigin);
     if (apiTokens) registerApiTokenRoutes(app, auth, apiTokens, webOrigin);
     if (members) registerWorkspaceMemberRoutes(app, auth, members, webOrigin);

@@ -1,4 +1,5 @@
 import { handleBotFixture, resetBotFixture } from './bot-fixture.mjs';
+import { handleBotAclFixture, resetBotAclFixture } from './bot-acl-fixture.mjs';
 import { handleApiTokenFixture, resetApiTokenFixture } from './api-token-fixture.mjs';
 import { createServer } from 'node:http';
 import { handleGroupFixture, resetGroupFixture } from './group-fixture.mjs';
@@ -42,6 +43,7 @@ function readJson(request, callback) {
 }
 
 function resetAuth() {
+  resetBotAclFixture();
   resetBotFixture();
   resetGroupFixture();
   resetApiTokenFixture();
@@ -81,6 +83,19 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
+  if (
+    handleBotAclFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      users,
+      memberships,
+      workspaces,
+      createSession,
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
   if (
     handleBotFixture(request, response, {
       user: sessions.get(readSession(request)),

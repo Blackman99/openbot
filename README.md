@@ -137,6 +137,12 @@ version 1 and makes the creator its owner. The detail page shows the saved confi
 the model's current availability. Basic-only models are labeled chat-only. Workspace
 administration does not grant access to another user's private Bot.
 
+Bot owners can open **Manage permissions** from the detail page to grant owner, editor or user
+access and choose private or workspace discovery. Discovery exposes summary information only;
+configuration and use require an explicit Bot grant. The last owner with current workspace access
+cannot be removed through Bot permissions. Workspace removal immediately disables access while
+retaining the grant; explicit Bot revocation removes it. Neither setting changes version history.
+
 ## Local development
 
 Node.js 24 and pnpm 11 are required.
