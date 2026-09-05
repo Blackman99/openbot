@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974306687](https://github.com/Blackman99/openbot/actions/runs/33974306687) on `4037e56` passed the Playwright `code` job after the exact fallback locators, then failed `postgres-bots` on `denies queued version after real token revocation commits ahead of resource admission`: `waitForBlocked` saw no `pg_blocking_pids` row for 5s. The public-Bot observer now also matches the granted/ungranted `pg_locks` pair so an advisory wait inside the `api_token.used` trigger is visible. Native automatic retry/fallback and unique next-attempt lock contention remain witnessed. Compose restart-before-due is not added. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974792544](https://github.com/Blackman99/openbot/actions/runs/33974792544) on `b47b78f` is full green (16/16), including Playwright exact fallback locators and the public-Bot `pg_locks` observer. Adapter-to-worker cases now prove HTTP/SSE authentication and validation fail the same Task without a retry or fallback, while a real HTTP 503 schedules one same-model retry. Native lock contention remains witnessed. Compose restart-before-due is not added. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 
