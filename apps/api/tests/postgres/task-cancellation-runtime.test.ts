@@ -107,9 +107,9 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
     }
     async function ensureDeployedCancellationSchema() {
       await migrateDatabase(admin);
-      const versions = (await admin.query('SELECT version FROM openbot_schema_migrations')).rows.map(
-        (row) => row.version,
-      );
+      const versions = (
+        await admin.query('SELECT version FROM openbot_schema_migrations')
+      ).rows.map((row) => row.version);
       if (!versions.includes('0023_task_tree_cancellation'))
         throw new Error('Cancellation suite requires deployed migration 0023');
       if (runtime === admin) await provisionRuntime();
@@ -623,407 +623,560 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
     }, 30000);
 
     describe('deployed 0023 cancellation schema', () => {
-    beforeAll(async () => {
-      await ensureDeployedCancellationSchema();
-    });
+      beforeAll(async () => {
+        await ensureDeployedCancellationSchema();
+      });
 
-    it('rejects a forged queued claim even inside a valid cancellation receipt, marker, audit and delivery transaction', async () => {
-      const f = await fixture('workspace', true),
-        task = await submit(f),
-        runId = task.runs[0]!.id,
-        before = await snapshot(f);
-      const attempt = () =>
-        transaction(async (connection) => {
-          await ConversationTransaction.lock(
-            connection,
-            {
-              actorUserId: f.actorId,
-              workspaceId: f.workspaceId,
-              conversationId: f.conversationId,
-            },
-            () => new Date(),
-            'inspect',
-          );
-          const commandId = randomUUID(),
-            now = new Date(),
-            revision = (
-              await connection.query(
-                'SELECT revision FROM workspace_model_connections WHERE id=$1',
-                [f.model.id],
-              )
-            ).rows[0].revision;
-          await connection.query(
-            'INSERT INTO task_cancel_commands(id,task_id,root_task_id,actor_user_id,idempotency_key,expected_run_id,attempt,cancelled_at,affected_task_count,affected_run_count,created_at) VALUES($1,$2,$2,$3,$4,$5,1,$6,1,1,$6)',
-            [commandId, task.id, f.actorId, 'forged-queued-claim', runId, now],
-          );
-          await connection.query(
-            "INSERT INTO task_run_cancellations(run_id,command_id,previous_status,cancelled_at) VALUES($1,$2,'queued',$3)",
-            [runId, commandId, now],
-          );
-          // Everything except the invented start/claim/provider tuple is the legal
-          // transaction. A marker alone must never let a queued Run look started.
-          await connection.query(
-            "UPDATE task_runs SET status='cancelled',finished_at=$2,started_at=$2,claim_token=$3,deadline_at=$4,provider_scope_kind='workspace',provider_scope_id=$5,connection_id=$6,connection_revision=$7,protocol='openai-responses',model_id=$8 WHERE id=$1",
-            [
-              runId,
-              now,
-              randomUUID(),
-              new Date(now.getTime() + 60_000),
-              f.workspaceId,
-              f.model.id,
-              revision,
-              f.model.modelId,
-            ],
-          );
-          await connection.query("UPDATE tasks SET status='cancelled' WHERE id=$1", [task.id]);
-          await connection.query(
-            "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.cancelled',$2,$3,$4::jsonb)",
-            [
-              randomUUID(),
-              f.actorId,
-              now,
-              JSON.stringify({
+      it('rejects a forged queued claim even inside a valid cancellation receipt, marker, audit and delivery transaction', async () => {
+        const f = await fixture('workspace', true),
+          task = await submit(f),
+          runId = task.runs[0]!.id,
+          before = await snapshot(f);
+        const attempt = () =>
+          transaction(async (connection) => {
+            await ConversationTransaction.lock(
+              connection,
+              {
+                actorUserId: f.actorId,
                 workspaceId: f.workspaceId,
                 conversationId: f.conversationId,
-                taskId: task.id,
+              },
+              () => new Date(),
+              'inspect',
+            );
+            const commandId = randomUUID(),
+              now = new Date(),
+              revision = (
+                await connection.query(
+                  'SELECT revision FROM workspace_model_connections WHERE id=$1',
+                  [f.model.id],
+                )
+              ).rows[0].revision;
+            await connection.query(
+              'INSERT INTO task_cancel_commands(id,task_id,root_task_id,actor_user_id,idempotency_key,expected_run_id,attempt,cancelled_at,affected_task_count,affected_run_count,created_at) VALUES($1,$2,$2,$3,$4,$5,1,$6,1,1,$6)',
+              [commandId, task.id, f.actorId, 'forged-queued-claim', runId, now],
+            );
+            await connection.query(
+              "INSERT INTO task_run_cancellations(run_id,command_id,previous_status,cancelled_at) VALUES($1,$2,'queued',$3)",
+              [runId, commandId, now],
+            );
+            // Everything except the invented start/claim/provider tuple is the legal
+            // transaction. A marker alone must never let a queued Run look started.
+            await connection.query(
+              "UPDATE task_runs SET status='cancelled',finished_at=$2,started_at=$2,claim_token=$3,deadline_at=$4,provider_scope_kind='workspace',provider_scope_id=$5,connection_id=$6,connection_revision=$7,protocol='openai-responses',model_id=$8 WHERE id=$1",
+              [
                 runId,
-                attempt: 1,
-                cancelCommandId: commandId,
-                requestedTaskId: task.id,
-                rootTaskId: task.id,
-              }),
-            ],
-          );
-          await appendCancelledRunState(connection, runId, () => now);
-        });
-      await expect(attempt()).rejects.toMatchObject({
-        code: '23514',
-        message: expect.stringContaining('retained claim'),
-      });
-      expect(await snapshot(f)).toEqual(before);
-    });
-
-    it('cancels queued work with every original claim and provider field still NULL and creates no provider call', async () => {
-      const f = await fixture(),
-        task = await submit(f),
-        runId = task.runs[0]!.id;
-      const before = (await admin.query('SELECT * FROM task_runs WHERE id=$1', [runId])).rows[0];
-      const result = await cancel(f, task.id, runId);
-      expect(result.receipt).toMatchObject({ affectedTaskCount: 1, affectedRunCount: 1 });
-      const after = (await admin.query('SELECT * FROM task_runs WHERE id=$1', [runId])).rows[0];
-      expect(after).toEqual({
-        ...before,
-        status: 'cancelled',
-        finished_at: result.receipt.cancelledAt,
-      });
-      expect(after.started_at).toBeNull();
-      expect((await new TaskQueue(runtime).claimNext()).handled).toBe(false);
-      expect(result.task.runs[0]).toMatchObject({
-        startedAt: null,
-        provider: null,
-        usage: null,
-        output: null,
-        error: null,
-      });
-    });
-    it('keeps exact replay immutable and gives each new key a stable zero-effect receipt without a second transition', async () => {
-      const f = await fixture(),
-        task = await submit(f),
-        runId = task.runs[0]!.id;
-      const first = await cancel(f, task.id, runId),
-        saved = await snapshot(f);
-      expect(await cancel(f, task.id, runId)).toEqual(first);
-      expect(await snapshot(f)).toEqual(saved);
-      const next = await cancel(f, task.id, runId, 'another-command');
-      expect(next.receipt).toMatchObject({
-        taskId: task.id,
-        runId,
-        cancelledAt: first.receipt.cancelledAt,
-        affectedTaskCount: 0,
-        affectedRunCount: 0,
-      });
-      expect(next.receipt.commandId).not.toBe(first.receipt.commandId);
-      expect(await cancel(f, task.id, runId, 'another-command')).toEqual(next);
-      const after = await snapshot(f);
-      expect(after.commands).toHaveLength(2);
-      expect({ ...after, commands: saved.commands }).toEqual(saved);
-      await expect(cancel(f, task.id, randomUUID())).rejects.toMatchObject({
-        code: 'idempotency_conflict',
-      });
-      expect(await snapshot(f)).toEqual(after);
-    });
-
-    it('retains full UTF-8 output after feed reclamation and rejects late delta, finish and raw partial mutation', async () => {
-      const f = await fixture(),
-        task = await submit(f),
-        queue = new TaskQueue(runtime),
-        claim = (await queue.claimNext()).claim!;
-      const prefix = 'First 🌿\nThen 漢字';
-      await queue.publishDelta(claim, 'First 🌿\n');
-      await queue.publishDelta(claim, 'Then 漢字');
-      await cancel(f, task.id, claim.runId);
-      const before = await snapshot(f);
-      await expect(queue.publishDelta(claim, 'Late suffix')).rejects.toMatchObject({
-        code: 'worker_stopped',
-      });
-      expect(
-        await queue.finish(claim, {
-          body: 'Late final',
-          usage: { inputTokens: 1, outputTokens: 2 },
-        }),
-      ).toBe(false);
-      expect(await queue.isClaimActive(claim)).toBe(false);
-      await expect(
-        runtime.query("UPDATE task_run_partial_outputs SET body='corrupt' WHERE run_id=$1", [
-          claim.runId,
-        ]),
-      ).rejects.toMatchObject({ code: '55000' });
-      await expect(
-        runtime.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [claim.runId]),
-      ).rejects.toMatchObject({ code: '55000' });
-      expect(await snapshot(f)).toEqual(before);
-      await transaction(async (connection) => {
-        await connection.query('SELECT id FROM conversations WHERE id=$1 FOR UPDATE', [
-          f.conversationId,
-        ]);
-        await reclaimConversationStream(
-          connection,
-          f.conversationId,
-          new Date(Date.now() + STREAM_LIMITS.retentionMs + 1000),
-        );
-      });
-      expect(
-        (
-          await admin.query(
-            'SELECT sequence FROM conversation_delivery_events WHERE conversation_id=$1',
-            [f.conversationId],
-          )
-        ).rows,
-      ).toEqual([]);
-      const rebuilt = observedPool();
-      try {
-        expect(
-          await new TaskService(rebuilt.pool).partialOutput(
-            f.actorId,
-            f.workspaceId,
-            f.conversationId,
-            task.id,
-            claim.runId,
-          ),
-        ).toEqual({
-          conversationId: f.conversationId,
-          taskId: task.id,
-          runId: claim.runId,
-          partial: { text: prefix, endByte: Buffer.byteLength(prefix), interrupted: true },
-        });
-        expect((await read(f, task.id, rebuilt.pool)).runs[0]).toMatchObject({
-          status: 'cancelled',
-          output: null,
-        });
-      } finally {
-        await rebuilt.pool.end();
-      }
-    });
-
-    it.each([
-      { kind: 'astral', character: '🌱', count: 16000 },
-      { kind: 'BMP', character: '界', count: 32000 },
-    ])(
-      'retains the exact $kind UTF-16 boundary and rolls back a complete raw delta transaction one character beyond it',
-      async ({ character, count }) => {
-        const f = await fixture(),
-          task = await submit(f),
-          claim = (await new TaskQueue(runtime).claimNext()).claim!;
-        for (let index = 0; index < count; index += 1000)
-          await rawCheckpointDelta(f, claim, character.repeat(1000));
-        const body = character.repeat(count),
-          before = await snapshot(f);
-        expect(body.length).toBe(32000);
-        expect(before.partials[0]).toMatchObject({ body, end_byte: Buffer.byteLength(body) });
-        await expect(rawCheckpointDelta(f, claim, character)).rejects.toMatchObject({
+                now,
+                randomUUID(),
+                new Date(now.getTime() + 60_000),
+                f.workspaceId,
+                f.model.id,
+                revision,
+                f.model.modelId,
+              ],
+            );
+            await connection.query("UPDATE tasks SET status='cancelled' WHERE id=$1", [task.id]);
+            await connection.query(
+              "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.cancelled',$2,$3,$4::jsonb)",
+              [
+                randomUUID(),
+                f.actorId,
+                now,
+                JSON.stringify({
+                  workspaceId: f.workspaceId,
+                  conversationId: f.conversationId,
+                  taskId: task.id,
+                  runId,
+                  attempt: 1,
+                  cancelCommandId: commandId,
+                  requestedTaskId: task.id,
+                  rootTaskId: task.id,
+                }),
+              ],
+            );
+            await appendCancelledRunState(connection, runId, () => now);
+          });
+        await expect(attempt()).rejects.toMatchObject({
           code: '23514',
-          message: 'Run partial exceeds 32000 UTF-16 code units',
+          message: expect.stringContaining('retained claim'),
         });
         expect(await snapshot(f)).toEqual(before);
+      });
+
+      it('cancels queued work with every original claim and provider field still NULL and creates no provider call', async () => {
+        const f = await fixture(),
+          task = await submit(f),
+          runId = task.runs[0]!.id;
+        const before = (await admin.query('SELECT * FROM task_runs WHERE id=$1', [runId])).rows[0];
+        const result = await cancel(f, task.id, runId);
+        expect(result.receipt).toMatchObject({ affectedTaskCount: 1, affectedRunCount: 1 });
+        const after = (await admin.query('SELECT * FROM task_runs WHERE id=$1', [runId])).rows[0];
+        expect(after).toEqual({
+          ...before,
+          status: 'cancelled',
+          finished_at: result.receipt.cancelledAt,
+        });
+        expect(after.started_at).toBeNull();
+        expect((await new TaskQueue(runtime).claimNext()).handled).toBe(false);
+        expect(result.task.runs[0]).toMatchObject({
+          startedAt: null,
+          provider: null,
+          usage: null,
+          output: null,
+          error: null,
+        });
+      });
+      it('keeps exact replay immutable and gives each new key a stable zero-effect receipt without a second transition', async () => {
+        const f = await fixture(),
+          task = await submit(f),
+          runId = task.runs[0]!.id;
+        const first = await cancel(f, task.id, runId),
+          saved = await snapshot(f);
+        expect(await cancel(f, task.id, runId)).toEqual(first);
+        expect(await snapshot(f)).toEqual(saved);
+        const next = await cancel(f, task.id, runId, 'another-command');
+        expect(next.receipt).toMatchObject({
+          taskId: task.id,
+          runId,
+          cancelledAt: first.receipt.cancelledAt,
+          affectedTaskCount: 0,
+          affectedRunCount: 0,
+        });
+        expect(next.receipt.commandId).not.toBe(first.receipt.commandId);
+        expect(await cancel(f, task.id, runId, 'another-command')).toEqual(next);
+        const after = await snapshot(f);
+        expect(after.commands).toHaveLength(2);
+        expect({ ...after, commands: saved.commands }).toEqual(saved);
+        await expect(cancel(f, task.id, randomUUID())).rejects.toMatchObject({
+          code: 'idempotency_conflict',
+        });
+        expect(await snapshot(f)).toEqual(after);
+      });
+
+      it('retains full UTF-8 output after feed reclamation and rejects late delta, finish and raw partial mutation', async () => {
+        const f = await fixture(),
+          task = await submit(f),
+          queue = new TaskQueue(runtime),
+          claim = (await queue.claimNext()).claim!;
+        const prefix = 'First 🌿\nThen 漢字';
+        await queue.publishDelta(claim, 'First 🌿\n');
+        await queue.publishDelta(claim, 'Then 漢字');
         await cancel(f, task.id, claim.runId);
+        const before = await snapshot(f);
+        await expect(queue.publishDelta(claim, 'Late suffix')).rejects.toMatchObject({
+          code: 'worker_stopped',
+        });
+        expect(
+          await queue.finish(claim, {
+            body: 'Late final',
+            usage: { inputTokens: 1, outputTokens: 2 },
+          }),
+        ).toBe(false);
+        expect(await queue.isClaimActive(claim)).toBe(false);
+        await expect(
+          runtime.query("UPDATE task_run_partial_outputs SET body='corrupt' WHERE run_id=$1", [
+            claim.runId,
+          ]),
+        ).rejects.toMatchObject({ code: '55000' });
+        await expect(
+          runtime.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [claim.runId]),
+        ).rejects.toMatchObject({ code: '55000' });
+        expect(await snapshot(f)).toEqual(before);
+        await transaction(async (connection) => {
+          await connection.query('SELECT id FROM conversations WHERE id=$1 FOR UPDATE', [
+            f.conversationId,
+          ]);
+          await reclaimConversationStream(
+            connection,
+            f.conversationId,
+            new Date(Date.now() + STREAM_LIMITS.retentionMs + 1000),
+          );
+        });
+        expect(
+          (
+            await admin.query(
+              'SELECT sequence FROM conversation_delivery_events WHERE conversation_id=$1',
+              [f.conversationId],
+            )
+          ).rows,
+        ).toEqual([]);
+        const rebuilt = observedPool();
+        try {
+          expect(
+            await new TaskService(rebuilt.pool).partialOutput(
+              f.actorId,
+              f.workspaceId,
+              f.conversationId,
+              task.id,
+              claim.runId,
+            ),
+          ).toEqual({
+            conversationId: f.conversationId,
+            taskId: task.id,
+            runId: claim.runId,
+            partial: { text: prefix, endByte: Buffer.byteLength(prefix), interrupted: true },
+          });
+          expect((await read(f, task.id, rebuilt.pool)).runs[0]).toMatchObject({
+            status: 'cancelled',
+            output: null,
+          });
+        } finally {
+          await rebuilt.pool.end();
+        }
+      });
+
+      it.each([
+        { kind: 'astral', character: '🌱', count: 16000 },
+        { kind: 'BMP', character: '界', count: 32000 },
+      ])(
+        'retains the exact $kind UTF-16 boundary and rolls back a complete raw delta transaction one character beyond it',
+        async ({ character, count }) => {
+          const f = await fixture(),
+            task = await submit(f),
+            claim = (await new TaskQueue(runtime).claimNext()).claim!;
+          for (let index = 0; index < count; index += 1000)
+            await rawCheckpointDelta(f, claim, character.repeat(1000));
+          const body = character.repeat(count),
+            before = await snapshot(f);
+          expect(body.length).toBe(32000);
+          expect(before.partials[0]).toMatchObject({ body, end_byte: Buffer.byteLength(body) });
+          await expect(rawCheckpointDelta(f, claim, character)).rejects.toMatchObject({
+            code: '23514',
+            message: 'Run partial exceeds 32000 UTF-16 code units',
+          });
+          expect(await snapshot(f)).toEqual(before);
+          await cancel(f, task.id, claim.runId);
+          expect(
+            await new TaskService(runtime).partialOutput(
+              f.actorId,
+              f.workspaceId,
+              f.conversationId,
+              task.id,
+              claim.runId,
+            ),
+          ).toMatchObject({
+            partial: { text: body, endByte: Buffer.byteLength(body), interrupted: true },
+          });
+        },
+      );
+
+      it('cancels all unfinished descendants through terminal intermediates and preserves terminal history and unrelated roots', async () => {
+        const f = await fixture('workspace', true),
+          root = await submit(f),
+          middle = await child(f, root.id),
+          leaf = await child(f, middle.id),
+          failed = await child(f, root.id),
+          unrelated = await submit(f, runtime, 'unrelated');
+        const claims = await claimAll(),
+          queue = new TaskQueue(runtime);
+        await queue.finish(claims.get(middle.id)!, { body: 'Completed middle', usage: null });
+        await queue.finish(claims.get(failed.id)!, { error: 'provider_failed', usage: null });
+        await queue.publishDelta(claims.get(leaf.id)!, 'Saved child 🌱');
+        const terminal = (
+          await admin.query('SELECT * FROM task_runs WHERE task_id=ANY($1::uuid[]) ORDER BY id', [
+            [middle.id, failed.id],
+          ])
+        ).rows;
+        const result = await cancel(
+          f,
+          root.id,
+          root.runs[0]!.id,
+          'root-cancel',
+          runtime,
+          f.ownerId,
+        );
+        expect(result.receipt).toMatchObject({ affectedTaskCount: 2, affectedRunCount: 2 });
+        expect(
+          (
+            await admin.query('SELECT * FROM task_runs WHERE task_id=ANY($1::uuid[]) ORDER BY id', [
+              [middle.id, failed.id],
+            ])
+          ).rows,
+        ).toEqual(terminal);
+        expect(await queue.isClaimActive(claims.get(unrelated.id)!)).toBe(true);
+        expect(await queue.isClaimActive(claims.get(leaf.id)!)).toBe(false);
         expect(
           await new TaskService(runtime).partialOutput(
             f.actorId,
             f.workspaceId,
             f.conversationId,
-            task.id,
-            claim.runId,
+            leaf.id,
+            leaf.runId,
           ),
-        ).toMatchObject({
-          partial: { text: body, endByte: Buffer.byteLength(body), interrupted: true },
-        });
-      },
-    );
+        ).toMatchObject({ partial: { text: 'Saved child 🌱', interrupted: true } });
+        expect(
+          (
+            await admin.query(
+              "SELECT actor_user_id,metadata->>'runId' AS run_id FROM audit_events WHERE event_type='task.cancelled' AND metadata->>'conversationId'=$1",
+              [f.conversationId],
+            )
+          ).rows,
+        ).toEqual(
+          expect.arrayContaining([
+            { actor_user_id: f.ownerId, run_id: root.runs[0]!.id },
+            { actor_user_id: f.ownerId, run_id: leaf.runId },
+          ]),
+        );
+        await expect(child(f, middle.id)).rejects.toMatchObject({ code: '23514' });
+        await expect(
+          new TaskService(runtime).retry(f.actorId, f.workspaceId, f.conversationId, failed.id, {
+            idempotencyKey: 'after-cancel',
+            expectedRunId: failed.runId,
+          }),
+        ).rejects.toMatchObject({ code: 'task_retry_cancelled_ancestor' });
+      }, 15000);
 
-    it('cancels all unfinished descendants through terminal intermediates and preserves terminal history and unrelated roots', async () => {
-      const f = await fixture('workspace', true),
-        root = await submit(f),
-        middle = await child(f, root.id),
-        leaf = await child(f, middle.id),
-        failed = await child(f, root.id),
-        unrelated = await submit(f, runtime, 'unrelated');
-      const claims = await claimAll(),
-        queue = new TaskQueue(runtime);
-      await queue.finish(claims.get(middle.id)!, { body: 'Completed middle', usage: null });
-      await queue.finish(claims.get(failed.id)!, { error: 'provider_failed', usage: null });
-      await queue.publishDelta(claims.get(leaf.id)!, 'Saved child 🌱');
-      const terminal = (
-        await admin.query('SELECT * FROM task_runs WHERE task_id=ANY($1::uuid[]) ORDER BY id', [
-          [middle.id, failed.id],
-        ])
-      ).rows;
-      const result = await cancel(f, root.id, root.runs[0]!.id, 'root-cancel', runtime, f.ownerId);
-      expect(result.receipt).toMatchObject({ affectedTaskCount: 2, affectedRunCount: 2 });
-      expect(
-        (
-          await admin.query('SELECT * FROM task_runs WHERE task_id=ANY($1::uuid[]) ORDER BY id', [
-            [middle.id, failed.id],
-          ])
-        ).rows,
-      ).toEqual(terminal);
-      expect(await queue.isClaimActive(claims.get(unrelated.id)!)).toBe(true);
-      expect(await queue.isClaimActive(claims.get(leaf.id)!)).toBe(false);
-      expect(
-        await new TaskService(runtime).partialOutput(
-          f.actorId,
-          f.workspaceId,
-          f.conversationId,
-          leaf.id,
-          leaf.runId,
-        ),
-      ).toMatchObject({ partial: { text: 'Saved child 🌱', interrupted: true } });
-      expect(
-        (
-          await admin.query(
-            "SELECT actor_user_id,metadata->>'runId' AS run_id FROM audit_events WHERE event_type='task.cancelled' AND metadata->>'conversationId'=$1",
-            [f.conversationId],
-          )
-        ).rows,
-      ).toEqual(
-        expect.arrayContaining([
-          { actor_user_id: f.ownerId, run_id: root.runs[0]!.id },
-          { actor_user_id: f.ownerId, run_id: leaf.runId },
-        ]),
-      );
-      await expect(child(f, middle.id)).rejects.toMatchObject({ code: '23514' });
-      await expect(
-        new TaskService(runtime).retry(f.actorId, f.workspaceId, f.conversationId, failed.id, {
-          idempotencyKey: 'after-cancel',
-          expectedRunId: failed.runId,
-        }),
-      ).rejects.toMatchObject({ code: 'task_retry_cancelled_ancestor' });
-    }, 15000);
-
-    it('rolls back every subtree state, marker, receipt, audit and existing partial when the cancellation audit fails', async () => {
-      const f = await fixture('workspace', true),
-        root = await submit(f),
-        leaf = await child(f, root.id),
-        claims = await claimAll();
-      await new TaskQueue(runtime).publishDelta(claims.get(leaf.id)!, 'Before rollback 🌿');
-      const before = await snapshot(f);
-      await rejectAudit('task.cancelled', () => cancel(f, root.id, root.runs[0]!.id));
-      expect(await snapshot(f)).toEqual(before);
-      expect((await cancel(f, root.id, root.runs[0]!.id)).receipt.affectedRunCount).toBe(2);
-    });
-
-    it.each(['ancestor', 'descendant'] as const)(
-      'serializes overlapping subtree commands with the %s cancellation committed first',
-      async (firstScope) => {
+      it('rolls back every subtree state, marker, receipt, audit and existing partial when the cancellation audit fails', async () => {
         const f = await fixture('workspace', true),
           root = await submit(f),
-          middle = await child(f, root.id),
-          leaf = await child(f, middle.id),
-          rootTarget = { id: root.id, runId: root.runs[0]!.id },
-          first = firstScope === 'ancestor' ? rootTarget : middle,
-          second = firstScope === 'ancestor' ? middle : rootTarget,
-          holder = await runtime.connect(),
+          leaf = await child(f, root.id),
+          claims = await claimAll();
+        await new TaskQueue(runtime).publishDelta(claims.get(leaf.id)!, 'Before rollback 🌿');
+        const before = await snapshot(f);
+        await rejectAudit('task.cancelled', () => cancel(f, root.id, root.runs[0]!.id));
+        expect(await snapshot(f)).toEqual(before);
+        expect((await cancel(f, root.id, root.runs[0]!.id)).receipt.affectedRunCount).toBe(2);
+      });
+
+      it.each(['ancestor', 'descendant'] as const)(
+        'serializes overlapping subtree commands with the %s cancellation committed first',
+        async (firstScope) => {
+          const f = await fixture('workspace', true),
+            root = await submit(f),
+            middle = await child(f, root.id),
+            leaf = await child(f, middle.id),
+            rootTarget = { id: root.id, runId: root.runs[0]!.id },
+            first = firstScope === 'ancestor' ? rootTarget : middle,
+            second = firstScope === 'ancestor' ? middle : rootTarget,
+            holder = await runtime.connect(),
+            observer = observedPool();
+          let pending:
+            Promise<PromiseSettledResult<Awaited<ReturnType<typeof cancel>>>[]> | undefined;
+          try {
+            await holder.query('BEGIN');
+            const committedFirst = await cancelInTransaction(
+              holder,
+              {
+                actorUserId: f.actorId,
+                workspaceId: f.workspaceId,
+                conversationId: f.conversationId,
+              },
+              first.id,
+              { idempotencyKey: 'overlap-first', expectedRunId: first.runId },
+              () => new Date(),
+            );
+            const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+            pending = Promise.allSettled([
+              cancel(f, second.id, second.runId, 'overlap-second', observer.pool),
+            ]);
+            await blocked(observer.name, pid);
+            expect(
+              (
+                await admin.query('SELECT status FROM tasks WHERE conversation_id=$1', [
+                  f.conversationId,
+                ])
+              ).rows,
+            ).toEqual([{ status: 'queued' }, { status: 'queued' }, { status: 'queued' }]);
+            await holder.query('COMMIT');
+            const following = (await pending)[0]!;
+            expect(following.status).toBe('fulfilled');
+            if (following.status !== 'fulfilled') throw following.reason;
+            expect(committedFirst.affectedRunCount).toBe(firstScope === 'ancestor' ? 3 : 2);
+            expect(following.value.receipt.affectedRunCount).toBe(
+              firstScope === 'ancestor' ? 0 : 1,
+            );
+            const saved = await snapshot(f);
+            expect(saved.commands).toHaveLength(2);
+            expect(saved.markers).toHaveLength(3);
+            expect(
+              saved.receipts.filter(
+                (row: { run_status: string }) => row.run_status === 'cancelled',
+              ),
+            ).toHaveLength(3);
+            expect(saved.tasks.map((row: { status: string }) => row.status)).toEqual([
+              'cancelled',
+              'cancelled',
+              'cancelled',
+            ]);
+            expect(saved.runs.map((row: { status: string }) => row.status)).toEqual([
+              'cancelled',
+              'cancelled',
+              'cancelled',
+            ]);
+            expect(
+              (
+                await admin.query(
+                  "SELECT metadata->>'runId' AS run_id FROM audit_events WHERE event_type='task.cancelled' AND metadata->>'conversationId'=$1 ORDER BY metadata->>'runId'",
+                  [f.conversationId],
+                )
+              ).rows.map((row: { run_id: string }) => row.run_id),
+            ).toEqual([rootTarget.runId, middle.runId, leaf.runId].sort());
+            expect((await cancel(f, first.id, first.runId, 'overlap-first')).receipt).toEqual(
+              committedFirst,
+            );
+            expect((await cancel(f, second.id, second.runId, 'overlap-second')).receipt).toEqual(
+              following.value.receipt,
+            );
+            expect(await snapshot(f)).toEqual(saved);
+          } finally {
+            await holder.query('ROLLBACK');
+            holder.release();
+            await pending;
+            await observer.pool.end();
+          }
+        },
+      );
+
+      it.each(['claim', 'delta', 'finish'] as const)(
+        'rechecks a %s waiting behind an uncommitted cancellation using actual PostgreSQL blockers',
+        async (kind) => {
+          const f = await fixture(),
+            task = await submit(f),
+            queue = new TaskQueue(runtime);
+          const claim = kind === 'claim' ? undefined : (await queue.claimNext()).claim!;
+          if (claim) await queue.publishDelta(claim, 'Before cancellation');
+          const holder = await runtime.connect(),
+            observer = observedPool();
+          let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+          try {
+            await holder.query('BEGIN');
+            await cancelInTransaction(
+              holder,
+              {
+                actorUserId: f.actorId,
+                workspaceId: f.workspaceId,
+                conversationId: f.conversationId,
+              },
+              task.id,
+              { idempotencyKey: 'blocked-cancel', expectedRunId: task.runs[0]!.id },
+              () => new Date(),
+            );
+            const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+            const waiting = new TaskQueue(observer.pool);
+            pending = Promise.allSettled([
+              kind === 'claim'
+                ? waiting.claimNext()
+                : kind === 'delta'
+                  ? waiting.publishDelta(claim!, 'Must not persist')
+                  : waiting.finish(claim!, { body: 'Must not become final', usage: null }),
+            ]);
+            await blocked(observer.name, pid);
+            expect(
+              (await admin.query('SELECT status FROM tasks WHERE id=$1', [task.id])).rows[0].status,
+            ).toBe(kind === 'claim' ? 'queued' : 'running');
+            await holder.query('COMMIT');
+            const result = (await pending)[0]!;
+            if (kind === 'delta')
+              expect(result).toMatchObject({
+                status: 'rejected',
+                reason: { code: 'worker_stopped' },
+              });
+            else
+              expect(result).toMatchObject({
+                status: 'fulfilled',
+                value: kind === 'claim' ? { handled: false } : false,
+              });
+            const after = await snapshot(f);
+            expect(
+              after.events.filter(
+                (event: { event_type: string }) => event.event_type === 'bot.message.created',
+              ),
+            ).toEqual([]);
+            expect(after.partials?.[0]?.body ?? null).toBe(
+              kind === 'claim' ? null : 'Before cancellation',
+            );
+            expect(
+              after.receipts.filter(
+                (row: { run_status: string }) => row.run_status === 'cancelled',
+              ),
+            ).toHaveLength(1);
+          } finally {
+            await holder.query('ROLLBACK');
+            holder.release();
+            await pending;
+            await observer.pool.end();
+          }
+        },
+      );
+
+      it('commits a delta, full partial and stream progress before a blocked cancel can observe the transaction', async () => {
+        const f = await fixture(),
+          task = await submit(f),
+          queue = new TaskQueue(runtime),
+          claim = (await queue.claimNext()).claim!;
+        const holder = await runtime.connect(),
           observer = observedPool();
-        let pending:
-          Promise<PromiseSettledResult<Awaited<ReturnType<typeof cancel>>>[]> | undefined;
+        let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
         try {
           await holder.query('BEGIN');
-          const committedFirst = await cancelInTransaction(
-            holder,
-            {
-              actorUserId: f.actorId,
-              workspaceId: f.workspaceId,
-              conversationId: f.conversationId,
-            },
-            first.id,
-            { idempotencyKey: 'overlap-first', expectedRunId: first.runId },
-            () => new Date(),
-          );
+          await ConversationTransaction.lock(holder, {
+            actorUserId: f.actorId,
+            workspaceId: f.workspaceId,
+            conversationId: f.conversationId,
+          });
+          expect(
+            await appendAssistantDelta(
+              holder,
+              {
+                runId: claim.runId,
+                claimToken: claim.claimToken,
+                text: 'Committed before stop 🌳',
+              },
+              () => new Date(),
+            ),
+          ).toBe(true);
           const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
           pending = Promise.allSettled([
-            cancel(f, second.id, second.runId, 'overlap-second', observer.pool),
+            cancel(f, task.id, claim.runId, 'after-delta', observer.pool),
           ]);
           await blocked(observer.name, pid);
           expect(
             (
-              await admin.query('SELECT status FROM tasks WHERE conversation_id=$1', [
-                f.conversationId,
+              await admin.query('SELECT * FROM task_run_partial_outputs WHERE run_id=$1', [
+                claim.runId,
               ])
             ).rows,
-          ).toEqual([{ status: 'queued' }, { status: 'queued' }, { status: 'queued' }]);
+          ).toEqual([]);
           await holder.query('COMMIT');
-          const following = (await pending)[0]!;
-          expect(following.status).toBe('fulfilled');
-          if (following.status !== 'fulfilled') throw following.reason;
-          expect(committedFirst.affectedRunCount).toBe(firstScope === 'ancestor' ? 3 : 2);
-          expect(following.value.receipt.affectedRunCount).toBe(firstScope === 'ancestor' ? 0 : 1);
-          const saved = await snapshot(f);
-          expect(saved.commands).toHaveLength(2);
-          expect(saved.markers).toHaveLength(3);
-          expect(
-            saved.receipts.filter((row: { run_status: string }) => row.run_status === 'cancelled'),
-          ).toHaveLength(3);
-          expect(saved.tasks.map((row: { status: string }) => row.status)).toEqual([
-            'cancelled',
-            'cancelled',
-            'cancelled',
-          ]);
-          expect(saved.runs.map((row: { status: string }) => row.status)).toEqual([
-            'cancelled',
-            'cancelled',
-            'cancelled',
-          ]);
+          expect((await pending)[0]).toMatchObject({ status: 'fulfilled' });
+          const result = await new TaskService(runtime).partialOutput(
+            f.actorId,
+            f.workspaceId,
+            f.conversationId,
+            task.id,
+            claim.runId,
+          );
+          expect(result.partial).toEqual({
+            text: 'Committed before stop 🌳',
+            endByte: Buffer.byteLength('Committed before stop 🌳'),
+            interrupted: true,
+          });
           expect(
             (
-              await admin.query(
-                "SELECT metadata->>'runId' AS run_id FROM audit_events WHERE event_type='task.cancelled' AND metadata->>'conversationId'=$1 ORDER BY metadata->>'runId'",
-                [f.conversationId],
-              )
-            ).rows.map((row: { run_id: string }) => row.run_id),
-          ).toEqual([rootTarget.runId, middle.runId, leaf.runId].sort());
-          expect((await cancel(f, first.id, first.runId, 'overlap-first')).receipt).toEqual(
-            committedFirst,
-          );
-          expect((await cancel(f, second.id, second.runId, 'overlap-second')).receipt).toEqual(
-            following.value.receipt,
-          );
-          expect(await snapshot(f)).toEqual(saved);
+              await admin.query('SELECT delivered_bytes FROM task_run_streams WHERE run_id=$1', [
+                claim.runId,
+              ])
+            ).rows[0].delivered_bytes,
+          ).toBe(result.partial!.endByte);
         } finally {
           await holder.query('ROLLBACK');
           holder.release();
           await pending;
           await observer.pool.end();
         }
-      },
-    );
+      });
 
-    it.each(['claim', 'delta', 'finish'] as const)(
-      'rechecks a %s waiting behind an uncommitted cancellation using actual PostgreSQL blockers',
-      async (kind) => {
-        const f = await fixture(),
-          task = await submit(f),
-          queue = new TaskQueue(runtime);
-        const claim = kind === 'claim' ? undefined : (await queue.claimNext()).claim!;
-        if (claim) await queue.publishDelta(claim, 'Before cancellation');
+      it('serializes an ancestor cancellation ahead of a failed child retry without changing its terminal Run', async () => {
+        const f = await fixture('workspace', true),
+          root = await submit(f),
+          leaf = await child(f, root.id),
+          claims = await claimAll();
+        await new TaskQueue(runtime).finish(claims.get(leaf.id)!, {
+          error: 'provider_failed',
+          usage: null,
+        });
+        const before = (await admin.query('SELECT * FROM task_runs WHERE task_id=$1', [leaf.id]))
+          .rows;
         const holder = await runtime.connect(),
           observer = observedPool();
         let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
@@ -1036,238 +1189,106 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
               workspaceId: f.workspaceId,
               conversationId: f.conversationId,
             },
-            task.id,
-            { idempotencyKey: 'blocked-cancel', expectedRunId: task.runs[0]!.id },
+            root.id,
+            { idempotencyKey: 'ancestor-first', expectedRunId: root.runs[0]!.id },
             () => new Date(),
           );
           const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
-          const waiting = new TaskQueue(observer.pool);
           pending = Promise.allSettled([
-            kind === 'claim'
-              ? waiting.claimNext()
-              : kind === 'delta'
-                ? waiting.publishDelta(claim!, 'Must not persist')
-                : waiting.finish(claim!, { body: 'Must not become final', usage: null }),
+            new TaskService(observer.pool).retry(
+              f.actorId,
+              f.workspaceId,
+              f.conversationId,
+              leaf.id,
+              { idempotencyKey: 'child-after', expectedRunId: leaf.runId },
+            ),
           ]);
           await blocked(observer.name, pid);
-          expect(
-            (await admin.query('SELECT status FROM tasks WHERE id=$1', [task.id])).rows[0].status,
-          ).toBe(kind === 'claim' ? 'queued' : 'running');
           await holder.query('COMMIT');
-          const result = (await pending)[0]!;
-          if (kind === 'delta')
-            expect(result).toMatchObject({
-              status: 'rejected',
-              reason: { code: 'worker_stopped' },
-            });
-          else
-            expect(result).toMatchObject({
-              status: 'fulfilled',
-              value: kind === 'claim' ? { handled: false } : false,
-            });
-          const after = await snapshot(f);
+          expect((await pending)[0]).toMatchObject({
+            status: 'rejected',
+            reason: { code: 'task_retry_cancelled_ancestor' },
+          });
           expect(
-            after.events.filter(
-              (event: { event_type: string }) => event.event_type === 'bot.message.created',
-            ),
-          ).toEqual([]);
-          expect(after.partials?.[0]?.body ?? null).toBe(
-            kind === 'claim' ? null : 'Before cancellation',
-          );
-          expect(
-            after.receipts.filter((row: { run_status: string }) => row.run_status === 'cancelled'),
-          ).toHaveLength(1);
+            (await admin.query('SELECT * FROM task_runs WHERE task_id=$1', [leaf.id])).rows,
+          ).toEqual(before);
         } finally {
           await holder.query('ROLLBACK');
           holder.release();
           await pending;
           await observer.pool.end();
         }
-      },
-    );
-
-    it('commits a delta, full partial and stream progress before a blocked cancel can observe the transaction', async () => {
-      const f = await fixture(),
-        task = await submit(f),
-        queue = new TaskQueue(runtime),
-        claim = (await queue.claimNext()).claim!;
-      const holder = await runtime.connect(),
-        observer = observedPool();
-      let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
-      try {
-        await holder.query('BEGIN');
-        await ConversationTransaction.lock(holder, {
-          actorUserId: f.actorId,
-          workspaceId: f.workspaceId,
-          conversationId: f.conversationId,
-        });
-        expect(
-          await appendAssistantDelta(
-            holder,
-            { runId: claim.runId, claimToken: claim.claimToken, text: 'Committed before stop 🌳' },
-            () => new Date(),
-          ),
-        ).toBe(true);
-        const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
-        pending = Promise.allSettled([
-          cancel(f, task.id, claim.runId, 'after-delta', observer.pool),
-        ]);
-        await blocked(observer.name, pid);
-        expect(
-          (
-            await admin.query('SELECT * FROM task_run_partial_outputs WHERE run_id=$1', [
-              claim.runId,
-            ])
-          ).rows,
-        ).toEqual([]);
-        await holder.query('COMMIT');
-        expect((await pending)[0]).toMatchObject({ status: 'fulfilled' });
-        const result = await new TaskService(runtime).partialOutput(
-          f.actorId,
-          f.workspaceId,
-          f.conversationId,
-          task.id,
-          claim.runId,
-        );
-        expect(result.partial).toEqual({
-          text: 'Committed before stop 🌳',
-          endByte: Buffer.byteLength('Committed before stop 🌳'),
-          interrupted: true,
-        });
-        expect(
-          (
-            await admin.query('SELECT delivered_bytes FROM task_run_streams WHERE run_id=$1', [
-              claim.runId,
-            ])
-          ).rows[0].delivered_bytes,
-        ).toBe(result.partial!.endByte);
-      } finally {
-        await holder.query('ROLLBACK');
-        holder.release();
-        await pending;
-        await observer.pool.end();
-      }
-    });
-
-    it('serializes an ancestor cancellation ahead of a failed child retry without changing its terminal Run', async () => {
-      const f = await fixture('workspace', true),
-        root = await submit(f),
-        leaf = await child(f, root.id),
-        claims = await claimAll();
-      await new TaskQueue(runtime).finish(claims.get(leaf.id)!, {
-        error: 'provider_failed',
-        usage: null,
       });
-      const before = (await admin.query('SELECT * FROM task_runs WHERE task_id=$1', [leaf.id]))
-        .rows;
-      const holder = await runtime.connect(),
-        observer = observedPool();
-      let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
-      try {
-        await holder.query('BEGIN');
-        await cancelInTransaction(
-          holder,
-          { actorUserId: f.actorId, workspaceId: f.workspaceId, conversationId: f.conversationId },
-          root.id,
-          { idempotencyKey: 'ancestor-first', expectedRunId: root.runs[0]!.id },
-          () => new Date(),
-        );
-        const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
-        pending = Promise.allSettled([
-          new TaskService(observer.pool).retry(
+
+      it('lets a child retry committed first be included by the waiting ancestor command while preserving its prior receipt', async () => {
+        const f = await fixture('workspace', true),
+          root = await submit(f),
+          leaf = await child(f, root.id),
+          claims = await claimAll();
+        await new TaskQueue(runtime).finish(claims.get(leaf.id)!, {
+          error: 'provider_failed',
+          usage: null,
+        });
+        const holder = await runtime.connect(),
+          first = observedPool(),
+          second = observedPool();
+        const retryKey = { idempotencyKey: 'retry-before-ancestor', expectedRunId: leaf.runId };
+        let retry: ReturnType<TaskService['retry']> | undefined,
+          cancellation: ReturnType<TaskService['cancel']> | undefined;
+        try {
+          await holder.query('BEGIN');
+          await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+          const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+          retry = new TaskService(first.pool).retry(
             f.actorId,
             f.workspaceId,
             f.conversationId,
             leaf.id,
-            { idempotencyKey: 'child-after', expectedRunId: leaf.runId },
-          ),
-        ]);
-        await blocked(observer.name, pid);
-        await holder.query('COMMIT');
-        expect((await pending)[0]).toMatchObject({
-          status: 'rejected',
-          reason: { code: 'task_retry_cancelled_ancestor' },
-        });
-        expect(
-          (await admin.query('SELECT * FROM task_runs WHERE task_id=$1', [leaf.id])).rows,
-        ).toEqual(before);
-      } finally {
-        await holder.query('ROLLBACK');
-        holder.release();
-        await pending;
-        await observer.pool.end();
-      }
-    });
-
-    it('lets a child retry committed first be included by the waiting ancestor command while preserving its prior receipt', async () => {
-      const f = await fixture('workspace', true),
-        root = await submit(f),
-        leaf = await child(f, root.id),
-        claims = await claimAll();
-      await new TaskQueue(runtime).finish(claims.get(leaf.id)!, {
-        error: 'provider_failed',
-        usage: null,
+            retryKey,
+          );
+          const retryObserved = Promise.allSettled([retry]);
+          await blocked(first.name, pid);
+          cancellation = cancel(f, root.id, root.runs[0]!.id, 'ancestor-after-retry', second.pool);
+          const cancelObserved = Promise.allSettled([cancellation]);
+          await blocked(second.name, pid);
+          await holder.query('COMMIT');
+          expect((await retryObserved)[0]).toMatchObject({ status: 'fulfilled' });
+          expect((await cancelObserved)[0]).toMatchObject({ status: 'fulfilled' });
+          const retried = await retry,
+            stopped = await cancellation;
+          expect(stopped.receipt.affectedRunCount).toBe(2);
+          expect((await read(f, leaf.id)).runs[0]).toMatchObject({
+            id: retried.receipt.runId,
+            attempt: 2,
+            status: 'cancelled',
+          });
+          expect(
+            (
+              await new TaskService(runtime).retry(
+                f.actorId,
+                f.workspaceId,
+                f.conversationId,
+                leaf.id,
+                retryKey,
+              )
+            ).receipt,
+          ).toEqual(retried.receipt);
+          expect(
+            (await admin.query('SELECT status FROM task_runs WHERE id=$1', [leaf.runId])).rows[0]
+              .status,
+          ).toBe('failed');
+        } finally {
+          await holder.query('ROLLBACK');
+          holder.release();
+          await Promise.allSettled([retry, cancellation]);
+          await first.pool.end();
+          await second.pool.end();
+        }
       });
-      const holder = await runtime.connect(),
-        first = observedPool(),
-        second = observedPool();
-      const retryKey = { idempotencyKey: 'retry-before-ancestor', expectedRunId: leaf.runId };
-      let retry: ReturnType<TaskService['retry']> | undefined,
-        cancellation: ReturnType<TaskService['cancel']> | undefined;
-      try {
-        await holder.query('BEGIN');
-        await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
-        const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
-        retry = new TaskService(first.pool).retry(
-          f.actorId,
-          f.workspaceId,
-          f.conversationId,
-          leaf.id,
-          retryKey,
-        );
-        const retryObserved = Promise.allSettled([retry]);
-        await blocked(first.name, pid);
-        cancellation = cancel(f, root.id, root.runs[0]!.id, 'ancestor-after-retry', second.pool);
-        const cancelObserved = Promise.allSettled([cancellation]);
-        await blocked(second.name, pid);
-        await holder.query('COMMIT');
-        expect((await retryObserved)[0]).toMatchObject({ status: 'fulfilled' });
-        expect((await cancelObserved)[0]).toMatchObject({ status: 'fulfilled' });
-        const retried = await retry,
-          stopped = await cancellation;
-        expect(stopped.receipt.affectedRunCount).toBe(2);
-        expect((await read(f, leaf.id)).runs[0]).toMatchObject({
-          id: retried.receipt.runId,
-          attempt: 2,
-          status: 'cancelled',
-        });
-        expect(
-          (
-            await new TaskService(runtime).retry(
-              f.actorId,
-              f.workspaceId,
-              f.conversationId,
-              leaf.id,
-              retryKey,
-            )
-          ).receipt,
-        ).toEqual(retried.receipt);
-        expect(
-          (await admin.query('SELECT status FROM task_runs WHERE id=$1', [leaf.runId])).rows[0]
-            .status,
-        ).toBe('failed');
-      } finally {
-        await holder.query('ROLLBACK');
-        holder.release();
-        await Promise.allSettled([retry, cancellation]);
-        await first.pool.end();
-        await second.pool.end();
-      }
-    });
 
-    it('grants only cancellation writes, denies audit reads and keeps root identities and retained receipts immutable', async () => {
-      const privileges = (
-        await runtime.query(`SELECT
+      it('grants only cancellation writes, denies audit reads and keeps root identities and retained receipts immutable', async () => {
+        const privileges = (
+          await runtime.query(`SELECT
         has_table_privilege(current_user,'task_cancel_commands','SELECT') AS command_select,
         has_table_privilege(current_user,'task_cancel_commands','INSERT') AS command_insert,
         has_table_privilege(current_user,'task_cancel_commands','UPDATE') AS command_update,
@@ -1278,49 +1299,49 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
         has_table_privilege(current_user,'audit_events','SELECT') AS audit_select,
         has_function_privilege(current_user,'lock_task_ancestry(uuid)','EXECUTE') AS ancestry_execute,
         has_function_privilege(current_user,'require_cancelled_task_tree()','EXECUTE') AS audit_guard_execute`)
-      ).rows[0];
-      expect(privileges).toEqual({
-        command_select: true,
-        command_insert: true,
-        command_update: false,
-        command_delete: false,
-        marker_update: false,
-        marker_delete: false,
-        partial_table_update: false,
-        audit_select: false,
-        ancestry_execute: true,
-        audit_guard_execute: false,
+        ).rows[0];
+        expect(privileges).toEqual({
+          command_select: true,
+          command_insert: true,
+          command_update: false,
+          command_delete: false,
+          marker_update: false,
+          marker_delete: false,
+          partial_table_update: false,
+          audit_select: false,
+          ancestry_execute: true,
+          audit_guard_execute: false,
+        });
+        expect(
+          (
+            await runtime.query(
+              "SELECT column_name,has_column_privilege(current_user,'task_run_partial_outputs',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='task_run_partial_outputs' ORDER BY column_name",
+            )
+          ).rows,
+        ).toEqual([
+          { column_name: 'body', allowed: true },
+          { column_name: 'end_byte', allowed: true },
+          { column_name: 'run_id', allowed: false },
+          { column_name: 'updated_at', allowed: true },
+        ]);
+        const f = await fixture(),
+          task = await submit(f),
+          runId = task.runs[0]!.id;
+        await expect(
+          runtime.query('UPDATE tasks SET root_task_id=id WHERE id=$1', [task.id]),
+        ).rejects.toMatchObject({ code: '42501' });
+        await expect(
+          admin.query('UPDATE tasks SET parent_task_id=id WHERE id=$1', [task.id]),
+        ).rejects.toMatchObject({ code: '55000' });
+        await cancel(f, task.id, runId);
+        const before = await snapshot(f);
+        for (const pool of [runtime, admin])
+          for (const table of ['task_cancel_commands', 'task_run_cancellations'])
+            await expect(pool.query(`DELETE FROM ${table}`)).rejects.toMatchObject({
+              code: pool === runtime ? '42501' : '55000',
+            });
+        expect(await snapshot(f)).toEqual(before);
       });
-      expect(
-        (
-          await runtime.query(
-            "SELECT column_name,has_column_privilege(current_user,'task_run_partial_outputs',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='task_run_partial_outputs' ORDER BY column_name",
-          )
-        ).rows,
-      ).toEqual([
-        { column_name: 'body', allowed: true },
-        { column_name: 'end_byte', allowed: true },
-        { column_name: 'run_id', allowed: false },
-        { column_name: 'updated_at', allowed: true },
-      ]);
-      const f = await fixture(),
-        task = await submit(f),
-        runId = task.runs[0]!.id;
-      await expect(
-        runtime.query('UPDATE tasks SET root_task_id=id WHERE id=$1', [task.id]),
-      ).rejects.toMatchObject({ code: '42501' });
-      await expect(
-        admin.query('UPDATE tasks SET parent_task_id=id WHERE id=$1', [task.id]),
-      ).rejects.toMatchObject({ code: '55000' });
-      await cancel(f, task.id, runId);
-      const before = await snapshot(f);
-      for (const pool of [runtime, admin])
-        for (const table of ['task_cancel_commands', 'task_run_cancellations'])
-          await expect(pool.query(`DELETE FROM ${table}`)).rejects.toMatchObject({
-            code: pool === runtime ? '42501' : '55000',
-          });
-      expect(await snapshot(f)).toEqual(before);
-    });
     });
   },
 );

@@ -18,11 +18,14 @@ function connection(handler: (query: Query) => Promise<QueryResult>): SqlConnect
   const queries: Query[] = [];
   return {
     queries,
-    query: async (statement: string, parameters?: unknown[]) => {
-      const query: Query =
-        parameters === undefined ? { statement } : { statement, parameters };
+    async query<Row extends Record<string, unknown> = Record<string, unknown>>(
+      statement: string,
+      parameters?: unknown[],
+    ) {
+      const query: Query = parameters === undefined ? { statement } : { statement, parameters };
       queries.push(query);
-      return handler(query);
+      const result = await handler(query);
+      return { rowCount: result.rowCount, rows: result.rows as Row[] };
     },
     release() {},
   };
