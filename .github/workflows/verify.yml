@@ -167,22 +167,25 @@ jobs:
           test "$stack_ready" = 'true'
       - name: Verify an existing API role can rotate its password
         run: |
+          # Use the service address: initdb trusts loopback connections inside
+          # the database container, which would bypass password verification.
           OPENBOT_DATABASE_PASSWORD=ci-rotated-runtime-password \
             docker compose run --rm migrate
 
           docker compose exec -T -e PGPASSWORD=ci-rotated-runtime-password postgres psql \
-            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --host postgres --username openbot_runtime --dbname openbot \
             --command 'SELECT 1' >/dev/null
-          if docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
-            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
-            --command 'SELECT 1' >/dev/null 2>&1; then
+          if old_password_output="$(docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host postgres --username openbot_runtime --dbname openbot \
+            --command 'SELECT 1' 2>&1)"; then
             echo 'The previous API database password still authenticates.' >&2
             exit 1
           fi
+          grep --fixed-strings --quiet 'password authentication failed' <<<"$old_password_output"
 
           docker compose run --rm migrate
           docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
-            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --host postgres --username openbot_runtime --dbname openbot \
             --command 'SELECT 1' >/dev/null
       - name: Verify the real ready state
         run: |

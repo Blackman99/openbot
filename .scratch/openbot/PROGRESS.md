@@ -18,6 +18,8 @@ Verify run `33937667219` failed in the `code` job before dependency installation
 
 Remote follow-up `c177487d7caf5526147b811081cfffc546c29a1e` fixed pnpm initialization. Verify run `33937987129` passed formatting, types, and all 119 unit/integration tests, then exposed a workspace browser-test navigation race. Locally the existing test failed in 4 of 5 repetitions; a temporary request probe confirmed the submitted name was still `Research`, because filling the shared form raced the switch back to that workspace. The test now waits for the target URL and heading before editing, and additionally verifies rename persistence after refresh. All 5 focused repetitions passed without changing application behavior or increasing retries/timeouts. The probe was removed; the complete CI retry is pending.
 
+Verify run `33938219583` on remote `42bc88caa7b319636d3cc603f7cbfa40e0c24d74` passed the full `code` and real `postgres-auth` jobs. Compose passed fresh startup, upgrade startup, and failure-log redaction, then failed its password-rotation assertion because the test used trusted loopback connections inside the database container. The next retry connects the password checks through the `postgres` service address, and requires the old password to fail specifically with an authentication error. Remaining Compose evidence is still pending; no further feature tickets have resumed.
+
 ## Completed implementation
 
 - FND-01: deployable application foundation. Docker execution remains external gate `FND-01-E1`.
