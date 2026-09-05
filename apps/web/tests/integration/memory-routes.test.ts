@@ -7,7 +7,17 @@ import {
   saveMemoryAction,
   searchMemoryAction,
 } from '../../src/lib/server/memory-page.js';
-import { BOT_PRIVATE_VISIBILITY_SUMMARY } from '../../src/lib/server/memory-api.js';
+import {
+  approveCandidateAction,
+  confirmCandidateAction,
+  loadCandidatesPage,
+  previewCandidateAction,
+} from '../../src/lib/server/candidate-page.js';
+import {
+  BOT_PRIVATE_VISIBILITY_SUMMARY,
+  REVIEW_DISCLOSURE_VERSION,
+  WORKSPACE_FACT_VISIBILITY_SUMMARY,
+} from '../../src/lib/server/memory-api.js';
 import {
   memory,
   command,
@@ -18,6 +28,8 @@ import {
   group,
   membership,
   token,
+  candidate,
+  approvedFact,
 } from '../fixtures/memories.js';
 import { summary as botSummary } from '../fixtures/bots.js';
 const preview = {
@@ -295,6 +307,132 @@ describe('Memory Web boundary', () => {
     event.url.searchParams.set('query', 'do-not-log');
     await expect(loadMemoriesPage(event, workspace.id, group.id)).rejects.toMatchObject({
       status: 400,
+    });
+  });
+  it('loads the conversation inbox and approves a same-group destination without a preview', async () => {
+    const ownerWorkspace = { ...workspace, role: 'owner' as const };
+    const reviewPreview = {
+      id: '4d661304-a1bc-4767-9a87-c47de763f749',
+      expiresAt: candidate.createdAt,
+      content: candidate.body,
+      destination: { kind: 'workspace' as const, id: workspace.id },
+      visibility: {
+        kind: 'workspace' as const,
+        id: workspace.id,
+        summary: WORKSPACE_FACT_VISIBILITY_SUMMARY,
+      },
+      disclosureVersion: REVIEW_DISCLOSURE_VERSION,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith('/me')) return Response.json({ user, workspace: null });
+      if (path.endsWith('/workspaces')) return Response.json({ workspaces: [ownerWorkspace] });
+      if (path.endsWith(`/conversations/${conversation.id}`))
+        return Response.json({ conversation, messages: [message], nextCursor: null, canWrite: true });
+      if (path.endsWith(`/workspaces/${workspace.id}/groups`))
+        return Response.json({ groups: [group] });
+      if (path.endsWith(`/workspaces/${workspace.id}/bots`))
+        return Response.json({ bots: [botSummary] });
+      if (path.endsWith('/memory-candidates') && (init?.method ?? 'GET') === 'GET')
+        return Response.json({ candidates: [candidate], nextAfter: null });
+      if (path.endsWith('/approvals'))
+        return Response.json(
+          { candidate: { ...candidate, status: 'approved' }, fact: approvedFact, replayed: false },
+          { status: 201 },
+        );
+      if (path.endsWith('/approval-previews')) return Response.json({ preview: reviewPreview });
+      if (path.endsWith('/approval-confirmations'))
+        return Response.json(
+          {
+            candidate: { ...candidate, status: 'approved' },
+            fact: {
+              ...approvedFact,
+              scope: { kind: 'workspace', workspaceId: workspace.id, id: workspace.id },
+            },
+            replayed: false,
+          },
+          { status: 201 },
+        );
+      throw new Error(`Unexpected fixture path ${path}`);
+    });
+    const event = {
+      fetch,
+      cookies: {
+        get: vi.fn(() => token),
+        getAll: vi.fn(() => []),
+        set: vi.fn(),
+        delete: vi.fn(),
+        serialize: vi.fn(),
+      },
+      setHeaders: vi.fn(),
+      url: new URL(
+        `http://localhost:3000/app/workspaces/${workspace.id}/conversations/${conversation.id}/memory-candidates`,
+      ),
+    };
+    expect(await loadCandidatesPage(event, workspace.id, conversation.id)).toMatchObject({
+      conversation,
+      candidatePage: { candidates: [candidate], nextAfter: null },
+      canApproveWorkspace: true,
+    });
+    await expect(
+      approveCandidateAction(
+        {
+          ...event,
+          request: request({
+            candidateId: candidate.id,
+            expectedRevision: '1',
+            destination: `group:${conversation.subject.id}`,
+            confidence: '0.8',
+            idempotencyKey: 'approve-group',
+          }),
+        },
+        workspace.id,
+        conversation.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/memory-candidates`,
+    });
+    expect(
+      await previewCandidateAction(
+        {
+          ...event,
+          request: request({
+            candidateId: candidate.id,
+            expectedRevision: '1',
+            destination: `workspace:${workspace.id}`,
+            confidence: '0.7',
+          }),
+        },
+        workspace.id,
+        conversation.id,
+      ),
+    ).toMatchObject({ action: 'previewCandidate', preview: reviewPreview });
+    await expect(
+      confirmCandidateAction(
+        {
+          ...event,
+          request: request({
+            candidateId: candidate.id,
+            intentId: reviewPreview.id,
+            idempotencyKey: 'confirm-workspace',
+          }),
+        },
+        workspace.id,
+        conversation.id,
+      ),
+    ).rejects.toMatchObject({ status: 303 });
+    expect(
+      JSON.parse(
+        String(
+          fetch.mock.calls.find((entry) => String(entry[0]).endsWith('/approval-confirmations'))?.[1]
+            ?.body,
+        ),
+      ),
+    ).toEqual({
+      intentId: reviewPreview.id,
+      idempotencyKey: 'confirm-workspace',
+      acknowledged: true,
     });
   });
 });

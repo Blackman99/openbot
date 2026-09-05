@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import MemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[groupId]/memories/+page.svelte';
 import MemoryPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[groupId]/memories/[memoryId]/+page.svelte';
 import PrivateMemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/bots/[botId]/private-memories/+page.svelte';
-import { memory, group, grant, user, workspace } from '../fixtures/memories.js';
+import CandidatesPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/memory-candidates/+page.svelte';
+import { candidate, conversation, memory, group, grant, user, workspace } from '../fixtures/memories.js';
+import { WORKSPACE_FACT_VISIBILITY_SUMMARY } from '../../src/lib/server/memory-api.js';
 import { summary } from '../fixtures/bots.js';
 const data = {
   user,
@@ -131,5 +133,47 @@ describe('Memory pages', () => {
     }).body;
     expect(empty).toContain('No Bot-private memories.');
     expect(empty).not.toContain(memory.text);
+  });
+  it('lists pending candidates and requires a separate confirmation for a wider destination', () => {
+    const html = render(CandidatesPage, {
+      props: {
+        params: { workspaceId: workspace.id, conversationId: conversation.id },
+        data: {
+          user,
+          workspace: { ...workspace, role: 'owner' },
+          workspaces: [{ ...workspace, role: 'owner' }],
+          conversation,
+          candidatePage: { candidates: [candidate], nextAfter: null },
+          destinationGroups: [group],
+          destinationBots: [summary],
+          canApproveWorkspace: true,
+        },
+        form: {
+          action: 'previewCandidate',
+          values: { candidateId: candidate.id, destination: `workspace:${workspace.id}` },
+          conflict: false,
+          error: '',
+          preview: {
+            id: candidate.id,
+            expiresAt: candidate.createdAt,
+            content: candidate.body,
+            destination: { kind: 'workspace', id: workspace.id },
+            visibility: {
+              kind: 'workspace',
+              id: workspace.id,
+              summary: WORKSPACE_FACT_VISIBILITY_SUMMARY,
+            },
+            disclosureVersion: 'mem-03-audience-v1',
+          },
+        },
+      },
+    }).body;
+    expect(html).toContain('Memory review inbox');
+    expect(html).toContain(candidate.body);
+    expect(html).toContain('Approve into this group');
+    expect(html).toContain('Preview wider approval');
+    expect(html).toContain('Confirm this approval');
+    expect(html).toContain(WORKSPACE_FACT_VISIBILITY_SUMMARY);
+    expect(html).toContain('Reject candidate');
   });
 });

@@ -40,6 +40,59 @@ export interface MemoryPage {
 }
 export const BOT_PRIVATE_VISIBILITY_SUMMARY =
   'This Bot can use this memory across its conversations and groups. Other Bots cannot list, search, or receive it.';
+export const REVIEW_DISCLOSURE_VERSION = 'mem-03-audience-v1';
+export const GROUP_FACT_VISIBILITY_SUMMARY =
+  'Group members with content access can use this reviewed fact in this group.';
+export const BOT_FACT_VISIBILITY_SUMMARY =
+  'This Bot can use this reviewed fact across its conversations and groups. Participants in those conversations may see it. Other Bots cannot list, search, or receive it.';
+export const WORKSPACE_FACT_VISIBILITY_SUMMARY =
+  'Workspace facts are available throughout this workspace.';
+export interface CandidateScope {
+  workspaceId: string;
+  conversationId: string;
+}
+export type CandidateDestinationKind = 'group' | 'bot' | 'workspace';
+export interface CandidateDestination {
+  kind: CandidateDestinationKind;
+  id: string;
+}
+export interface MemoryCandidate {
+  id: string;
+  runId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  revision: number;
+  body: string;
+  proposedScope: CandidateDestination;
+  confidence: number;
+  confidenceSource: 'local_rule';
+  sourceCount: number;
+  createdAt: string;
+}
+export interface CandidatePage {
+  candidates: MemoryCandidate[];
+  nextAfter: string | null;
+}
+export interface CandidateReviewPreview {
+  id: string;
+  expiresAt: string;
+  content: string;
+  destination: CandidateDestination;
+  visibility: { kind: CandidateDestinationKind; id: string; summary: string };
+  disclosureVersion: typeof REVIEW_DISCLOSURE_VERSION;
+}
+export interface ApprovedFact {
+  kind: 'approved_fact';
+  id: string;
+  versionId: string;
+  version: 1;
+  candidateId: string;
+  scope: { kind: CandidateDestinationKind; workspaceId: string; id: string };
+  creator: { id: string; displayName: string };
+  createdAt: string;
+  confidence: number;
+  confidenceSource: 'human';
+  text: string;
+}
 export interface MemoryPromotionPreview {
   id: string;
   expiresAt: string;
@@ -273,6 +326,131 @@ function parsePrivateMemory(value: unknown, workspaceId: string): PrivateMemory 
     text: value.text,
   };
 }
+function destinationSummary(kind: CandidateDestinationKind): string {
+  return kind === 'group'
+    ? GROUP_FACT_VISIBILITY_SUMMARY
+    : kind === 'bot'
+      ? BOT_FACT_VISIBILITY_SUMMARY
+      : WORKSPACE_FACT_VISIBILITY_SUMMARY;
+}
+function parseDestination(value: unknown): CandidateDestination | undefined {
+  if (
+    !keys(value, 'id,kind') ||
+    (value.kind !== 'group' && value.kind !== 'bot' && value.kind !== 'workspace') ||
+    !isConversationUuid(value.id)
+  )
+    return undefined;
+  return { kind: value.kind, id: value.id.toLowerCase() };
+}
+function parseCandidate(value: unknown): MemoryCandidate | undefined {
+  if (
+    !keys(
+      value,
+      'body,confidence,confidenceSource,createdAt,id,proposedScope,revision,runId,sourceCount,status',
+    ) ||
+    !isConversationUuid(value.id) ||
+    !isConversationUuid(value.runId) ||
+    (value.status !== 'pending' && value.status !== 'approved' && value.status !== 'rejected') ||
+    !positive(value.revision) ||
+    !text(value.body, 1000) ||
+    !confidence(value.confidence) ||
+    value.confidenceSource !== 'local_rule' ||
+    !positive(value.sourceCount) ||
+    !date(value.createdAt)
+  )
+    return undefined;
+  const proposedScope = parseDestination(value.proposedScope);
+  if (!proposedScope) return undefined;
+  return {
+    id: value.id.toLowerCase(),
+    runId: value.runId.toLowerCase(),
+    status: value.status,
+    revision: value.revision,
+    body: value.body,
+    proposedScope,
+    confidence: value.confidence,
+    confidenceSource: 'local_rule',
+    sourceCount: value.sourceCount,
+    createdAt: value.createdAt,
+  };
+}
+function parseReviewPreview(value: unknown): CandidateReviewPreview | undefined {
+  if (
+    !keys(value, 'content,destination,disclosureVersion,expiresAt,id,visibility') ||
+    !isConversationUuid(value.id) ||
+    !date(value.expiresAt) ||
+    !text(value.content, 1000) ||
+    value.disclosureVersion !== REVIEW_DISCLOSURE_VERSION ||
+    !keys(value.visibility, 'id,kind,summary')
+  )
+    return undefined;
+  const destination = parseDestination(value.destination);
+  if (
+    !destination ||
+    value.visibility.kind !== destination.kind ||
+    !isConversationUuid(value.visibility.id) ||
+    value.visibility.id.toLowerCase() !== destination.id ||
+    value.visibility.summary !== destinationSummary(destination.kind)
+  )
+    return undefined;
+  return {
+    id: value.id.toLowerCase(),
+    expiresAt: value.expiresAt,
+    content: value.content,
+    destination,
+    visibility: {
+      kind: destination.kind,
+      id: destination.id,
+      summary: value.visibility.summary,
+    },
+    disclosureVersion: REVIEW_DISCLOSURE_VERSION,
+  };
+}
+function parseApprovedFact(value: unknown, workspaceId: string): ApprovedFact | undefined {
+  if (
+    !keys(
+      value,
+      'candidateId,confidence,confidenceSource,createdAt,creator,id,kind,scope,text,version,versionId',
+    ) ||
+    value.kind !== 'approved_fact' ||
+    !isConversationUuid(value.id) ||
+    !isConversationUuid(value.versionId) ||
+    !isConversationUuid(value.candidateId) ||
+    value.version !== 1 ||
+    !confidence(value.confidence) ||
+    value.confidenceSource !== 'human' ||
+    !text(value.text, 1000) ||
+    !date(value.createdAt) ||
+    !keys(value.creator, 'displayName,id') ||
+    !isConversationUuid(value.creator.id) ||
+    !text(value.creator.displayName, 200) ||
+    !keys(value.scope, 'id,kind,workspaceId') ||
+    (value.scope.kind !== 'group' &&
+      value.scope.kind !== 'bot' &&
+      value.scope.kind !== 'workspace') ||
+    !isConversationUuid(value.scope.id) ||
+    !isConversationUuid(value.scope.workspaceId) ||
+    value.scope.workspaceId.toLowerCase() !== workspaceId.toLowerCase()
+  )
+    return undefined;
+  return {
+    kind: 'approved_fact',
+    id: value.id.toLowerCase(),
+    versionId: value.versionId.toLowerCase(),
+    version: 1,
+    candidateId: value.candidateId.toLowerCase(),
+    scope: {
+      kind: value.scope.kind,
+      workspaceId: value.scope.workspaceId.toLowerCase(),
+      id: value.scope.id.toLowerCase(),
+    },
+    creator: { id: value.creator.id.toLowerCase(), displayName: value.creator.displayName },
+    createdAt: value.createdAt,
+    confidence: value.confidence,
+    confidenceSource: 'human',
+    text: value.text,
+  };
+}
 type Read = { after?: string; limit?: number };
 function readValid(read: Read) {
   return (
@@ -446,6 +624,13 @@ export class MemoryApiClient {
         return { status: 'unavailable' };
       const memories: PrivateMemory[] = [];
       for (const item of payload.memories) {
+        if (
+          item !== null &&
+          typeof item === 'object' &&
+          'kind' in item &&
+          (item as { kind?: unknown }).kind === 'approved_fact'
+        )
+          continue;
         const memory = parsePrivateMemory(item, workspaceId);
         if (!memory || memory.scope.botId !== botId.toLowerCase()) return { status: 'unavailable' };
         memories.push(memory);
@@ -485,6 +670,232 @@ export class MemoryApiClient {
       read,
     );
   }
+  async listCandidates(
+    session: string | undefined,
+    scope: CandidateScope,
+    read: Read = {},
+  ): Promise<MemoryResult<CandidatePage>> {
+    if (
+      !isConversationUuid(scope.workspaceId) ||
+      !isConversationUuid(scope.conversationId) ||
+      !readValid(read)
+    )
+      return { status: 'invalid' };
+    const query = new URLSearchParams();
+    if (read.after) query.set('after', read.after.toLowerCase());
+    if (read.limit !== undefined) query.set('limit', String(read.limit));
+    const result = await this.sendConversation(
+      session,
+      scope,
+      query.size ? `?${query}` : '',
+    );
+    if (result.status !== 'available') return result;
+    const value = result.value;
+    if (
+      !keys(value, 'candidates,nextAfter') ||
+      !Array.isArray(value.candidates) ||
+      value.candidates.length > (read.limit ?? 30) ||
+      (value.nextAfter !== null && !isConversationUuid(value.nextAfter))
+    )
+      return { status: 'unavailable' };
+    const candidates: MemoryCandidate[] = [];
+    for (const item of value.candidates) {
+      const candidate = parseCandidate(item);
+      if (!candidate || candidate.id <= (candidates.at(-1)?.id ?? read.after?.toLowerCase() ?? ''))
+        return { status: 'unavailable' };
+      candidates.push(candidate);
+    }
+    const nextAfter = value.nextAfter === null ? null : value.nextAfter.toLowerCase();
+    return nextAfter !== null && nextAfter !== candidates.at(-1)?.id
+      ? { status: 'unavailable' }
+      : { status: 'available', value: { candidates, nextAfter } };
+  }
+  async editCandidate(
+    session: string | undefined,
+    scope: CandidateScope,
+    candidateId: string,
+    command: { expectedRevision: number; body: string },
+  ): Promise<MemoryResult<MemoryCandidate>> {
+    if (
+      !isConversationUuid(candidateId) ||
+      !positive(command.expectedRevision) ||
+      !text(command.body, 1000)
+    )
+      return { status: 'invalid' };
+    const result = await this.sendConversation(
+      session,
+      scope,
+      `/${candidateId.toLowerCase()}`,
+      'PATCH',
+      { expectedRevision: command.expectedRevision, body: command.body },
+    );
+    if (result.status !== 'available') return result;
+    const candidate = keys(result.value, 'candidate')
+      ? parseCandidate(result.value.candidate)
+      : undefined;
+    return candidate?.id === candidateId.toLowerCase() && candidate.status === 'pending'
+      ? { status: 'available', value: candidate }
+      : { status: 'unavailable' };
+  }
+  async rejectCandidate(
+    session: string | undefined,
+    scope: CandidateScope,
+    candidateId: string,
+    command: { expectedRevision: number; idempotencyKey: string },
+  ): Promise<MemoryResult<MemoryCandidate>> {
+    if (
+      !isConversationUuid(candidateId) ||
+      !positive(command.expectedRevision) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.sendConversation(
+      session,
+      scope,
+      `/${candidateId.toLowerCase()}/rejections`,
+      'POST',
+      {
+        expectedRevision: command.expectedRevision,
+        idempotencyKey: command.idempotencyKey,
+      },
+      true,
+    );
+    if (result.status !== 'available') return result;
+    const candidate = keys(result.value, 'candidate')
+      ? parseCandidate(result.value.candidate)
+      : undefined;
+    return candidate?.id === candidateId.toLowerCase() && candidate.status === 'rejected'
+      ? { status: 'available', value: candidate }
+      : { status: 'unavailable' };
+  }
+  async approveCandidate(
+    session: string | undefined,
+    scope: CandidateScope,
+    candidateId: string,
+    command: {
+      expectedRevision: number;
+      destination: CandidateDestination;
+      confidence: number;
+      idempotencyKey: string;
+    },
+  ): Promise<MemoryResult<{ candidate: MemoryCandidate; fact: ApprovedFact }>> {
+    const destination = parseDestination(command.destination);
+    if (
+      !isConversationUuid(candidateId) ||
+      !positive(command.expectedRevision) ||
+      !destination ||
+      !confidence(command.confidence) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.sendConversation(
+      session,
+      scope,
+      `/${candidateId.toLowerCase()}/approvals`,
+      'POST',
+      {
+        expectedRevision: command.expectedRevision,
+        destination,
+        confidence: command.confidence,
+        idempotencyKey: command.idempotencyKey,
+      },
+      true,
+    );
+    return this.decision(result, scope.workspaceId, candidateId, destination);
+  }
+  async previewCandidate(
+    session: string | undefined,
+    scope: CandidateScope,
+    candidateId: string,
+    command: {
+      expectedRevision: number;
+      destination: CandidateDestination;
+      confidence: number;
+    },
+  ): Promise<MemoryResult<CandidateReviewPreview>> {
+    const destination = parseDestination(command.destination);
+    if (
+      !isConversationUuid(candidateId) ||
+      !positive(command.expectedRevision) ||
+      !destination ||
+      !confidence(command.confidence)
+    )
+      return { status: 'invalid' };
+    const result = await this.sendConversation(
+      session,
+      scope,
+      `/${candidateId.toLowerCase()}/approval-previews`,
+      'POST',
+      {
+        expectedRevision: command.expectedRevision,
+        destination,
+        confidence: command.confidence,
+      },
+    );
+    if (result.status !== 'available') return result;
+    const preview = keys(result.value, 'preview')
+      ? parseReviewPreview(result.value.preview)
+      : undefined;
+    return preview &&
+      preview.destination.kind === destination.kind &&
+      preview.destination.id === destination.id
+      ? { status: 'available', value: preview }
+      : { status: 'unavailable' };
+  }
+  async confirmCandidate(
+    session: string | undefined,
+    scope: CandidateScope,
+    candidateId: string,
+    command: { intentId: string; idempotencyKey: string },
+  ): Promise<MemoryResult<{ candidate: MemoryCandidate; fact: ApprovedFact }>> {
+    if (
+      !isConversationUuid(candidateId) ||
+      !isConversationUuid(command.intentId) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.sendConversation(
+      session,
+      scope,
+      `/${candidateId.toLowerCase()}/approval-confirmations`,
+      'POST',
+      {
+        intentId: command.intentId.toLowerCase(),
+        idempotencyKey: command.idempotencyKey,
+        acknowledged: true,
+      },
+      true,
+    );
+    return this.decision(result, scope.workspaceId, candidateId);
+  }
+  private decision(
+    result: MemoryResult<unknown>,
+    workspaceId: string,
+    candidateId: string,
+    destination?: CandidateDestination,
+  ): MemoryResult<{ candidate: MemoryCandidate; fact: ApprovedFact }> {
+    if (result.status !== 'available') return result;
+    if (!keys(result.value, 'candidate,fact,replayed') || typeof result.value.replayed !== 'boolean')
+      return { status: 'unavailable' };
+    return this.parsedDecision(result.value, workspaceId, candidateId, destination);
+  }
+  private parsedDecision(
+    value: Record<string, unknown>,
+    workspaceId: string,
+    candidateId: string,
+    destination?: CandidateDestination,
+  ): MemoryResult<{ candidate: MemoryCandidate; fact: ApprovedFact }> {
+    const candidate = parseCandidate(value.candidate);
+    const fact = parseApprovedFact(value.fact, workspaceId);
+    return candidate?.id === candidateId.toLowerCase() &&
+      candidate.status === 'approved' &&
+      fact?.candidateId === candidate.id &&
+      fact.text === candidate.body &&
+      (!destination ||
+        (fact.scope.kind === destination.kind && fact.scope.id === destination.id))
+      ? { status: 'available', value: { candidate, fact } }
+      : { status: 'unavailable' };
+  }
   private page(
     result: MemoryResult<unknown>,
     scope: MemoryScope,
@@ -517,6 +928,56 @@ export class MemoryApiClient {
     return nextAfter !== null && nextAfter !== memories.at(-1)?.id
       ? { status: 'unavailable' }
       : { status: 'available', value: { memories, nextAfter } };
+  }
+  private async sendConversation(
+    session: string | undefined,
+    scope: CandidateScope,
+    suffix = '',
+    method = 'GET',
+    body?: unknown,
+    creating = false,
+  ): Promise<MemoryResult<unknown>> {
+    if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
+    if (!isConversationUuid(scope.workspaceId) || !isConversationUuid(scope.conversationId))
+      return { status: 'invalid' };
+    const controller = new AbortController(),
+      timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await this.request(
+        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${scope.workspaceId.toLowerCase()}/conversations/${scope.conversationId.toLowerCase()}/memory-candidates${suffix}`,
+        {
+          method,
+          headers: {
+            cookie: `${SESSION_COOKIE_NAME}=${session}`,
+            origin: new URL(this.webOrigin).origin,
+            ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: this.signal
+            ? AbortSignal.any([this.signal, controller.signal])
+            : controller.signal,
+        },
+      );
+      if (response.status === 401) return { status: 'anonymous' };
+      const payload: unknown = await response.json();
+      if (keys(payload, 'error') && keys(payload.error, 'code')) {
+        if (response.status === 403 && payload.error.code === 'memory_forbidden')
+          return { status: 'forbidden' };
+        if (response.status === 400 && payload.error.code === 'invalid_memory_request')
+          return { status: 'invalid' };
+        if (response.status === 409 && payload.error.code === 'source_version_conflict')
+          return { status: 'version-conflict' };
+        if (response.status === 409 && payload.error.code === 'idempotency_conflict')
+          return { status: 'idempotency-conflict' };
+      }
+      return response.status === 200 || (creating && response.status === 201)
+        ? { status: 'available', value: payload }
+        : { status: 'unavailable' };
+    } catch {
+      return { status: 'unavailable' };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   private async send(
     session: string | undefined,

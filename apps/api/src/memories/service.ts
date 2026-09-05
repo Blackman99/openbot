@@ -561,12 +561,24 @@ export class MemoryService {
           { workspaceId: access.workspaceId, botId: access.botId },
           { ...read, limit: read.limit + 1 },
         );
-        const selected = rows.slice(0, read.limit);
+        const facts = (
+          await selectApprovedFactRows(connection, {
+            workspaceId: access.workspaceId,
+            botId: access.botId,
+            ...(read.query ? { query: read.query } : {}),
+            ...(read.after ? { after: read.after } : {}),
+            limit: read.limit + 1,
+          })
+        ).map(projectApprovedFact);
+        const merged = [...rows.map(projectPrivateMemory), ...facts].sort((left, right) =>
+          left.id < right.id ? -1 : 1,
+        );
+        const page = merged.slice(0, read.limit);
         return {
           allowed: true as const,
           value: {
-            memories: selected.map(projectPrivateMemory),
-            nextAfter: rows.length > read.limit ? selected.at(-1)!.id : null,
+            memories: page,
+            nextAfter: merged.length > read.limit ? page.at(-1)!.id : null,
           },
         };
       } catch (error) {

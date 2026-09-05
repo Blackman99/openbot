@@ -110,6 +110,7 @@
   {#if data.conversation.botLifecycleState === 'deleted'}<p>Deleted Bot · Historical identity retained</p>{:else if data.conversation.botLifecycleState === 'archived'}<p>Archived Bot · New work blocked</p>{/if}{/if}
   <nav aria-label="Message pages">
     <a href={`${base}/tasks`}>Tasks</a>
+    <a href={`${base}/memory-candidates`}>Memory review inbox</a>
     {#if data.conversation.subject.kind === 'group'}<a href={`/app/workspaces/${data.workspace.id}/groups/${data.conversation.subject.id}/memories`}>Group memories</a>{/if}
     {#if data.conversation.subject.kind === 'group'}<a href={`/app/workspaces/${data.workspace.id}/groups/${data.conversation.subject.id}/routing`}>Routing settings</a>{/if}
     <a href={`${base}?limit=${data.limit}`}>Refresh messages</a>

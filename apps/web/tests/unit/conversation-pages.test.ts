@@ -92,6 +92,7 @@ describe('Conversation pages', () => {
     }).body;
     expect(html).toContain('Bot · configuration version 3');
     expect(html).toContain(`/conversations/${conversation.id}/tasks`);
+    expect(html).toContain(`/conversations/${conversation.id}/memory-candidates`);
     expect(html).not.toContain('Edit message');
     expect(html).not.toContain('View versions');
   });

@@ -1,6 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryApiClient } from '../../src/lib/server/memory-api.js';
-import { memory, command, group, workspace, token, grant } from '../fixtures/memories.js';
+import {
+  memory,
+  command,
+  group,
+  workspace,
+  token,
+  grant,
+  candidate,
+  approvedFact,
+  conversation,
+} from '../fixtures/memories.js';
+import {
+  REVIEW_DISCLOSURE_VERSION,
+  WORKSPACE_FACT_VISIBILITY_SUMMARY,
+} from '../../src/lib/server/memory-api.js';
 const scope = { workspaceId: workspace.id, groupId: group.id };
 describe('Memory API client', () => {
   it('saves only the expected immutable source command and parses its scoped provenance', async () => {
@@ -87,5 +101,94 @@ describe('Memory API client', () => {
       );
       expect(await client.create(token, scope, command)).toEqual({ status: expected });
     }
+  });
+  it('lists conversation candidates and approves only the reviewed destination payload', async () => {
+    const request = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).endsWith('/memory-candidates'))
+        return Response.json({ candidates: [candidate], nextAfter: null });
+      return Response.json(
+        { candidate: { ...candidate, status: 'approved' }, fact: approvedFact, replayed: false },
+        { status: 201 },
+      );
+    });
+    const client = new MemoryApiClient(request, 'http://api', 'http://localhost:3000');
+    const inbox = { workspaceId: workspace.id, conversationId: conversation.id };
+    expect(await client.listCandidates(token, inbox)).toEqual({
+      status: 'available',
+      value: { candidates: [candidate], nextAfter: null },
+    });
+    expect(request.mock.calls[0]?.[0]).toBe(
+      `http://api/api/v1/workspaces/${workspace.id}/conversations/${conversation.id}/memory-candidates`,
+    );
+    expect(
+      await client.approveCandidate(token, inbox, candidate.id, {
+        expectedRevision: 1,
+        destination: candidate.proposedScope,
+        confidence: 0.8,
+        idempotencyKey: 'approve-group',
+      }),
+    ).toEqual({
+      status: 'available',
+      value: { candidate: { ...candidate, status: 'approved' }, fact: approvedFact },
+    });
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({
+      expectedRevision: 1,
+      destination: candidate.proposedScope,
+      confidence: 0.8,
+      idempotencyKey: 'approve-group',
+    });
+  });
+  it('parses a workspace preview and keeps confirmation from changing the destination', async () => {
+    const preview = {
+      id: '4d661304-a1bc-4767-9a87-c47de763f749',
+      expiresAt: candidate.createdAt,
+      content: candidate.body,
+      destination: { kind: 'workspace' as const, id: workspace.id },
+      visibility: {
+        kind: 'workspace' as const,
+        id: workspace.id,
+        summary: WORKSPACE_FACT_VISIBILITY_SUMMARY,
+      },
+      disclosureVersion: REVIEW_DISCLOSURE_VERSION,
+    };
+    const request = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).endsWith('/approval-previews')) return Response.json({ preview });
+      return Response.json(
+        {
+          candidate: { ...candidate, status: 'approved' },
+          fact: {
+            ...approvedFact,
+            scope: { kind: 'workspace', workspaceId: workspace.id, id: workspace.id },
+          },
+          replayed: false,
+        },
+        { status: 201 },
+      );
+    });
+    const client = new MemoryApiClient(request, 'http://api', 'http://localhost:3000');
+    const inbox = { workspaceId: workspace.id, conversationId: conversation.id };
+    expect(
+      await client.previewCandidate(token, inbox, candidate.id, {
+        expectedRevision: 1,
+        destination: { kind: 'workspace', id: workspace.id },
+        confidence: 0.7,
+      }),
+    ).toEqual({ status: 'available', value: preview });
+    expect(
+      await client.confirmCandidate(token, inbox, candidate.id, {
+        intentId: preview.id,
+        idempotencyKey: 'confirm-workspace',
+      }),
+    ).toMatchObject({
+      status: 'available',
+      value: {
+        fact: { scope: { kind: 'workspace', id: workspace.id } },
+      },
+    });
+    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({
+      intentId: preview.id,
+      idempotencyKey: 'confirm-workspace',
+      acknowledged: true,
+    });
   });
 });

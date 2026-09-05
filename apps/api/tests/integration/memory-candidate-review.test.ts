@@ -5,7 +5,11 @@ import { TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { MemoryAccessError, MemoryConflictError } from '../../src/memories/types.js';
-import { WORKSPACE_FACT_VISIBILITY_SUMMARY } from '../../src/memories/review-schema.js';
+import {
+  BOT_FACT_VISIBILITY_SUMMARY,
+  GROUP_FACT_VISIBILITY_SUMMARY,
+  WORKSPACE_FACT_VISIBILITY_SUMMARY,
+} from '../../src/memories/review-schema.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -247,6 +251,123 @@ describe('candidate review inbox', () => {
     expect(inbox.json().candidates.map((row: { status: string }) => row.status).sort()).toEqual([
       'approved',
       'rejected',
+    ]);
+  });
+
+  it('requires confirmation for cross-group and Bot destinations and hides source from destination-only readers', async () => {
+    const base = await memoryFixture(cleanup);
+    const destGroup = await base.groups.create(base.owner.user.id, base.owner.workspace.id, {
+      name: 'Reviewed destination',
+    });
+    const destOnly = await base.addUser();
+    await base.groups.addMember(base.owner.user.id, base.owner.workspace.id, destGroup.id, {
+      userId: destOnly.id,
+      role: 'member',
+    });
+    await base.conversations.open(base.owner.user.id, base.owner.workspace.id, {
+      subject: { kind: 'group', id: destGroup.id },
+    });
+    const first = await extractedGroupCandidate(
+      base,
+      'Remember: publish into another group.',
+      'cross-group',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    const dest = { kind: 'group' as const, id: destGroup.id };
+    await expect(
+      base.memories.approveCandidate(access, first.candidateId, {
+        expectedRevision: first.revision,
+        destination: dest,
+        confidence: 0.71,
+        idempotencyKey: 'direct-cross-group',
+      }),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const groupPreview = await base.memories.previewCandidate(access, first.candidateId, {
+      expectedRevision: first.revision,
+      destination: dest,
+      confidence: 0.71,
+    });
+    expect(groupPreview.preview.visibility.summary).toBe(GROUP_FACT_VISIBILITY_SUMMARY);
+    const groupApproved = await base.memories.confirmCandidate(access, first.candidateId, {
+      intentId: groupPreview.preview.id,
+      idempotencyKey: 'confirm-cross-group',
+      acknowledged: true,
+    });
+    expect(groupApproved.fact).toMatchObject({
+      kind: 'approved_fact',
+      text: 'publish into another group.',
+      scope: { kind: 'group', id: destGroup.id },
+    });
+    expect(groupApproved.fact).not.toHaveProperty('source');
+    const destSearch = await base.memories.list(
+      {
+        actorUserId: destOnly.id,
+        workspaceId: base.owner.workspace.id,
+        groupId: destGroup.id,
+      },
+      { query: 'another group' },
+      true,
+    );
+    expect(destSearch.memories).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'publish into another group.' }),
+    ]);
+    expect(JSON.stringify(destSearch.memories[0])).not.toContain(base.conversation.id);
+    await expect(
+      base.memories.listCandidates(
+        {
+          actorUserId: destOnly.id,
+          workspaceId: base.owner.workspace.id,
+          conversationId: base.conversation.id,
+        },
+        {},
+      ),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const second = await extractedGroupCandidate(
+      base,
+      'Remember: keep this with the Bot.',
+      'bot-dest',
+      first.grant,
+    );
+    const botDest = { kind: 'bot' as const, id: base.bot.id };
+    await expect(
+      base.memories.approveCandidate(access, second.candidateId, {
+        expectedRevision: second.revision,
+        destination: botDest,
+        confidence: 0.66,
+        idempotencyKey: 'direct-bot',
+      }),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const botPreview = await base.memories.previewCandidate(access, second.candidateId, {
+      expectedRevision: second.revision,
+      destination: botDest,
+      confidence: 0.66,
+    });
+    expect(botPreview.preview.visibility.summary).toBe(BOT_FACT_VISIBILITY_SUMMARY);
+    const botApproved = await base.memories.confirmCandidate(access, second.candidateId, {
+      intentId: botPreview.preview.id,
+      idempotencyKey: 'confirm-bot',
+      acknowledged: true,
+    });
+    expect(botApproved.fact).toMatchObject({
+      kind: 'approved_fact',
+      scope: { kind: 'bot', id: base.bot.id },
+      text: 'keep this with the Bot.',
+    });
+    const privateListed = await base.memories.listPrivate(
+      {
+        actorUserId: base.owner.user.id,
+        workspaceId: base.owner.workspace.id,
+        botId: base.bot.id,
+      },
+      { query: 'keep this with the Bot' },
+      true,
+    );
+    expect(privateListed.memories).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'keep this with the Bot.' }),
     ]);
   });
 });
