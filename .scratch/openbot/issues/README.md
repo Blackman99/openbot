@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **36**
-- Fully complete: **35**
+- Implemented and independently reviewed: **38**
+- Fully complete: **37**
 - Complete with external verification pending: **1**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -66,7 +66,7 @@ This directory contains the approved implementation backlog for the open-source 
 | 42 | [KNW-01 — Promote text-like attachments into cited scoped knowledge](42-knw-01-promote-text-like-attachments-into-cited-scoped-knowledge.md) | complete | [ATT-01](41-att-01-upload-view-and-download-conversation-attachments-with-history-aw.md), [MEM-01](37-mem-01-save-a-group-message-as-scoped-memory-and-use-it-in-the-next-answ.md), [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
 | 43 | [RET-01 — Assemble a permission-aware, provenance-preserving model context](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md) | complete | [MEM-04](40-mem-04-version-forget-and-revoke-scoped-memories.md), [KNW-01](42-knw-01-promote-text-like-attachments-into-cited-scoped-knowledge.md), [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
 | 44 | [DOC-01 — Query PDF, DOCX, and XLSX knowledge with precise locators](44-doc-01-query-pdf-docx-and-xlsx-knowledge-with-precise-locators.md) | complete | [RET-01](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md) |
-| 45 | [IMG-01 — Send authorized image attachments to vision-capable models](45-img-01-send-authorized-image-attachments-to-vision-capable-models.md) | in-progress | [ATT-01](41-att-01-upload-view-and-download-conversation-attachments-with-history-aw.md), [RET-01](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
+| 45 | [IMG-01 — Send authorized image attachments to vision-capable models](45-img-01-send-authorized-image-attachments-to-vision-capable-models.md) | complete | [ATT-01](41-att-01-upload-view-and-download-conversation-attachments-with-history-aw.md), [RET-01](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 46 | [TPL-01 — Export and import a safe versioned single-Bot template](46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md) | complete | [BOT-03](14-bot-03-edit-compare-and-restore-bot-versions.md), [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md), [MEM-02](38-mem-02-promote-group-memory-to-bot-private-memory-with-explicit-approval.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 47 | [TPL-02 — Atomically import and export a safe Bot-team template](47-tpl-02-atomically-import-and-export-a-safe-bot-team-template.md) | blocked | [TPL-01](46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
 | 48 | [API-01 — Scoped API token lifecycle](48-api-01-scoped-api-token-lifecycle.md) | complete | [WS-03](05-ws-03-manage-workspace-members-and-roles.md) |

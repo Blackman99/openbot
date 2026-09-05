@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** DOC-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `60acdcf`, Verify [33991876320](https://github.com/Blackman99/openbot/actions/runs/33991876320)). IMG-01 is now ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** IMG-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `0ec072e`, Verify [33992975253](https://github.com/Blackman99/openbot/actions/runs/33992975253)). No further ticket is unblocked. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty-seven of 67 tickets are implemented and independently reviewed: 36 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. IMG-01 is the next ticket. COL-08 and COL-11 stay blocked on COL-07's external verification gate.
+Thirty-eight of 67 tickets are implemented and independently reviewed: 37 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12. COL-08 and COL-11 stay blocked on COL-07's external verification gate.
 
 COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
