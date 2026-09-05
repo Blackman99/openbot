@@ -85,6 +85,33 @@ export function registerProviderRoutes(
       }
     };
     const id = (request: FastifyRequest) => (request.params as { id: string }).id;
+    for (const policyBase of [base, '/api/v1/workspaces/:workspaceId/model-connections']) {
+      routes.get(`${policyBase}/:id/policy`, (request, reply) =>
+        run(request, reply, (actor, service) => service.capabilities(actor, id(request))),
+      );
+      routes.post(`${policyBase}/:id/overrides`, (request, reply) =>
+        run(request, reply, (actor, service) => service.override(actor, id(request), request.body)),
+      );
+      routes.post(`${policyBase}/:id/reprobe`, (request, reply) =>
+        run(request, reply, (actor, service, signal) =>
+          service.reprobe(actor, id(request), request.body, signal),
+        ),
+      );
+      routes.put(`${policyBase}/:id/fallbacks`, (request, reply) =>
+        run(request, reply, (actor, service) =>
+          service.setFallbacks(actor, id(request), request.body),
+        ),
+      );
+      routes.get(`${policyBase}/:id/resolution-preview`, (request, reply) =>
+        run(request, reply, (actor, service) =>
+          service.preview(
+            actor,
+            id(request),
+            (request.query as { capability?: unknown }).capability,
+          ),
+        ),
+      );
+    }
     routes.get(base, (request, reply) =>
       run(request, reply, (owner, service) => service.list(owner)),
     );

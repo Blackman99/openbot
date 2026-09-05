@@ -44,6 +44,7 @@ describe('database migrations', () => {
       '0008_workspace_model_connections',
       '0009_groups_and_human_memberships',
       '0010_scoped_api_tokens',
+      '0011_model_capability_policies',
     ]);
 
     const database: DatabaseClient = {
@@ -106,7 +107,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0010_scoped_api_tokens' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0011_model_capability_policies' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

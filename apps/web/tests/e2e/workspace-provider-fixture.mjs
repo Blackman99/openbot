@@ -1,6 +1,9 @@
 // Browser seam fixture. API integration tests cover encryption, fresh authorization,
 // provider transport, revision conflicts, and transactional audit persistence.
 const connections = new Map();
+export function workspaceFixtureModels(workspaceId) {
+  return connections.get(workspaceId) ?? new Map();
+}
 export function resetWorkspaceProviderFixture() {
   connections.clear();
 }

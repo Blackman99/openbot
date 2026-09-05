@@ -43,6 +43,7 @@
   {#each data.connections as connection (connection.id)}
     <article aria-labelledby={`model-${connection.id}`}>
       <h2 id={`model-${connection.id}`}>{connection.name}</h2>
+      <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/models/${encodeURIComponent(connection.id)}/capabilities`}>Capabilities and fallbacks</a></p>
       <p>{connection.availability === 'available' ? 'Available' : 'Unavailable (disabled)'} · {connection.modelId} · {protocolNames[connection.protocol]}</p>
       <p>Text stream: {connection.lastProbe.text.ok ? 'passed' : 'failed'} · Structured actions: {connection.lastProbe.action.ok ? 'passed' : 'unavailable'}</p>
       <p>Last tested: <time datetime={connection.lastProbe.testedAt}>{connection.lastProbe.testedAt}</time></p>

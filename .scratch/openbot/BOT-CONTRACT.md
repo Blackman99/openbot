@@ -17,6 +17,7 @@ This records the recommended defaults selected for the approved BOT-01 and BOT-0
 - The selected model ID is immutable within a version. Changing the connection's model requires a new Bot version/rebinding; rotating credentials alone does not change that identity.
 - Use the narrow provider admission operation with the existing SQL connection, current actor/workspace and expected model ID. Its final authority and capability checks occur inside the Bot mutation transaction after acquiring the documented provider scope lock. A resolution preview is a snapshot, not authorization for a later mutation.
 - Bot ACLs never confer provider-connection use. Execution and copying must check the acting user's current provider rights. Workspace connections support shared use without revealing their credentials.
+- List/detail return a fresh viewer-specific `bindingStatus`, separate from immutable version configuration: `ready` with current `chatOnly`, or `unavailable` with a safe reason (`disabled`, `binding-changed`, `capability-unavailable`, or `not-accessible`). Check Bot access first, then reuse provider admission in the existing transaction with the viewer's authority. Deduplicate identical binding checks per list. Collapse missing/inaccessible connections; propagate unexpected database failures. Do not substitute models/fallbacks or use creation-time capability badges as current claims. Discovery-only responses omit binding IDs and configuration. These read-time results never authorize a future execution.
 
 ## Execution defaults
 

@@ -2,7 +2,7 @@
 sequence: 12
 id: BOT-01
 title: "Create and inspect a persistent bot identity"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - PROV-05
 labels:
@@ -36,3 +36,7 @@ Users can create bots with stable identities, immutable initial configurations, 
 - Conversation, task, or delegation execution
 - Bot memory or routines
 - A public template marketplace
+
+## Implementation contract
+
+Use [BOT-CONTRACT](../BOT-CONTRACT.md), including fresh viewer-specific binding status and transaction-scoped model admission. PROV-05 is integrated075a191 with539 tests and15 browser journeys; its unexecuted PostgreSQL/Compose proof remains explicitly tracked as PROV-05-E1 in REL-01. Migration0012 is reserved for this ticket after capability policies0011.

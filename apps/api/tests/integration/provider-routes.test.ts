@@ -1,5 +1,6 @@
+import { CapabilityApiClient } from '../../../web/src/lib/server/capability-api.js';
 import { createHash } from 'node:crypto';
-import { newDb } from 'pg-mem';
+import { newProviderDatabase } from '../helpers/provider-database.js';
 import { afterEach, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { LocalAuthService } from '../../src/auth/service.js';
@@ -16,7 +17,7 @@ afterEach(async () => {
 });
 
 it('protects personal connection lifecycle API, returns masks, and rejects cross-origin mutations', async () => {
-  const adapter = newDb({ noAstCoverageCheck: true }).adapters.createPg();
+  const adapter = newProviderDatabase().adapters.createPg();
   const pool = new adapter.Pool();
   await migrateDatabase(pool, { installPostgresGuards: false });
   const auth = new LocalAuthService(new PostgresAuthRepository(pool), {
@@ -92,6 +93,69 @@ it('protects personal connection lifecycle API, returns masks, and rejects cross
   expect(created.headers['cache-control']).toBe('private, no-store');
   expect(created.body).not.toMatch(/secret-key|sensitive-header/u);
   const id = created.json<{ id: string }>().id;
+  const capabilities = await app.inject({ url: `${path}/${id}/policy`, headers });
+  expect(capabilities.statusCode).toBe(200);
+  expect(capabilities.json()).toMatchObject({
+    basic: true,
+    collaboration: true,
+    revision: 0,
+    flags: { visionInput: { status: 'unknown' } },
+  });
+  expect(capabilities.body).not.toMatch(/secret-key|sensitive-header|baseUrl|raw|apiKey/u);
+  const address = await app.listen({ port: 0, host: '127.0.0.1' });
+  const client = new CapabilityApiClient(fetch, address, 'http://localhost:3000');
+  const token = cookie.split('=')[1]!;
+  expect(await client.get(token, id)).toMatchObject({ ok: true, value: { basic: true } });
+  expect(
+    await client.override(token, id, {
+      expectedRevision: 0,
+      capability: 'visionInput',
+      value: true,
+      rationale: 'Image fixture verified',
+    }),
+  ).toMatchObject({ ok: true, value: { revision: 1, enhanced: { visionInput: true } } });
+  expect(await client.reprobe(token, id, 1)).toMatchObject({
+    ok: true,
+    value: { revision: 2, flags: { visionInput: { manualBadge: true } } },
+  });
+  expect(
+    await client.fallbacks(token, id, {
+      expectedRevision: 2,
+      requiredCapability: 'collaboration',
+      connectionIds: [],
+    }),
+  ).toMatchObject({
+    ok: true,
+    value: { revision: 3, fallbacks: { requiredCapability: 'collaboration' } },
+  });
+  expect(await client.preview(token, id, 'collaboration')).toMatchObject({
+    ok: true,
+    value: { primaryId: id, selectedId: id, order: [id] },
+  });
+  expect(
+    await client.fallbacks(token, id, {
+      expectedRevision: 2,
+      requiredCapability: 'basic',
+      connectionIds: [],
+    }),
+  ).toEqual({ ok: false, code: 'connection_conflict' });
+  const uppercaseOverride = await app.inject({
+    method: 'POST',
+    url: `${path}/${id.toUpperCase()}/overrides`,
+    headers,
+    payload: {
+      expectedRevision: 3,
+      capability: 'text',
+      value: true,
+      rationale: 'Verified the same canonical target',
+    },
+  });
+  expect(uppercaseOverride.statusCode).toBe(200);
+  expect(uppercaseOverride.json()).toMatchObject({
+    id,
+    revision: 4,
+    flags: { text: { manualBadge: true } },
+  });
   expect((await app.inject({ url: `${path}/${id}`, headers })).statusCode).toBe(200);
   expect((await app.inject({ url: path, headers })).json()).toHaveLength(1);
   expect(

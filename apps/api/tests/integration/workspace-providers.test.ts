@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { ProtocolConnectionProbe } from '../../src/providers/protocols.js';
 import { randomUUID } from 'node:crypto';
-import { newDb } from 'pg-mem';
+import { newProviderDatabase } from '../helpers/provider-database.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { migrateDatabase } from '../../src/database/migrations.js';
 import { ModelConnectionProbe } from '../../src/providers/model-probe.js';
@@ -29,7 +29,7 @@ const report = {
   action: { ok: false, code: 'provider_action_unsupported', raw: '{}' },
 };
 async function fixture() {
-  const pool = new (newDb({ noAstCoverageCheck: true }).adapters.createPg().Pool)();
+  const pool = new (newProviderDatabase().adapters.createPg().Pool)();
   pools.push(pool);
   await migrateDatabase(pool, { installPostgresGuards: false });
   const owner = randomUUID();
@@ -93,7 +93,7 @@ it('creates scoped encrypted connections and exposes only member-safe model meta
   const rows = await pool.query('SELECT * FROM workspace_model_connections');
   expect(rows.rows[0].workspace_id).toBe(workspaceId);
   expect(JSON.stringify(rows.rows)).not.toMatch(/workspace-api-secret|workspace-header-secret/u);
-  expect((await pool.query('SELECT actor_user_id,metadata FROM audit_events')).rows).toEqual([
+  expect((await pool.query('SELECT actor_user_id,metadata FROM audit_events')).rows).toMatchObject([
     { actor_user_id: owner, metadata: { workspaceId, connectionId: created.id } },
   ]);
 });

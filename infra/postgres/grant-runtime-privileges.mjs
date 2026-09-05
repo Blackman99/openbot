@@ -182,7 +182,7 @@ try {
     GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;
     GRANT SELECT, INSERT, UPDATE, DELETE ON personal_model_connections TO openbot_runtime;
     GRANT SELECT, INSERT ON workspace_model_connections TO openbot_runtime;
-    GRANT UPDATE (metadata, sealed_credentials, revision, updated_at) ON workspace_model_connections TO openbot_runtime;
+    GRANT UPDATE (metadata, sealed_credentials, revision, updated_at, policy) ON workspace_model_connections TO openbot_runtime;
   `);
   await client.query('COMMIT');
   transactionOpen = false;

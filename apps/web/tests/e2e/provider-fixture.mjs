@@ -1,6 +1,9 @@
 // Browser seam fixture; production network/persistence behavior is covered by
 // provider-routes, provider-connections, and the real HTTP provider-probe tests.
 const connections = new Map();
+export function personalFixtureModels() {
+  return connections;
+}
 export function resetProviderFixture() {
   connections.clear();
 }

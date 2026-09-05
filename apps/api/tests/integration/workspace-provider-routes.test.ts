@@ -1,5 +1,6 @@
+import { CapabilityApiClient } from '../../../web/src/lib/server/capability-api.js';
 import { WorkspaceProviderApiClient } from '../../../web/src/lib/server/workspace-provider-api.js';
-import { newDb } from 'pg-mem';
+import { newProviderDatabase } from '../helpers/provider-database.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { LocalAuthService } from '../../src/auth/service.js';
@@ -28,7 +29,7 @@ const input = {
   headers: { 'x-secret': 'workspace-header-secret' },
 };
 async function fixture() {
-  const pool = new (newDb({ noAstCoverageCheck: true }).adapters.createPg().Pool)();
+  const pool = new (newProviderDatabase().adapters.createPg().Pool)();
   cleanup.push(() => pool.end());
   await migrateDatabase(pool, { installPostgresGuards: false });
   const auth = new LocalAuthService(new PostgresAuthRepository(pool), {
@@ -451,4 +452,192 @@ it('treats UUID spelling as one workspace and connection identity when encryptin
       (row: { metadata: { workspaceId: string } }) => row.metadata.workspaceId === workspaceId,
     ),
   ).toBe(true);
+});
+
+it('keeps policy management administrative while member usage refreshes attributable capability evidence', async () => {
+  const { app, pool, owner, ownerHeaders, memberHeaders, memberId, path } = await fixture();
+  const created = await app.inject({
+    method: 'POST',
+    url: path,
+    headers: ownerHeaders,
+    payload: input,
+  });
+  const id = created.json().connection.id;
+  const override = {
+    expectedRevision: 0,
+    capability: 'toolCalling',
+    value: true,
+    rationale: 'Verified through gateway compatibility test',
+  };
+  const saved = await app.inject({
+    method: 'POST',
+    url: `${path}/${id}/overrides`,
+    headers: ownerHeaders,
+    payload: override,
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json()).toMatchObject({
+    revision: 1,
+    collaboration: true,
+    flags: { toolCalling: { source: 'manual', manualBadge: true, actorUserId: owner.user.id } },
+  });
+  for (const [suffix, payload] of [
+    ['overrides', { ...override, expectedRevision: 1 }],
+    ['reprobe', { expectedRevision: 1 }],
+  ] as const)
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${path}/${id}/${suffix}`,
+          headers: memberHeaders,
+          payload,
+        })
+      ).statusCode,
+    ).toBe(403);
+  expect(
+    (await app.inject({ method: 'POST', url: `${path}/${id}/test`, headers: memberHeaders }))
+      .statusCode,
+  ).toBe(200);
+  const memberView = await app.inject({ url: `${path}/${id}/policy`, headers: memberHeaders });
+  expect(memberView.json()).toMatchObject({
+    revision: 2,
+    canManage: false,
+    flags: {
+      text: { actorUserId: memberId },
+      toolCalling: { source: 'manual', manualBadge: true },
+    },
+  });
+  const reprobed = await app.inject({
+    method: 'POST',
+    url: `${path}/${id}/reprobe`,
+    headers: ownerHeaders,
+    payload: { expectedRevision: 2 },
+  });
+  expect(reprobed.statusCode).toBe(200);
+  expect(reprobed.json()).toMatchObject({
+    revision: 3,
+    flags: { text: { actorUserId: owner.user.id }, toolCalling: { manualBadge: true } },
+  });
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `${path}/${id}/reprobe`,
+        headers: ownerHeaders,
+        payload: { expectedRevision: 2 },
+      })
+    ).statusCode,
+  ).toBe(409);
+  const audits = await pool.query(
+    "SELECT actor_user_id,metadata FROM audit_events WHERE event_type='provider.connection_reprobed'",
+  );
+  expect(audits.rows).toHaveLength(1);
+  expect(audits.rows[0]).toMatchObject({
+    actor_user_id: owner.user.id,
+    metadata: { policyAfter: { probes: { text: { actorUserId: owner.user.id } } } },
+  });
+  expect(JSON.stringify(audits.rows)).not.toMatch(
+    /workspace-api-secret|workspace-header-secret|internal-evidence|raw/u,
+  );
+});
+
+it('uses the real scoped BFF contract and rejects personal/shared fallback access amplification', async () => {
+  const { app, ownerHeaders, memberHeaders, workspaceId, memberId, path } = await fixture();
+  const a = (
+    await app.inject({ method: 'POST', url: path, headers: ownerHeaders, payload: input })
+  ).json().connection.id;
+  const b = (
+    await app.inject({
+      method: 'POST',
+      url: path,
+      headers: ownerHeaders,
+      payload: { ...input, name: 'Fallback' },
+    })
+  ).json().connection.id;
+  const personalId = (
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/model-connections',
+      headers: ownerHeaders,
+      payload: input,
+    })
+  ).json().id;
+  const address = await app.listen({ port: 0, host: '127.0.0.1' });
+  const client = new CapabilityApiClient(fetch, address, origin);
+  const ownerToken = ownerHeaders.cookie.split('=')[1]!;
+  const memberToken = memberHeaders.cookie.split('=')[1]!;
+  expect(await client.get(memberToken, a, workspaceId)).toMatchObject({
+    ok: true,
+    value: { canManage: false, basic: true, collaboration: false },
+  });
+  expect(
+    await client.fallbacks(
+      ownerToken,
+      a,
+      { expectedRevision: 0, requiredCapability: 'basic', connectionIds: [personalId] },
+      workspaceId,
+    ),
+  ).toEqual({ ok: false, code: 'fallback_unavailable' });
+  expect(
+    await client.fallbacks(
+      memberToken,
+      a,
+      { expectedRevision: 0, requiredCapability: 'basic', connectionIds: [b] },
+      workspaceId,
+    ),
+  ).toEqual({ ok: false, code: 'workspace_forbidden' });
+  expect(
+    await client.fallbacks(
+      ownerToken,
+      a,
+      { expectedRevision: 0, requiredCapability: 'basic', connectionIds: [b] },
+      workspaceId,
+    ),
+  ).toMatchObject({ ok: true, value: { revision: 1, fallbacks: { connectionIds: [b] } } });
+  expect(await client.preview(memberToken, a, 'basic', workspaceId)).toMatchObject({
+    ok: true,
+    value: { order: [a, b] },
+  });
+  expect(
+    await client.override(
+      ownerToken,
+      a,
+      {
+        expectedRevision: 1,
+        capability: 'streaming',
+        value: false,
+        rationale: 'Stream gateway disabled',
+      },
+      workspaceId,
+    ),
+  ).toMatchObject({ ok: true, value: { revision: 2, basic: false, collaboration: false } });
+  expect(await client.reprobe(ownerToken, a, 2, workspaceId)).toMatchObject({
+    ok: true,
+    value: { revision: 3, basic: false, flags: { streaming: { source: 'manual' } } },
+  });
+  expect(await client.preview(memberToken, a, 'basic', workspaceId)).toMatchObject({
+    ok: true,
+    value: {
+      selectedId: b,
+      order: [b],
+      candidates: [
+        { id: a, reason: 'capability_unsupported' },
+        { id: b, eligible: true },
+      ],
+    },
+  });
+  await app.inject({
+    method: 'DELETE',
+    url: `/api/v1/workspaces/${workspaceId}/members/${memberId}`,
+    headers: ownerHeaders,
+  });
+  expect(await client.preview(memberToken, a, 'basic', workspaceId)).toEqual({
+    ok: false,
+    code: 'workspace_forbidden',
+  });
+  expect(await client.get(memberToken, a, workspaceId)).toEqual({
+    ok: false,
+    code: 'workspace_forbidden',
+  });
 });

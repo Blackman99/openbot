@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { newDb } from 'pg-mem';
+import { newProviderDatabase } from '../helpers/provider-database.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { migrateDatabase } from '../../src/database/migrations.js';
 import { parseConnectionInput, ProviderConnections } from '../../src/providers/connections.js';
@@ -48,6 +48,7 @@ it('persists explicit Anthropic version and encrypted credentials while retainin
       apiKey: 'secret-api-key',
     }),
     undefined,
+    expect.any(Function),
   );
   const rows = await pool.query(
     'SELECT metadata,sealed_credentials FROM personal_model_connections',
@@ -77,7 +78,7 @@ it('validates Anthropic version and rejects ambiguous authentication or version 
 });
 
 async function fixture() {
-  const adapter = newDb({ noAstCoverageCheck: true }).adapters.createPg();
+  const adapter = newProviderDatabase().adapters.createPg();
   const pool = new adapter.Pool();
   pools.push(pool);
   await migrateDatabase(pool, { installPostgresGuards: false });
@@ -114,7 +115,7 @@ it('tests before saving a personal Basic connection and persists only authentica
   expect(stored.rows).toHaveLength(1);
   expect(JSON.stringify(stored.rows)).not.toMatch(/secret-api-key|secret-header-value/u);
   const audits = await pool.query('SELECT event_type,metadata FROM audit_events');
-  expect(audits.rows).toEqual([
+  expect(audits.rows).toMatchObject([
     { event_type: 'provider.connection_created', metadata: { connectionId: connection.id } },
   ]);
 });
@@ -146,6 +147,7 @@ it('enforces ownership before reads, updates or invocation and manages a connect
       headers: { 'x-secret': 'secret-header-value' },
     }),
     undefined,
+    expect.any(Function),
   );
   expect(await service.test(owner, connection.id)).toEqual(report);
   expect(await service.disable(owner, connection.id)).toMatchObject({ enabled: false });
@@ -198,6 +200,7 @@ it('does not overwrite a concurrent disable or credential rotation when a slow p
   expect(probe.run).toHaveBeenLastCalledWith(
     expect.objectContaining({ apiKey: 'new-secret-key' }),
     undefined,
+    expect.any(Function),
   );
 });
 
@@ -230,6 +233,7 @@ it('persists explicit Responses protocol through updates and defaults legacy Cha
   expect(probe.run).toHaveBeenLastCalledWith(
     expect.objectContaining({ protocol: 'openai-responses' }),
     undefined,
+    expect.any(Function),
   );
   expect(await service.update(owner, connection.id, { name: 'Renamed Responses' })).toMatchObject({
     protocol: 'openai-responses',

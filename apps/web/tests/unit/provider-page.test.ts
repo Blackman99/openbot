@@ -30,6 +30,7 @@ it('renders personal connection management, masked credentials, and dated probe 
   });
   for (const text of [
     'Personal models',
+    'href="/app/settings/models/model-id/capabilities"',
     'Test and save',
     'Private model',
     'API key: configured',

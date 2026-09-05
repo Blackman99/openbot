@@ -47,6 +47,7 @@ it('shows members model health and usage controls without connection management 
   }).body;
   for (const text of [
     'Workspace models',
+    'href="/app/workspaces/workspace-1/models/shared-1/capabilities"',
     'Shared model',
     'Anthropic Messages',
     'Text stream: passed',

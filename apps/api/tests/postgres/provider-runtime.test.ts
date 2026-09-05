@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { migrateDatabase } from '../../src/database/migrations.js';
+import { admitUsableModel } from '../../src/providers/postgres-model-admission.js';
 import { personalAccess } from '../../src/providers/scope.js';
 import { ProviderConnections } from '../../src/providers/connections.js';
 import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
@@ -251,11 +252,192 @@ postgresDescribe('model connections using the deployed restricted database role'
       expect(audits.rows.map((row) => row.actor_user_id).sort()).toEqual(
         [owner, administrator, member, administrator, owner].sort(),
       );
-      expect(audits.rows.map((row) => row.metadata)).toEqual(
+      expect(audits.rows.map((row) => row.metadata)).toMatchObject(
         Array.from({ length: 5 }, () => ({ workspaceId, connectionId: created.id })),
       );
     } finally {
       await scopedPool.end();
     }
   });
+  it.each(['personal', 'workspace'] as const)(
+    'serializes opposing %s fallback edits, rolls back policy when auditing fails, and holds binding admission until caller commit',
+    async (kind) => {
+      const owner = randomUUID();
+      const workspaceId = randomUUID();
+      await runtime.query(
+        'INSERT INTO users(id,email,normalized_email,display_name,created_at) VALUES($1,$2,$2,$3,NOW())',
+        [owner, `${owner}@example.com`, 'Capability owner'],
+      );
+      if (kind === 'workspace') {
+        await runtime.query('INSERT INTO workspaces(id,name,created_at) VALUES($1,$2,NOW())', [
+          workspaceId,
+          'Capability workspace',
+        ]);
+        await runtime.query(
+          'INSERT INTO workspace_memberships(workspace_id,user_id,role,created_at) VALUES($1,$2,$3,NOW())',
+          [workspaceId, owner, 'owner'],
+        );
+      }
+      const applicationName = `prov05-${randomUUID()}`;
+      const scopedPool = new pg.Pool({
+        connectionString: runtime.options.connectionString,
+        application_name: applicationName,
+      });
+      const providers = new ProviderConnections(
+        new PostgresProviderRepository(scopedPool),
+        new ProviderSecretBox(randomBytes(32).toString('base64')),
+        new ProviderUrlPolicy({ hosts: ['models.example'], schemes: ['https'], privateCidrs: [] }),
+        {
+          run: async () => ({
+            testedAt: new Date().toISOString(),
+            text: { ok: true, code: 'passed', raw: 'ci-capability-key' },
+            action: { ok: false, code: 'provider_action_unsupported', raw: 'ci-capability-header' },
+          }),
+        },
+      );
+      const service = kind === 'personal' ? providers : providers.inWorkspace(workspaceId);
+      const access = {
+        actorUserId: owner,
+        scope: { kind, id: kind === 'personal' ? owner : workspaceId },
+      };
+      try {
+        const input = {
+          name: 'Capability model',
+          baseUrl: 'https://models.example/v1',
+          modelId: 'basic-model',
+          apiKey: 'ci-capability-key',
+          headers: { 'x-private-header': 'ci-capability-header' },
+        };
+        const a = await service.save(owner, input);
+        const b = await service.save(owner, input);
+        const changes = await Promise.allSettled([
+          service.setFallbacks(owner, a.id, {
+            expectedRevision: 0,
+            requiredCapability: 'basic',
+            connectionIds: [b.id],
+          }),
+          service.setFallbacks(owner, b.id, {
+            expectedRevision: 0,
+            requiredCapability: 'basic',
+            connectionIds: [a.id],
+          }),
+        ]);
+        expect(changes.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+        const rejected = changes.find((result) => result.status === 'rejected');
+        expect(rejected?.reason).toMatchObject({ message: 'fallback_cycle' });
+        const winner = changes[0]!.status === 'fulfilled' ? a : b;
+        const before = await service.capabilities(owner, winner.id);
+        expect(before.revision).toBe(1);
+        await expect(
+          service.setFallbacks(owner, winner.id, {
+            expectedRevision: 0,
+            requiredCapability: 'basic',
+            connectionIds: [],
+          }),
+        ).rejects.toThrow('connection_conflict');
+        await admin.query('REVOKE INSERT ON audit_events FROM openbot_runtime');
+        try {
+          await expect(
+            service.override(owner, winner.id, {
+              expectedRevision: 1,
+              capability: 'visionInput',
+              value: true,
+              rationale: 'Must roll back with missing audit permission',
+            }),
+          ).rejects.toThrow();
+          await expect(
+            service.setFallbacks(owner, winner.id, {
+              expectedRevision: 1,
+              requiredCapability: 'basic',
+              connectionIds: [],
+            }),
+          ).rejects.toThrow();
+        } finally {
+          await admin.query('GRANT INSERT ON audit_events TO openbot_runtime');
+        }
+        expect(await service.capabilities(owner, winner.id)).toEqual(before);
+        await service.override(owner, winner.id, {
+          expectedRevision: 1,
+          capability: 'structuredOutput',
+          value: true,
+          rationale: 'Schema verified using ci-capability-key and ci-capability-header',
+        });
+        await service.reprobe(owner, winner.id, { expectedRevision: 2 });
+        expect(await service.capabilities(owner, winner.id)).toMatchObject({
+          revision: 3,
+          collaboration: true,
+          flags: { structuredOutput: { manualBadge: true, actorUserId: owner } },
+        });
+        const audit = await admin.query(
+          'SELECT event_type,actor_user_id,metadata FROM audit_events WHERE actor_user_id=$1 ORDER BY occurred_at',
+          [owner],
+        );
+        expect(
+          audit.rows.filter((row) => row.event_type === 'provider.fallbacks_updated'),
+        ).toHaveLength(1);
+        expect(audit.rows).toHaveLength(5);
+        expect(JSON.stringify(audit.rows)).not.toMatch(
+          /ci-capability-key|ci-capability-header|x-private-header|raw|sealed_credentials/u,
+        );
+        expect(audit.rows.at(-1)).toMatchObject({
+          event_type: 'provider.connection_reprobed',
+          actor_user_id: owner,
+          metadata: {
+            revisionBefore: 2,
+            revisionAfter: 3,
+            policyAfter: {
+              probes: { text: { actorUserId: owner } },
+              overrides: { structuredOutput: { actorUserId: owner } },
+            },
+          },
+        });
+        await expect(
+          runtime.query('UPDATE users SET display_name=$1 WHERE id=$2', ['Forbidden', owner]),
+        ).rejects.toMatchObject({ code: '42501' });
+
+        const transaction = await runtime.connect();
+        let pendingDisable: Promise<unknown> | undefined;
+        try {
+          await transaction.query('BEGIN');
+          if (kind === 'workspace')
+            await transaction.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
+              workspaceId,
+            ]);
+          const binding = await admitUsableModel(transaction, access, {
+            connectionId: winner.id,
+            expectedModelId: input.modelId,
+          });
+          expect(binding).toEqual({
+            scope: access.scope,
+            connectionId: winner.id,
+            modelId: input.modelId,
+            chatOnly: false,
+          });
+          pendingDisable = service.disable(owner, winner.id);
+          await vi.waitFor(async () => {
+            const blocked = await admin.query(
+              "SELECT pid FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'",
+              [applicationName],
+            );
+            expect(blocked.rows).toHaveLength(1);
+          });
+          await transaction.query('COMMIT');
+          await pendingDisable;
+          await transaction.query('BEGIN');
+          await expect(
+            admitUsableModel(transaction, access, {
+              connectionId: winner.id,
+              expectedModelId: input.modelId,
+            }),
+          ).rejects.toThrow('connection_disabled');
+        } finally {
+          await transaction.query('ROLLBACK');
+          transaction.release();
+          await pendingDisable;
+        }
+      } finally {
+        await scopedPool.end();
+      }
+    },
+  );
 });

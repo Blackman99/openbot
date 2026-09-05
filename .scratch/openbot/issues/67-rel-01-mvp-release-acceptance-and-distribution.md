@@ -141,3 +141,12 @@ Verify33944259379 on remote c547c6c passed code, postgres-auth (including the th
 - [ ] Keep all earlier auth/OIDC/provider/group checks and fresh/upgrade Compose startup green through the ordered0010 migration.
 
 Integrated47a6008 passed478 unit/integration tests,12 ordinary browser scenarios and one real signed-IdP journey, formatting/types/builds. Original Standards and Spec reviews are clean at96ab273; root independently reviewed integration deltas and the bounded canonical member-removal audit followup498fdec (integrated3c7783d). These local checks do not replace actual PostgreSQL/Compose execution.
+
+## Open external gate — PROV-05-E1
+
+- [ ] Execute actual restricted-role provider PostgreSQL cases for both scopes: opposing concurrent fallback edits, policy/audit rollback, users UPDATE denial and provider admission locks held through the caller transaction.
+- [ ] Verify fresh/upgrade Compose through0011 and exact shared policy UPDATE privileges, preserving all prior group/token/auth/OIDC/provider checks.
+
+Integrated075a191 passed539 unit/integration tests,14 ordinary browser scenarios plus one real signed-IdP journey, formatting/types/builds and31 shell syntax checks. Both independent reviews are clean3468fa8; root reviewed only additive integration resolutions and group CI patch85f8686. This explicit external exception unlocks local BOT-01 implementation; pg-mem and browser fixtures do not substitute for the pending database/runtime evidence.
+
+API/group retry33944859922 passed482 code tests,13 browser journeys and all three native PostgreSQL jobs, including16 auth/invitation/member/OIDC/group/token cases. Compose failed because the group smoke expected a role in the invitation identity projection. Reviewed patch85f8686, integrated075a191, corrects the assertion using the actual member-list API; complete Compose retry remains mandatory for COL-01-E1 and API-01-E1.

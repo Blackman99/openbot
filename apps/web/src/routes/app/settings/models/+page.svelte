@@ -40,6 +40,7 @@
   {#each data.connections as connection (connection.id)}
     <article aria-labelledby={`model-${connection.id}`}>
       <h2 id={`model-${connection.id}`}>{connection.name}</h2>
+      <p><a href={`/app/settings/models/${encodeURIComponent(connection.id)}/capabilities`}>Capabilities and fallbacks</a></p>
       <p>{connection.enabled ? 'Enabled' : 'Disabled'} · {connection.modelId} · {protocolNames[connection.protocol]}</p>
       <p>API key: {connection.apiKeyConfigured ? 'configured' : 'not configured'}</p>
       <p>Configured headers: {connection.headerNames.join(', ') || 'none'}</p>

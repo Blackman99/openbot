@@ -155,7 +155,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -334,7 +334,7 @@ jobs:
           shared_model_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_model_connections', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_model_connections'")"
-          test "$shared_model_update_privileges" = 'created_at:false,id:false,metadata:true,revision:true,sealed_credentials:true,updated_at:true,workspace_id:false'
+          test "$shared_model_update_privileges" = 'created_at:false,id:false,metadata:true,policy:true,revision:true,sealed_credentials:true,updated_at:true,workspace_id:false'
 
           group_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -691,6 +691,9 @@ jobs:
           test "$unsafe_member_audits" = '0'
       - name: Verify groups and human membership with the restricted runtime role
         run: |
+          set -Eeuo pipefail
+          group_stage=initialize
+          trap 'code=$?; printf "Group smoke failed at stage %s (line %s, exit %s)\n" "$group_stage" "$LINENO" "$code" >&2; exit "$code"' ERR
           workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
           owner_cookies=/tmp/openbot-workspace-cookies.txt
           response=/tmp/openbot-group-response.json
@@ -716,6 +719,7 @@ jobs:
           }
           declare -A group_users group_cookies
           for person in b c d; do
+            group_stage="invite-member-$person"
             email="group-$person@example.com"
             group_cookies[$person]="/tmp/openbot-group-$person-cookies.txt"
             touch "${group_cookies[$person]}"
@@ -727,11 +731,15 @@ jobs:
                 '{token:$token,email:$email,displayName:"CI Group Member",password:"ci-only-group-password"}')"
             group_users[$person]="$(jq --raw-output '.user.id' "$response")"
             jq --exit-status --arg workspace "$workspace_id" \
-              '.workspace.id == $workspace and .workspace.role == "member"' "$response" >/dev/null
+              '.workspace.id == $workspace' "$response" >/dev/null
+            group_request GET "$owner_cookies" "/api/v1/workspaces/$workspace_id/members" 200
+            jq --exit-status --arg user "${group_users[$person]}" \
+              'any(.members[]; .user.id == $user and .role == "member")' "$response" >/dev/null
           done
           b="${group_users[b]}" c="${group_users[c]}" d="${group_users[d]}"
           b_cookies="${group_cookies[b]}" c_cookies="${group_cookies[c]}" d_cookies="${group_cookies[d]}"
           base="/api/v1/workspaces/$workspace_id/groups"
+          group_stage=private-creation
           group_request POST "$b_cookies" "$base" 201 '{"name":"Compose group"}'
           jq --exit-status '.group.visibility == "private" and .group.description == "" and .group.role == "owner"' "$response" >/dev/null
           group_id="$(jq --raw-output '.group.id' "$response")"
@@ -740,6 +748,7 @@ jobs:
             group_request GET "$owner_cookies" "$group_path$suffix" 403
             test "$(jq --raw-output '.error.code' "$response")" = 'group_forbidden'
           done
+          group_stage=discoverable-metadata
           group_request PATCH "$b_cookies" "$group_path" 200 \
             '{"description":"Runtime membership smoke","visibility":"workspace"}'
           jq --exit-status '.group.name == "Compose group" and .group.visibility == "workspace" and .group.description == "Runtime membership smoke"' "$response" >/dev/null
@@ -749,6 +758,7 @@ jobs:
           jq --exit-status --arg group "$group_id" 'any(.groups[]; .id == $group and .role == null)' "$response" >/dev/null
           group_request GET "$owner_cookies" "$group_path/members" 403
 
+          group_stage=human-membership-authority
           group_request POST "$b_cookies" "$group_path/members" 201 \
             "$(jq --null-input --arg user "$c" '{userId:$user,role:"admin"}')"
           group_request POST "$c_cookies" "$group_path/members" 201 \
@@ -770,6 +780,7 @@ jobs:
           group_request GET "$d_cookies" "$group_path" 200
           test "$(jq --raw-output '.group.role' "$response")" = 'member'
 
+          group_stage=workspace-removal-and-eligible-owner
           group_request PATCH "$b_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
           group_request DELETE "$owner_cookies" "/api/v1/workspaces/$workspace_id/members/$b" 204
           group_request GET "$b_cookies" /api/v1/me 200
@@ -784,6 +795,7 @@ jobs:
           group_request DELETE "$c_cookies" "$group_path/members/$c" 409
           test "$(jq --raw-output '.error.code' "$response")" = 'last_group_owner_required'
 
+          group_stage=workspace-rejoin-and-group-removal
           group_request POST "$owner_cookies" "/api/v1/workspaces/$workspace_id/invitations" 201 \
             '{"email":"group-b@example.com","role":"member","expiresInDays":1}'
           token="$(jq --raw-output '.token' "$response")"
@@ -800,6 +812,7 @@ jobs:
             group_request GET "$b_cookies" "$group_path$suffix" 403
           done
           group_request GET "$owner_cookies" "$group_path" 403
+          group_stage=retained-authorship-and-audits
           retained_author="$(group_sql "SELECT concat_ws(',', (SELECT COUNT(*) FROM users WHERE id = '$b'), (SELECT COUNT(*) FROM local_credentials WHERE user_id = '$b'), (SELECT COUNT(*) FROM sessions WHERE user_id = '$b' AND revoked_at IS NULL AND expires_at > NOW()), (SELECT COUNT(*) FROM groups WHERE id = '$group_id' AND created_by_user_id = '$b'), (SELECT COUNT(*) FROM group_memberships WHERE group_id = '$group_id' AND user_id = '$b'), (SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id = '$workspace_id' AND user_id = '$b'), (SELECT COUNT(*) FROM audit_events WHERE event_type = 'group.created' AND actor_user_id = '$b' AND metadata->>'groupId' = '$group_id'))")"
           test "$retained_author" = '1,1,1,1,0,1,1'
           group_audits="$(group_sql "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
@@ -808,6 +821,7 @@ jobs:
           test "$unsafe_group_audits" = '0'
           audit_count="$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
           test "$audit_count" = '9'
+          group_stage=no-op-audits
           group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
           group_request PATCH "$c_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
           test "$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")" = "$audit_count"

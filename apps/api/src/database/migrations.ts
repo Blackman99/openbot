@@ -197,6 +197,14 @@ const MIGRATIONS = [
     ],
     postgresStatements: [],
   },
+  {
+    version: '0011_model_capability_policies',
+    statements: [
+      "ALTER TABLE personal_model_connections ADD COLUMN policy JSONB NOT NULL DEFAULT '{}'::jsonb",
+      "ALTER TABLE workspace_model_connections ADD COLUMN policy JSONB NOT NULL DEFAULT '{}'::jsonb",
+    ],
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

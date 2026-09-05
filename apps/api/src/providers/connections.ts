@@ -1,3 +1,18 @@
+import {
+  currentPolicy,
+  emptyPolicy,
+  policyDetails,
+  recordProbe,
+  type ModelPolicy,
+} from './capability-policy.js';
+import { resolutionPreview } from './fallback-policy.js';
+import {
+  parseFallbacks,
+  parseRequirement,
+  parseOverride,
+  policyMutation,
+  type PolicyChange,
+} from './policy-input.js';
 import { randomUUID } from 'node:crypto';
 import {
   credentialContext,
@@ -34,6 +49,7 @@ export interface ConnectionMetadata {
   lastProbe: ProbeReport;
 }
 export interface ConnectionRecord {
+  policy?: ModelPolicy;
   metadata: ConnectionMetadata;
   access: ConnectionAccess;
   canManage: boolean;
@@ -54,6 +70,12 @@ export interface ProviderRepository {
   list(access: ConnectionAccess): Promise<{ canManage: boolean; records: ConnectionRecord[] }>;
   replace(record: ConnectionRecord, event: string): Promise<boolean>;
   delete(access: ConnectionAccess, id: string): Promise<boolean>;
+  changePolicy(
+    access: ConnectionAccess,
+    id: string,
+    expectedRevision: number,
+    change: PolicyChange,
+  ): Promise<ConnectionRecord>;
 }
 
 export function parseConnectionInput(value: unknown): ConnectionInput {
@@ -140,6 +162,23 @@ export function parseConnectionInput(value: unknown): ConnectionInput {
   };
 }
 
+function targetChanged(
+  input: ConnectionInput,
+  previous: ConnectionMetadata,
+  credentials: { apiKey: string; headers: Record<string, string> },
+): boolean {
+  const headers = (value: Record<string, string>) =>
+    JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+  return (
+    input.protocol !== previous.protocol ||
+    input.baseUrl !== previous.baseUrl ||
+    input.modelId !== previous.modelId ||
+    input.anthropicVersion !== previous.anthropicVersion ||
+    input.apiKey !== credentials.apiKey ||
+    headers(input.headers) !== headers(credentials.headers)
+  );
+}
+
 export class ProviderConnections {
   constructor(
     private readonly repository: ProviderRepository,
@@ -178,6 +217,53 @@ export class ProviderConnections {
     };
   }
 
+  async capabilities(actorUserId: string, id: string) {
+    return policyDetails(await this.owned(actorUserId, id, 'read'));
+  }
+
+  async override(actorUserId: string, id: string, value: unknown) {
+    const record = await this.owned(actorUserId, id, 'manage');
+    const input = parseOverride(value);
+    if (record.revision !== input.expectedRevision) throw new ProviderError('connection_conflict');
+    const credentials = this.secrets.open(
+      record.sealedCredentials,
+      credentialContext(record.access.scope, record.metadata.id),
+    );
+    const changed = await this.repository.changePolicy(
+      record.access,
+      record.metadata.id,
+      input.expectedRevision,
+      {
+        kind: 'override',
+        capability: input.capability,
+        value: input.value,
+        rationale: redactProviderText(input.rationale, credentials),
+        createdAt: new Date().toISOString(),
+      },
+    );
+    return policyDetails(changed);
+  }
+
+  async setFallbacks(actorUserId: string, id: string, value: unknown) {
+    await this.repository.authorize(this.access(actorUserId), 'manage');
+    const input = parseFallbacks(value);
+    const record = await this.repository.changePolicy(
+      this.access(actorUserId),
+      id,
+      input.expectedRevision,
+      {
+        kind: 'fallbacks',
+        requiredCapability: input.requiredCapability,
+        connectionIds: input.connectionIds,
+      },
+    );
+    return policyDetails(record);
+  }
+  async preview(actorUserId: string, id: string, requirement: unknown) {
+    const graph = await this.repository.list(this.access(actorUserId));
+    return resolutionPreview(graph.records, id, parseRequirement(requirement));
+  }
+
   async save(ownerId: string, value: unknown, signal?: AbortSignal): Promise<ConnectionMetadata> {
     const access = this.access(ownerId);
     await this.repository.authorize(access, 'manage');
@@ -202,6 +288,7 @@ export class ProviderConnections {
       canManage: true,
       metadata,
       revision: 0,
+      policy: recordProbe({ ...emptyPolicy(), generation: 1 }, ownerId, report),
       sealedCredentials: this.secrets.seal(
         { apiKey: input.apiKey, headers: input.headers },
         credentialContext(this.access(ownerId).scope, id),
@@ -260,6 +347,16 @@ export class ProviderConnections {
       headerNames: Object.keys(input.headers).sort(),
       lastProbe: report,
     };
+    const previousPolicy = currentPolicy(record.policy);
+    const policy = recordProbe(
+      {
+        ...previousPolicy,
+        generation:
+          previousPolicy.generation + (targetChanged(input, record.metadata, existing) ? 1 : 0),
+      },
+      ownerId,
+      report,
+    );
     const sealedCredentials = this.secrets.seal(
       { apiKey: input.apiKey, headers: input.headers },
       credentialContext(this.access(ownerId).scope, id),
@@ -271,6 +368,7 @@ export class ProviderConnections {
           canManage: true,
           metadata,
           sealedCredentials,
+          policy,
           revision: record.revision,
         },
         'provider.connection_updated',
@@ -282,6 +380,23 @@ export class ProviderConnections {
 
   async test(ownerId: string, id: string, signal?: AbortSignal): Promise<ProbeReport> {
     const record = await this.owned(ownerId, id, 'use');
+    return this.probeSaved(record, ownerId, signal, 'use', 'provider.connection_tested');
+  }
+  async reprobe(ownerId: string, id: string, value: unknown, signal?: AbortSignal) {
+    const record = await this.owned(ownerId, id, 'manage');
+    const input = policyMutation(value, ['expectedRevision']);
+    if (record.revision !== input.expectedRevision) throw new ProviderError('connection_conflict');
+    await this.probeSaved(record, ownerId, signal, 'manage', 'provider.connection_reprobed');
+    return this.capabilities(ownerId, id);
+  }
+  private async probeSaved(
+    record: ConnectionRecord,
+    ownerId: string,
+    signal: AbortSignal | undefined,
+    permission: ConnectionPermission,
+    event: string,
+  ): Promise<ProbeReport> {
+    const id = record.metadata.id;
     if (!record.metadata.enabled) throw new ProviderError('connection_disabled');
     const credentials = this.secrets.open(
       record.sealedCredentials,
@@ -291,10 +406,11 @@ export class ProviderConnections {
     const report = await this.runProbe(
       { ...record.metadata, ...credentials },
       signal,
-      this.admission(ownerId, 'use', record),
+      this.admission(ownerId, permission, record, true),
     );
     record.metadata.lastProbe = report;
-    if (!(await this.repository.replace(record, 'provider.connection_tested')))
+    record.policy = recordProbe(currentPolicy(record.policy), ownerId, report);
+    if (!(await this.repository.replace(record, event)))
       throw new ProviderError('connection_conflict');
     return report;
   }
@@ -317,15 +433,15 @@ export class ProviderConnections {
     actorUserId: string,
     permission: ConnectionPermission,
     expected?: ConnectionRecord,
+    requiresEnabled = false,
   ): ProbeAdmission | undefined {
-    if (this.workspaceId === undefined) return undefined;
     return async () => {
       if (!expected) {
         await this.repository.authorize(this.access(actorUserId), permission);
         return;
       }
       const current = await this.owned(actorUserId, expected.metadata.id, permission);
-      if (permission === 'use' && !current.metadata.enabled)
+      if ((permission === 'use' || requiresEnabled) && !current.metadata.enabled)
         throw new ProviderError('connection_disabled');
       if (current.revision !== expected.revision) throw new ProviderError('connection_conflict');
     };
