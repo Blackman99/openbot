@@ -370,4 +370,65 @@ describe('candidate review inbox', () => {
       expect.objectContaining({ kind: 'approved_fact', text: 'keep this with the Bot.' }),
     ]);
   });
+
+  it('drops an approved fact from search and later context after a bound source edit', async () => {
+    const base = await memoryFixture(cleanup);
+    const { grant, tasks, candidateId, revision } = await extractedGroupCandidate(
+      base,
+      'Remember: lineage must stay current.',
+      'lineage',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: revision,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.77,
+      idempotencyKey: 'approve-lineage',
+    });
+    const groupAccess = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      groupId: base.group.id,
+    };
+    expect(
+      (await base.memories.list(groupAccess, { query: 'lineage must stay' }, true)).memories,
+    ).toEqual([expect.objectContaining({ kind: 'approved_fact', text: 'lineage must stay current.' })]);
+    await base.conversations.edit(
+      base.owner.user.id,
+      base.owner.workspace.id,
+      base.conversation.id,
+      base.source.messageId,
+      { expectedVersion: 1, body: 'Changed bound source', idempotencyKey: 'stale-source' },
+    );
+    expect((await base.memories.list(groupAccess, { query: 'lineage must stay' }, true)).memories).toEqual(
+      [],
+    );
+    let captured: string[] = [];
+    await tasks.submit(base.owner.user.id, base.owner.workspace.id, base.conversation.id, {
+      body: 'Use reviewed facts after the source changed.',
+      idempotencyKey: 'after-stale-source',
+      groupGrantId: grant.id,
+    });
+    const later = new TaskWorker(base.pool, {
+      secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+      createAdapter: () => ({
+        generate: async (input) => {
+          captured = input.messages.map((message) => message.content);
+          return {
+            events: [
+              { type: 'text', text: 'No stale fact.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          };
+        },
+      }),
+    });
+    expect(await later.runOnce()).toBe(true);
+    expect(captured.some((content) => content.includes('"kind":"approved_facts"'))).toBe(false);
+  });
 });

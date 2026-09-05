@@ -303,8 +303,18 @@ export async function selectApprovedFactRows(
        JOIN memory_candidates c ON c.id=f.candidate_id
        JOIN users u ON u.id=f.approver_user_id
        JOIN conversation_events e ON e.id=c.output_event_id AND e.body IS NOT NULL
+       LEFT JOIN conversation_events later_out ON later_out.conversation_id=e.conversation_id AND later_out.message_id=e.message_id AND later_out.sequence>e.sequence
        LEFT JOIN message_purges p ON p.workspace_id=f.workspace_id AND p.message_id=e.message_id
-       WHERE f.workspace_id=$1 AND (${scopes.join(' OR ')}) AND p.message_id IS NULL${extra}
+       LEFT JOIN (
+         SELECT DISTINCT s.candidate_id
+         FROM memory_candidate_sources s
+         JOIN conversation_events src ON src.id=s.event_id
+         LEFT JOIN conversation_events later_src ON later_src.conversation_id=src.conversation_id AND later_src.message_id=src.message_id AND later_src.sequence>src.sequence
+         LEFT JOIN memory_candidate_sources later_known ON later_known.candidate_id=s.candidate_id AND later_known.event_id=later_src.id
+         LEFT JOIN message_purges src_purge ON src_purge.workspace_id=$1 AND src_purge.message_id=src.message_id
+         WHERE src.body IS NULL OR src_purge.message_id IS NOT NULL OR (later_src.id IS NOT NULL AND later_known.event_id IS NULL)
+       ) stale ON stale.candidate_id=c.id
+       WHERE f.workspace_id=$1 AND (${scopes.join(' OR ')}) AND p.message_id IS NULL AND later_out.id IS NULL AND stale.candidate_id IS NULL${extra}
        ORDER BY f.id LIMIT $2`,
       parameters,
     )
