@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 remains complete. MEM-02 remains in progress on `feat/openbot-collaboration-system` / draft PR #1: native PostgreSQL promotion guards, competing-confirm serialization, destination-Bot cross-group claim isolation, and Compose preview/confirm/other-Bot smoke are added. Ticket 38 ACs stay unchecked until those native and Compose jobs execute in Verify. KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** COL-10 remains complete. MEM-02 remains in progress on `feat/openbot-collaboration-system` / draft PR #1: native PostgreSQL promotion evidence is green; Compose preview/confirm still needs a distinct AC6 actor so the MEM-01 search-denial observer is not polluted by promotion-preview audits. Ticket 38 ACs stay unchecked until Compose Verify is green. KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Thirty of 67 tickets are implemented and independently reviewed: 29 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. MEM-02 and KNW-01 remain in progress; the other blocked tickets remain blocked by their actual implementation dependencies.
 

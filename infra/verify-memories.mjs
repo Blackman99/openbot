@@ -13,8 +13,9 @@ try {
   const workspaceId = randomUUID(),
     owner = randomUUID(),
     member = randomUUID(),
-    outsider = randomUUID();
-  for (const userId of [owner, member, outsider])
+    outsider = randomUUID(),
+    promotionOutsider = randomUUID();
+  for (const userId of [owner, member, outsider, promotionOutsider])
     await pool.query(
       'INSERT INTO users(id,email,normalized_email,display_name,created_at) VALUES($1,$2,$2,$3,NOW())',
       [userId, `${userId}@example.com`, 'Memory smoke'],
@@ -23,7 +24,7 @@ try {
     workspaceId,
     'Memory smoke',
   ]);
-  for (const userId of [owner, member, outsider])
+  for (const userId of [owner, member, outsider, promotionOutsider])
     await pool.query(
       'INSERT INTO workspace_memberships(workspace_id,user_id,role,created_at) VALUES($1,$2,$3,NOW())',
       [workspaceId, userId, userId === owner ? 'owner' : 'member'],
@@ -54,6 +55,7 @@ try {
   const token = await session(member),
     ownerToken = await session(owner),
     outsiderToken = await session(outsider),
+    promotionOutsiderToken = await session(promotionOutsider),
     api = 'http://127.0.0.1:3001',
     base = `${api}/api/v1/workspaces/${workspaceId}/groups/${group.id}/memories`;
   const request = (path = '', body, using = token) =>
@@ -183,12 +185,14 @@ try {
     ).status,
     403,
   );
+  // Preview denials write memory.access_denied. Keep that actor distinct from
+  // the search-denial subject the Compose observer reads by actorUserId.
   assert.equal(
     (
       await request(
         '/' + promoteMemory.id + '/promotion-previews',
         { destinationBotId: dest.id },
-        outsiderToken,
+        promotionOutsiderToken,
       )
     ).status,
     403,

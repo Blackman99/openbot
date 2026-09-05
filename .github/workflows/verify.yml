@@ -1226,7 +1226,7 @@ jobs:
             cat "$memory_report" >&2 || true
             exit 1
           fi
-          jq --exit-status --slurp '
+          if ! jq --exit-status --slurp '
             def uuid: type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
             length == 1 and (.[0] |
               keys == ["actorUserId", "expectedAudits"] and (.actorUserId | uuid) and
@@ -1234,7 +1234,11 @@ jobs:
               (.expectedAudits[0] | keys == ["metadata"]) and
               (.expectedAudits[0].metadata | keys == ["groupId", "operation", "workspaceId"] and
                 .operation == "search" and (.workspaceId | uuid) and (.groupId | uuid)))
-          ' "$memory_report" > /dev/null
+          ' "$memory_report" > /dev/null; then
+            echo 'Memory Compose observer report was not a single expected search-denial object' >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
           memory_actor="$(jq --exit-status --raw-output '.actorUserId' "$memory_report")"
           memory_audits="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -1244,7 +1248,12 @@ jobs:
           WHERE actor_user_id = :'memory_actor'::uuid AND event_type = 'memory.access_denied';
           SQL
           )"
-          jq --exit-status --argjson actual "$memory_audits" '$actual == .expectedAudits' "$memory_report" > /dev/null
+          if ! jq --exit-status --argjson actual "$memory_audits" '$actual == .expectedAudits' "$memory_report" > /dev/null; then
+            echo 'Memory Compose independently observed audits did not match the report' >&2
+            printf '%s\n' "$memory_audits" >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
           echo 'Memory Compose save, provenance, source revocation and independently observed scope denial audit passed'
       - name: Verify scoped API tokens with the restricted runtime role
         run: docker compose exec -T api node --input-type=module < infra/verify-api-tokens.mjs
