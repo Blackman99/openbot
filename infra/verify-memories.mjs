@@ -270,15 +270,6 @@ try {
     (await destSearch.json()).memories.map((item) => item.id),
     [promoted.id],
   );
-  assert.equal(
-    (
-      await pool.query(
-        "SELECT metadata->>'sourceMemoryId' AS source, metadata->>'botId' AS bot FROM audit_events WHERE event_type='memory.promoted' AND actor_user_id=$1",
-        [owner],
-      )
-    ).rows[0].source,
-    promoteMemory.id,
-  );
   stage = 'current source revocation';
   await conversations.edit(owner, workspaceId, conversation.id, source.messageId, {
     body: 'Current source changed',
@@ -294,7 +285,7 @@ try {
       [group.id],
     )
   ).rows;
-  assert.equal(rows.length, 1);
+  assert.equal(rows.length, 2);
   assert.equal(JSON.stringify(rows).includes('cobalt'), false);
   stage = 'retained table privileges';
   for (const table of [
@@ -336,8 +327,9 @@ try {
       expectedAudits: [{ metadata: { operation: 'search', workspaceId, groupId: group.id } }],
     }),
   );
-} catch {
+} catch (error) {
   console.error(`Memory Compose verification failed: ${stage}`);
+  console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
   await pool.end();

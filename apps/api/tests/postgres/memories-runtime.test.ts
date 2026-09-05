@@ -1144,9 +1144,10 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     ).toEqual([]);
     expect(
       (
-        await admin.query('SELECT id FROM memory_promotion_confirmations WHERE intent_id=$1', [
-          otherIntent,
-        ])
+        await admin.query(
+          'SELECT intent_id FROM memory_promotion_confirmations WHERE intent_id=$1',
+          [otherIntent],
+        )
       ).rows,
     ).toEqual([]);
   });

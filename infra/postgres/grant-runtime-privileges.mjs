@@ -165,6 +165,9 @@ try {
     REVOKE ALL ON FUNCTION protect_group_memory() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_memory_version() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_run_memory_reference() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_bot_private_memory() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_promotion_confirmation() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_private_memory_reference() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
