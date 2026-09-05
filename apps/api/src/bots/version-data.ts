@@ -35,6 +35,8 @@ export function applyConfigurationChange(
           'instructions',
           'modelBinding',
           'limits',
+          'retryPolicy',
+          'fallbackBindings',
         ].includes(key),
     )
   )
@@ -102,6 +104,14 @@ export function configurationFields(config: BotConfiguration) {
     'limits.maxDurationSeconds': config.limits.maxDurationSeconds,
     'limits.maxTurns': config.limits.maxTurns,
     'limits.maxDelegationDepth': config.limits.maxDelegationDepth,
+    'retryPolicy.maxAttemptsPerModel': config.retryPolicy?.maxAttemptsPerModel ?? null,
+    'retryPolicy.maxRunsPerChain': config.retryPolicy?.maxRunsPerChain ?? null,
+    fallbackBindings:
+      config.fallbackBindings === undefined
+        ? null
+        : config.fallbackBindings
+            .map((binding) => `${binding.connectionId}:${binding.modelId}`)
+            .join(','),
   };
 }
 export type BotVersionField = keyof ReturnType<typeof configurationFields>;

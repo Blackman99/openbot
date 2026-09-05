@@ -1,7 +1,12 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import { ProviderError } from '../providers/url-policy.js';
-import { BotModelError, type BotBinding, type BindingUnavailableReason } from './service.js';
+import {
+  BotModelError,
+  type BindingUnavailableReason,
+  type BotBinding,
+  type BotConfiguration,
+} from './service.js';
 
 export async function admitBotModel(
   connection: SqlConnection,
@@ -29,4 +34,20 @@ export async function admitBotModel(
     if (reason) throw new BotModelError(reason);
     throw error;
   }
+}
+export async function admitConfiguredBindings(
+  connection: SqlConnection,
+  actorUserId: string,
+  workspaceId: string,
+  configuration: BotConfiguration,
+) {
+  const admitted = await admitBotModel(
+    connection,
+    actorUserId,
+    workspaceId,
+    configuration.modelBinding,
+  );
+  for (const binding of configuration.fallbackBindings ?? [])
+    await admitBotModel(connection, actorUserId, workspaceId, binding);
+  return admitted;
 }

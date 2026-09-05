@@ -1,5 +1,6 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { classifyTransportFailure } from './failure-taxonomy.js';
 import { ProviderError, ProviderUrlPolicy } from './url-policy.js';
 
 export async function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -116,13 +117,7 @@ export class PinnedProviderTransport {
               }
               finish();
             } catch (error) {
-              finish(
-                error instanceof ProviderError
-                  ? error.code
-                  : input.stream
-                    ? 'provider_interrupted_stream'
-                    : 'provider_unreachable',
-              );
+              finish(classifyTransportFailure(error, { stream: input.stream, status }).code);
               response.destroy();
               request.destroy();
             }
@@ -130,8 +125,8 @@ export class PinnedProviderTransport {
           void consume();
         },
       );
-      request.on('error', () =>
-        finish(status && input.stream ? 'provider_interrupted_stream' : 'provider_unreachable'),
+      request.on('error', (error) =>
+        finish(classifyTransportFailure(error, { stream: input.stream, status }).code),
       );
       request.end(payload);
     });

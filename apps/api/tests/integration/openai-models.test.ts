@@ -219,6 +219,8 @@ it.each([
 it.each([
   [429, 'provider_rate_limited', 'retryable'],
   [503, 'provider_unavailable', 'retryable'],
+  [501, 'provider_request_failed', 'non_retryable'],
+  [505, 'provider_request_failed', 'non_retryable'],
   [401, 'provider_authentication_failed', 'non_retryable'],
   [302, 'provider_request_failed', 'non_retryable'],
 ])('normalizes HTTP %s safely', async (status, code, category) => {

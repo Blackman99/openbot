@@ -1,4 +1,4 @@
-import { admitBotModel } from './model-binding.js';
+import { admitConfiguredBindings } from './model-binding.js';
 import {
   applyConfigurationChange,
   compareConfigurations,
@@ -52,13 +52,15 @@ export async function appendBotVersion(
     restored ||
     (change.kind === 'configuration' &&
       versionObject(change.changes) &&
-      'modelBinding' in change.changes)
+      ('modelBinding' in change.changes ||
+        'retryPolicy' in change.changes ||
+        'fallbackBindings' in change.changes))
   )
-    await admitBotModel(
+    await admitConfiguredBindings(
       connection,
       access.actorUserId,
       access.workspaceId,
-      configuration.modelBinding,
+      configuration,
     );
   const differences = compareConfigurations(current.configuration, configuration);
   if (!restored && !differences.length) return botVersion(current);

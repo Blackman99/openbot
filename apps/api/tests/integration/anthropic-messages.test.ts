@@ -212,8 +212,9 @@ describe('Anthropic Messages HTTP contract', () => {
     [401, 'provider_authentication_failed', 'non_retryable'],
     [403, 'provider_authentication_failed', 'non_retryable'],
     [429, 'provider_rate_limited', 'retryable'],
-    [529, 'provider_unavailable', 'retryable'],
+    [529, 'provider_request_failed', 'non_retryable'],
     [500, 'provider_unavailable', 'retryable'],
+    [501, 'provider_request_failed', 'non_retryable'],
     [400, 'provider_request_failed', 'non_retryable'],
     [302, 'provider_request_failed', 'non_retryable'],
   ])('normalizes HTTP %s and sanitizes reflected credentials', async (status, code, category) => {
@@ -249,14 +250,26 @@ describe('Anthropic Messages HTTP contract', () => {
   it('bounds an unresponsive upstream request', async () => {
     const { input } = await mock(() => {});
     const result = await adapter(40).generate(input);
-    expect(result.error).toEqual({ code: 'provider_timeout', category: 'retryable' });
+    expect(result.error).toEqual({ code: 'provider_timeout', category: 'non_retryable' });
   });
   it('requires message_stop and preserves safe evidence on EOF', async () => {
     const { input } = await mock((_body, response) => response.end(textStart()));
     const result = await adapter().generate({ ...input, stream: true });
-    expect(result.error).toEqual({ code: 'provider_interrupted_stream', category: 'retryable' });
+    expect(result.error).toEqual({
+      code: 'provider_interrupted_stream',
+      category: 'non_retryable',
+    });
     expect(result.raw).toContain('Hello 世界');
     expect(result.events.some((event) => event.type === 'complete')).toBe(false);
+  });
+  it('retries HTTP 529 only when the overloaded envelope is present', async () => {
+    const { input } = await mock((_body, response) => {
+      response.writeHead(529);
+      response.end(JSON.stringify({ error: { type: 'overloaded_error', message: 'busy' } }));
+    });
+    expect(await adapter().generate(input)).toMatchObject({
+      error: { code: 'provider_unavailable', category: 'retryable' },
+    });
   });
   it('maps an upstream overloaded error inside an otherwise successful HTTP response', async () => {
     const { input } = await mock((_body, response) =>

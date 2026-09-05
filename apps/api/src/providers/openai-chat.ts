@@ -73,12 +73,7 @@ export class ChatEventDecoder {
       }
       const value: unknown = JSON.parse(frame.data);
       if (!isRecord(value)) throw new ProviderError('provider_invalid_response');
-      if (value.error) {
-        const code = upstreamErrorCode(value);
-        throw new ProviderError(
-          code === 'provider_request_failed' ? 'provider_interrupted_stream' : code,
-        );
-      }
+      if (value.error) throw new ProviderError(upstreamErrorCode(value));
       events.push(...usage(value.usage));
       const choice: unknown = Array.isArray(value.choices) ? value.choices[0] : undefined;
       if (!isRecord(choice)) continue;

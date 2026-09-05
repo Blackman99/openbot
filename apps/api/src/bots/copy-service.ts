@@ -2,14 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { avatarAccess } from './avatar-service.js';
 import { BotVersionConflictError, validateBotAvatarReference } from './append-version.js';
-import { admitBotModel } from './model-binding.js';
+import { admitBotModel, admitConfiguredBindings } from './model-binding.js';
 import { lockAuthorizedBot, type BotAccess } from './postgres-bot-access.js';
 import {
   BotAccessError,
   BotInputError,
   BotModelError,
+  parseBotBinding,
   parseBotConfiguration,
   type BindingStatus,
+  type BotBinding,
   type BotConfiguration,
   type BotDetail,
 } from './service.js';
@@ -40,14 +42,31 @@ export interface BotCopyPreview {
   excluded: typeof COPY_EXCLUDED;
 }
 // Copy from an explicit field allowlist, never spread a persisted JSON record.
-function copyConfiguration(source: BotConfiguration, replacement?: unknown): BotConfiguration {
+function compatibleFallbacks(source: BotConfiguration, primary: BotBinding) {
+  const kept = source.fallbackBindings?.filter(
+    (binding) =>
+      binding.scope.kind === primary.scope.kind &&
+      binding.scope.id === primary.scope.id &&
+      binding.connectionId !== primary.connectionId,
+  );
+  if (source.fallbackBindings === undefined) return {};
+  if (kept?.length) return { fallbackBindings: kept };
+  return source.fallbackBindings.length === 0 ? { fallbackBindings: [] } : {};
+}
+export function copyBotConfiguration(
+  source: BotConfiguration,
+  replacement?: unknown,
+): BotConfiguration {
+  const modelBinding = replacement === undefined ? source.modelBinding : replacement;
   return parseBotConfiguration({
     name: source.name,
     roleDescription: source.roleDescription,
     description: source.description,
     instructions: source.instructions,
-    modelBinding: replacement ?? source.modelBinding,
+    modelBinding,
     limits: source.limits,
+    ...(source.retryPolicy ? { retryPolicy: source.retryPolicy } : {}),
+    ...compatibleFallbacks(source, parseBotBinding(modelBinding)),
   });
 }
 export class BotCopyService {
@@ -76,7 +95,7 @@ export class BotCopyService {
     return this.transaction(async (connection) => {
       const source = await lockAuthorizedBot(connection, access, 'inspect');
       if (source.lifecycle_state === 'deleted') throw new BotAccessError();
-      const configuration = copyConfiguration(source.configuration);
+      const configuration = copyBotConfiguration(source.configuration);
       let bindingStatus: BindingStatus;
       try {
         const admitted = await admitBotModel(
@@ -122,12 +141,12 @@ export class BotCopyService {
       if (source.lifecycle_state === 'deleted') throw new BotAccessError();
       if (source.version_id !== expectedCurrentVersionId) throw new BotVersionConflictError();
       if ('modelBinding' in input && !versionObject(input.modelBinding)) throw new BotInputError();
-      const configuration = copyConfiguration(source.configuration, input.modelBinding);
-      const admitted = await admitBotModel(
+      const configuration = copyBotConfiguration(source.configuration, input.modelBinding);
+      const admitted = await admitConfiguredBindings(
         connection,
         access.actorUserId,
         access.workspaceId,
-        configuration.modelBinding,
+        configuration,
       );
       if (source.configuration.avatarObjectId) {
         await validateBotAvatarReference(

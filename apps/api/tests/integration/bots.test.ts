@@ -205,6 +205,8 @@ describe('persistent Bot identity', () => {
       { ...input, instructions: ' ' },
       { ...input, instructions: 'i'.repeat(32001) },
       { ...input, visibility: 'workspace' },
+      { ...input, retryAfterSeconds: 1 },
+      { ...input, retryPolicy: { maxAttemptsPerModel: 2 } },
       { ...input, apiKey: 'must-not-store' },
       { ...input, modelBinding: { ...input.modelBinding, apiKey: 'must-not-store' } },
       { ...input, limits: null },
@@ -249,6 +251,62 @@ describe('persistent Bot identity', () => {
       maxTurns: 100,
       maxDelegationDepth: 0,
     });
+    expect(accepted.json().bot.currentVersion.configuration.retryPolicy).toBeUndefined();
+  });
+  it('persists an explicit retry policy and admitted same-scope fallbacks', async () => {
+    const context = await fixture();
+    const fallback = await context.providers.save(context.owner.user.id, {
+      ...modelInput,
+      name: 'Fallback model',
+      modelId: 'fallback-model',
+    });
+    const created = await context.app.inject({
+      method: 'POST',
+      url: context.path,
+      headers,
+      payload: {
+        ...context.input,
+        retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+        fallbackBindings: [
+          {
+            scope: { kind: 'personal', id: context.owner.user.id },
+            connectionId: fallback.id,
+            modelId: fallback.modelId,
+          },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().bot.currentVersion.configuration.retryPolicy).toEqual({
+      maxAttemptsPerModel: 2,
+      maxRunsPerChain: 4,
+    });
+    expect(created.json().bot.currentVersion.configuration.fallbackBindings).toEqual([
+      {
+        scope: { kind: 'personal', id: context.owner.user.id },
+        connectionId: fallback.id,
+        modelId: fallback.modelId,
+      },
+    ]);
+    expect(
+      (
+        await context.app.inject({
+          method: 'POST',
+          url: context.path,
+          headers,
+          payload: {
+            ...context.input,
+            fallbackBindings: [
+              {
+                scope: { kind: 'personal', id: context.owner.user.id },
+                connectionId: fallback.id,
+                modelId: fallback.modelId,
+              },
+            ],
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
   });
   it('binds only currently enabled verified Basic models in the actor personal scope or the Bot workspace', async () => {
     const context = await fixture();

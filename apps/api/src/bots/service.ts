@@ -22,6 +22,10 @@ export interface BotBinding {
   connectionId: string;
   modelId: string;
 }
+export interface BotRetryPolicy {
+  maxAttemptsPerModel: number;
+  maxRunsPerChain: number;
+}
 export interface BotConfiguration {
   avatarObjectId?: string | null;
   name: string;
@@ -30,6 +34,8 @@ export interface BotConfiguration {
   instructions: string;
   modelBinding: BotBinding;
   limits: BotLimits;
+  retryPolicy?: BotRetryPolicy;
+  fallbackBindings?: BotBinding[];
 }
 export interface BotSummary {
   lifecycleState: BotLifecycleState;
@@ -96,6 +102,62 @@ function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): bool
   return Object.keys(value).every((key) => keys.includes(key));
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+export function parseBotBinding(input: unknown): BotBinding {
+  if (
+    !object(input) ||
+    !onlyKeys(input, ['scope', 'connectionId', 'modelId']) ||
+    !object(input.scope) ||
+    !onlyKeys(input.scope, ['kind', 'id']) ||
+    (input.scope.kind !== 'personal' && input.scope.kind !== 'workspace') ||
+    typeof input.scope.id !== 'string' ||
+    !uuid.test(input.scope.id) ||
+    typeof input.connectionId !== 'string' ||
+    !uuid.test(input.connectionId) ||
+    typeof input.modelId !== 'string' ||
+    !input.modelId.trim() ||
+    input.modelId.length > 256
+  )
+    throw new BotInputError();
+  return {
+    scope: { kind: input.scope.kind, id: input.scope.id.toLowerCase() },
+    connectionId: input.connectionId.toLowerCase(),
+    modelId: input.modelId,
+  };
+}
+function parseRetryPolicy(input: unknown): BotRetryPolicy {
+  if (!object(input) || !onlyKeys(input, ['maxAttemptsPerModel', 'maxRunsPerChain']))
+    throw new BotInputError();
+  const { maxAttemptsPerModel, maxRunsPerChain } = input;
+  if (
+    typeof maxAttemptsPerModel !== 'number' ||
+    !Number.isInteger(maxAttemptsPerModel) ||
+    maxAttemptsPerModel < 1 ||
+    maxAttemptsPerModel > 3 ||
+    typeof maxRunsPerChain !== 'number' ||
+    !Number.isInteger(maxRunsPerChain) ||
+    maxRunsPerChain < 1 ||
+    maxRunsPerChain > 4
+  )
+    throw new BotInputError();
+  return { maxAttemptsPerModel, maxRunsPerChain };
+}
+function parseFallbackBindings(input: unknown, primary: BotBinding): BotBinding[] {
+  if (!Array.isArray(input) || input.length > 3) throw new BotInputError();
+  const seen = new Set<string>([primary.connectionId]);
+  const bindings: BotBinding[] = [];
+  for (const item of input) {
+    const binding = parseBotBinding(item);
+    if (
+      binding.scope.kind !== primary.scope.kind ||
+      binding.scope.id !== primary.scope.id ||
+      seen.has(binding.connectionId)
+    )
+      throw new BotInputError();
+    seen.add(binding.connectionId);
+    bindings.push(binding);
+  }
+  return bindings;
+}
 export function parseBotConfiguration(input: unknown): BotConfiguration {
   if (
     !object(input) ||
@@ -106,6 +168,8 @@ export function parseBotConfiguration(input: unknown): BotConfiguration {
       'instructions',
       'modelBinding',
       'limits',
+      'retryPolicy',
+      'fallbackBindings',
     ])
   )
     throw new BotInputError();
@@ -125,21 +189,7 @@ export function parseBotConfiguration(input: unknown): BotConfiguration {
     instructions.length > 32000
   )
     throw new BotInputError();
-  if (
-    !object(modelBinding) ||
-    !onlyKeys(modelBinding, ['scope', 'connectionId', 'modelId']) ||
-    !object(modelBinding.scope) ||
-    !onlyKeys(modelBinding.scope, ['kind', 'id']) ||
-    (modelBinding.scope.kind !== 'personal' && modelBinding.scope.kind !== 'workspace') ||
-    typeof modelBinding.scope.id !== 'string' ||
-    !uuid.test(modelBinding.scope.id) ||
-    typeof modelBinding.connectionId !== 'string' ||
-    !uuid.test(modelBinding.connectionId) ||
-    typeof modelBinding.modelId !== 'string' ||
-    !modelBinding.modelId.trim() ||
-    modelBinding.modelId.length > 256
-  )
-    throw new BotInputError();
+  const binding = parseBotBinding(modelBinding);
   const limits = { ...DEFAULT_BOT_LIMITS };
   if ('limits' in input) {
     if (!object(input.limits) || !onlyKeys(input.limits, Object.keys(limits)))
@@ -163,17 +213,21 @@ export function parseBotConfiguration(input: unknown): BotConfiguration {
       limits[key] = value;
     }
   }
+  const retryPolicy = 'retryPolicy' in input ? parseRetryPolicy(input.retryPolicy) : undefined;
+  const fallbackBindings =
+    'fallbackBindings' in input
+      ? parseFallbackBindings(input.fallbackBindings, binding)
+      : undefined;
+  if (fallbackBindings?.length && !retryPolicy) throw new BotInputError();
   return {
     name: name.trim(),
     roleDescription: roleDescription.trim(),
     description: description.trim(),
     instructions,
-    modelBinding: {
-      scope: { kind: modelBinding.scope.kind, id: modelBinding.scope.id.toLowerCase() },
-      connectionId: modelBinding.connectionId.toLowerCase(),
-      modelId: modelBinding.modelId,
-    },
+    modelBinding: binding,
     limits,
+    ...(retryPolicy ? { retryPolicy } : {}),
+    ...(fallbackBindings === undefined ? {} : { fallbackBindings }),
   };
 }
 export class BotService {

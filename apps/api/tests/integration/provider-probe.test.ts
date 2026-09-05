@@ -133,7 +133,7 @@ describe('OpenAI Chat compatibility probe', () => {
   it('retains sanitized partial raw evidence when the response socket breaks', async () => {
     const { input } = await mock('socket-interrupted');
     const report = await probe().run(input);
-    expect(report.text).toMatchObject({ ok: false, code: 'provider_interrupted_stream' });
+    expect(report.text).toMatchObject({ ok: false, code: 'provider_connection_reset' });
     expect(report.text.raw).toContain('data:');
     expect(report.text.raw).toContain('OK');
     expect(JSON.stringify(report)).not.toMatch(/test-api-secret|test-header-secret/u);
@@ -144,7 +144,7 @@ describe('OpenAI Chat compatibility probe', () => {
     ['interrupted', 'provider_interrupted_stream'],
     ['redirect', 'provider_request_failed'],
     ['oversized', 'provider_response_too_large'],
-    ['stream-error', 'provider_interrupted_stream'],
+    ['stream-error', 'provider_request_failed'],
   ])('reports %s safely', async (mode, code) => {
     const { input } = await mock(mode);
     const result = await probe(80).run(input);

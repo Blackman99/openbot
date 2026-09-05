@@ -1,6 +1,6 @@
 import type { SqlPool, SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { TransactionAdmission } from '../database/transaction-admission.js';
-import { admitBotModel } from './model-binding.js';
+import { admitBotModel, admitConfiguredBindings } from './model-binding.js';
 import {
   botVersion,
   lockAuthorizedBot,
@@ -145,12 +145,11 @@ export class PostgresBotRepository implements BotRepository {
     try {
       await connection.query('BEGIN');
       const author = await lockBotWorkspace(connection, record.actorUserId, record.workspaceId);
-      const binding = record.configuration.modelBinding;
-      const admitted = await admitBotModel(
+      const admitted = await admitConfiguredBindings(
         connection,
         record.actorUserId,
         record.workspaceId,
-        binding,
+        record.configuration,
       );
       const occurredAt = this.now();
       await connection.query(

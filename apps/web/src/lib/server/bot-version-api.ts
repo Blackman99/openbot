@@ -42,6 +42,9 @@ export const versionFields = [
   'limits.maxDurationSeconds',
   'limits.maxTurns',
   'limits.maxDelegationDepth',
+  'retryPolicy.maxAttemptsPerModel',
+  'retryPolicy.maxRunsPerChain',
+  'fallbackBindings',
 ] as const;
 export type BotVersionField = (typeof versionFields)[number];
 export interface BotVersionDifference {
@@ -99,6 +102,10 @@ function fieldValue(field: BotVersionField, value: unknown): value is string | n
   if (field === 'roleDescription') return text(value, 1, 200);
   if (field === 'description') return text(value, 0, 2000);
   if (field === 'instructions') return text(value, 1, 32000);
+  if (field === 'retryPolicy.maxAttemptsPerModel') return value === null || integer(value, 1, 3);
+  if (field === 'retryPolicy.maxRunsPerChain') return value === null || integer(value, 1, 4);
+  if (field === 'fallbackBindings')
+    return value === null || (typeof value === 'string' && value.length <= 2048);
   return field === 'modelBinding.modelId' && text(value, 1, 256);
 }
 export function parseBotVersionChanges(
@@ -116,6 +123,8 @@ export function parseBotVersionChanges(
           'instructions',
           'modelBinding',
           'limits',
+          'retryPolicy',
+          'fallbackBindings',
         ].includes(field),
     )
   )
@@ -166,6 +175,30 @@ export function parseBotVersionChanges(
       limits[field] = input;
     }
     result.limits = limits;
+  }
+  if ('retryPolicy' in value) {
+    if (
+      !object(value.retryPolicy) ||
+      !keys(value.retryPolicy, 'maxAttemptsPerModel,maxRunsPerChain') ||
+      !integer(value.retryPolicy.maxAttemptsPerModel, 1, 3) ||
+      !integer(value.retryPolicy.maxRunsPerChain, 1, 4)
+    )
+      return undefined;
+    result.retryPolicy = {
+      maxAttemptsPerModel: value.retryPolicy.maxAttemptsPerModel,
+      maxRunsPerChain: value.retryPolicy.maxRunsPerChain,
+    };
+  }
+  if ('fallbackBindings' in value) {
+    if (!Array.isArray(value.fallbackBindings) || value.fallbackBindings.length > 3)
+      return undefined;
+    const parsed: BotConfiguration['modelBinding'][] = [];
+    for (const item of value.fallbackBindings) {
+      const binding = parseBotVersionChanges({ modelBinding: item }, workspaceId)?.modelBinding;
+      if (!binding) return undefined;
+      parsed.push(binding);
+    }
+    result.fallbackBindings = parsed;
   }
   return result;
 }

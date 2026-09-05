@@ -8,6 +8,7 @@
     name: 'Bot name', roleDescription: 'Role description', description: 'Description', instructions: 'System instructions',
     'modelBinding.scope.kind': 'Model scope', 'modelBinding.scope.id': 'Model scope ID', 'modelBinding.connectionId': 'Model connection', 'modelBinding.modelId': 'Model ID',
     avatarObjectId: 'Avatar', 'limits.maxTotalTokens': 'Total token limit', 'limits.maxDurationSeconds': 'Duration limit (seconds)', 'limits.maxTurns': 'Turn limit', 'limits.maxDelegationDepth': 'Delegation depth limit',
+    'retryPolicy.maxAttemptsPerModel': 'Retry attempts per model', 'retryPolicy.maxRunsPerChain': 'Automatic runs per chain', fallbackBindings: 'Fallback models',
   };
 </script>
 <svelte:head><title>Compare versions · {data.bot.name} · OpenBot</title></svelte:head>

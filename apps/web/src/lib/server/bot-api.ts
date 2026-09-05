@@ -6,6 +6,10 @@ export interface BotLimits {
   maxTurns: number;
   maxDelegationDepth: number;
 }
+export interface BotRetryPolicy {
+  maxAttemptsPerModel: number;
+  maxRunsPerChain: number;
+}
 export interface BotConfiguration {
   avatarObjectId?: string | null;
   name: string;
@@ -14,6 +18,8 @@ export interface BotConfiguration {
   instructions: string;
   modelBinding: { scope: BotScope; connectionId: string; modelId: string };
   limits: BotLimits;
+  retryPolicy?: BotRetryPolicy;
+  fallbackBindings?: BotConfiguration['modelBinding'][];
 }
 export type BotInput = Omit<BotConfiguration, 'description' | 'limits' | 'avatarObjectId'> & {
   description?: string;
@@ -98,6 +104,26 @@ export function bindingStatus(value: unknown): BindingStatus | undefined {
     return { state: 'unavailable', reason: value.reason };
   return undefined;
 }
+function parseBinding(
+  value: unknown,
+  workspaceId: string,
+): BotConfiguration['modelBinding'] | undefined {
+  if (
+    !keys(value, 'connectionId,modelId,scope') ||
+    !keys(value.scope, 'id,kind') ||
+    !isBotUuid(value.scope.id) ||
+    (value.scope.kind !== 'workspace' && value.scope.kind !== 'personal') ||
+    (value.scope.kind === 'workspace' && value.scope.id.toLowerCase() !== workspaceId) ||
+    !isBotUuid(value.connectionId) ||
+    !bounded(value.modelId, 1, 256)
+  )
+    return undefined;
+  return {
+    scope: { kind: value.scope.kind, id: value.scope.id.toLowerCase() },
+    connectionId: value.connectionId.toLowerCase(),
+    modelId: value.modelId,
+  };
+}
 export function parseBotConfiguration(
   value: unknown,
   workspaceId: string,
@@ -105,6 +131,8 @@ export function parseBotConfiguration(
   if (
     !keys(value, 'description,instructions,limits,modelBinding,name,roleDescription', [
       'avatarObjectId',
+      'retryPolicy',
+      'fallbackBindings',
     ]) ||
     ('avatarObjectId' in value &&
       value.avatarObjectId !== null &&
@@ -113,15 +141,6 @@ export function parseBotConfiguration(
     !bounded(value.roleDescription, 1, 200) ||
     !bounded(value.description, 0, 2000) ||
     !bounded(value.instructions, 1, 32000) ||
-    !keys(value.modelBinding, 'connectionId,modelId,scope') ||
-    !keys(value.modelBinding.scope, 'id,kind') ||
-    !isBotUuid(value.modelBinding.scope.id) ||
-    (value.modelBinding.scope.kind !== 'workspace' &&
-      value.modelBinding.scope.kind !== 'personal') ||
-    (value.modelBinding.scope.kind === 'workspace' &&
-      value.modelBinding.scope.id.toLowerCase() !== workspaceId) ||
-    !isBotUuid(value.modelBinding.connectionId) ||
-    !bounded(value.modelBinding.modelId, 1, 256) ||
     !keys(value.limits, 'maxDelegationDepth,maxDurationSeconds,maxTotalTokens,maxTurns') ||
     !integer(value.limits.maxTotalTokens, 1, 1000000) ||
     !integer(value.limits.maxDurationSeconds, 1, 3600) ||
@@ -129,6 +148,41 @@ export function parseBotConfiguration(
     !integer(value.limits.maxDelegationDepth, 0, 8)
   )
     return undefined;
+  const modelBinding = parseBinding(value.modelBinding, workspaceId);
+  if (!modelBinding) return undefined;
+  let retryPolicy: BotRetryPolicy | undefined;
+  if ('retryPolicy' in value) {
+    if (
+      !keys(value.retryPolicy, 'maxAttemptsPerModel,maxRunsPerChain') ||
+      !integer(value.retryPolicy.maxAttemptsPerModel, 1, 3) ||
+      !integer(value.retryPolicy.maxRunsPerChain, 1, 4)
+    )
+      return undefined;
+    retryPolicy = {
+      maxAttemptsPerModel: value.retryPolicy.maxAttemptsPerModel,
+      maxRunsPerChain: value.retryPolicy.maxRunsPerChain,
+    };
+  }
+  let fallbackBindings: BotConfiguration['modelBinding'][] | undefined;
+  if ('fallbackBindings' in value) {
+    if (!Array.isArray(value.fallbackBindings) || value.fallbackBindings.length > 3)
+      return undefined;
+    const seen = new Set<string>([modelBinding.connectionId]);
+    fallbackBindings = [];
+    for (const item of value.fallbackBindings) {
+      const binding = parseBinding(item, workspaceId);
+      if (
+        !binding ||
+        binding.scope.kind !== modelBinding.scope.kind ||
+        binding.scope.id !== modelBinding.scope.id ||
+        seen.has(binding.connectionId)
+      )
+        return undefined;
+      seen.add(binding.connectionId);
+      fallbackBindings.push(binding);
+    }
+  }
+  if (fallbackBindings?.length && !retryPolicy) return undefined;
   return {
     ...('avatarObjectId' in value
       ? {
@@ -140,17 +194,15 @@ export function parseBotConfiguration(
     roleDescription: value.roleDescription,
     description: value.description,
     instructions: value.instructions,
-    modelBinding: {
-      scope: { kind: value.modelBinding.scope.kind, id: value.modelBinding.scope.id.toLowerCase() },
-      connectionId: value.modelBinding.connectionId.toLowerCase(),
-      modelId: value.modelBinding.modelId,
-    },
+    modelBinding,
     limits: {
       maxTotalTokens: value.limits.maxTotalTokens,
       maxDurationSeconds: value.limits.maxDurationSeconds,
       maxTurns: value.limits.maxTurns,
       maxDelegationDepth: value.limits.maxDelegationDepth,
     },
+    ...(retryPolicy ? { retryPolicy } : {}),
+    ...(fallbackBindings === undefined ? {} : { fallbackBindings }),
   };
 }
 export function parseBot(

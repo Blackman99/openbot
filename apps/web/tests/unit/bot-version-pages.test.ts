@@ -121,6 +121,8 @@ describe('Bot version pages', () => {
           },
           { field: 'avatarObjectId' as const, before: null, after: bot.id },
           { field: 'limits.maxTurns' as const, before: 8, after: 2 },
+          { field: 'retryPolicy.maxAttemptsPerModel' as const, before: null, after: 2 },
+          { field: 'fallbackBindings' as const, before: null, after: 'fallback:model' },
         ],
       },
     };
@@ -129,6 +131,8 @@ describe('Bot version pages', () => {
       'System instructions',
       'Avatar',
       'Turn limit',
+      'Retry attempts per model',
+      'Fallback models',
       '&lt;script>old()',
       `avatar?versionId=${workspace.id}`,
     ])
