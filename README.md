@@ -3,7 +3,7 @@
 OpenBot is an AGPL-licensed, self-hosted multi-bot collaboration system. The current
 implementation includes the deployable foundation, local-owner authentication, and isolated
 workspaces with creation, switching, settings, and audit records: a SvelteKit web app, a Fastify
-API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat-compatible
+API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat Completions and Responses-compatible
 model connections support credential-safe settings and live text/action compatibility probes.
 
 The approved implementation backlog lives in
@@ -65,11 +65,14 @@ also requires its CIDR in `OPENBOT_PROVIDER_PRIVATE_CIDRS`. Every resolved addre
 before connecting, DNS answers are pinned for the request, and redirects are rejected. For a
 local provider, allow its hostname, scheme, and private CIDR explicitly.
 
-Create a connection with a name, base URL (for example `https://api.openai.com/v1`), model ID,
+Create a connection with an explicit protocol (**OpenAI Chat Completions** or **OpenAI Responses**),
+a name, base URL (for example `https://api.openai.com/v1`), model ID,
 optional API key, and optional custom headers as a JSON object. **Test and save** first probes a
 live text stream and a structured action, then stores timestamped, sanitized evidence. Failed
 text probes save a disabled connection; working text remains usable when structured actions are
-unsupported. Settings allow inspection, editing, retesting, disabling, and deletion. Blank secret
+unsupported. Existing connections default to Chat Completions; protocols are never guessed from the
+endpoint. Both adapters normalize text, live deltas, function actions, usage, and completion through a
+shared model-event contract with cancellation and rate-limit classification. Settings allow inspection, editing, retesting, disabling, and deletion. Blank secret
 fields on edit retain existing values; use **Clear saved API key** or `{}` headers to remove them.
 
 API keys and all custom header values use AES-256-GCM encryption with per-save random nonces and

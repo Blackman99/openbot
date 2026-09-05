@@ -56,6 +56,7 @@ export const actions = {
       return fail(400, { error: 'Custom headers must be a JSON object.' });
     }
     const input = {
+      protocol: field('protocol') || 'openai-chat',
       name: field('name'),
       baseUrl: field('baseUrl'),
       modelId: field('modelId'),

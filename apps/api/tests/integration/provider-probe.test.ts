@@ -59,7 +59,7 @@ async function mock(mode = 'success') {
         JSON.stringify({
           choices: [
             {
-              finish_reason: 'tool_calls',
+              finish_reason: mode === 'truncated-action' ? 'length' : 'tool_calls',
               message: {
                 tool_calls: [
                   {
@@ -116,6 +116,12 @@ describe('OpenAI Chat compatibility probe', () => {
     });
     expect(report.text.raw).toContain('[REDACTED]');
     expect(JSON.stringify(report)).not.toMatch(/test-api-secret|test-header-secret/u);
+  });
+  it('does not treat a truncated function result as supported structured actions', async () => {
+    const { input } = await mock('truncated-action');
+    const report = await probe().run(input);
+    expect(report.text.ok).toBe(true);
+    expect(report.action).toMatchObject({ ok: false, code: 'provider_action_unsupported' });
   });
   it('redacts header secrets after HTTP whitespace trimming', async () => {
     const { input } = await mock('auth');

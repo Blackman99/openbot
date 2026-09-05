@@ -57,17 +57,17 @@ A clean-instance acceptance suite proves the complete multi-user, multi-model co
 
 This evidence covers the first three tickets only. Each subsequently implemented ticket must retain any unexecuted external gate here, and the complete release acceptance criteria above must still pass against the final integrated revision.
 
-## Open external gate — PROV-01-E1
+## Closed external gate — PROV-01-E1
 
-- [ ] Execute `postgres-providers` with real migration and runtime privilege provisioning; prove encrypted persistence, owner isolation, stale-write rejection, audit-failure rollback, deletion, and forbidden runtime DDL/audit updates.
-- [ ] Keep `postgres-auth` and Compose green on the combined provider revision.
+- [x] Execute `postgres-providers` with real migration and runtime privilege provisioning; prove encrypted persistence, owner isolation, stale-write rejection, audit-failure rollback, deletion, and forbidden runtime DDL/audit updates.
+- [x] Keep `postgres-auth` and Compose green on the combined provider revision.
 
-## Open external gate — WS-02-E1
+## Closed external gate — WS-02-E1
 
-- [ ] Execute the isolated-schema invitation PostgreSQL tests for concurrent consumption, revocation, duplicate-email signup and transaction rollback.
-- [ ] Execute the integrated Compose invitation creation, acceptance, replay, revocation, hash-only persistence and audit checks with the restricted runtime role; verify its exact column privileges.
+- [x] Execute the isolated-schema invitation PostgreSQL tests for concurrent consumption, revocation, duplicate-email signup and transaction rollback.
+- [x] Execute the integrated Compose invitation creation, acceptance, replay, revocation, hash-only persistence and audit checks with the restricted runtime role; verify its exact column privileges.
 
-WS-02 is locally complete and independently reviewed. Integrated revision `62b0ab6` passed 186 unit/integration tests, 7 browser scenarios, formatting, types and both production builds. Its Compose smoke is implemented and its shell syntax checked, but actual PostgreSQL and Compose execution remain mandatory before release.
+Both gates closed under [Verify33941168646](https://github.com/Blackman99/openbot/actions/runs/33941168646) on published commit `98f15fc88cdc44bc6cd14ac5542a9aad3fb58166`, completed on 2026-09-05 at 03:13:55 UTC. All four jobs passed: code, postgres-auth (4 real tests), postgres-providers (1 real restricted-role test), and Compose. Integrated local revision `62b0ab6` passed 186 unit/integration tests, 7 browser scenarios, formatting, types and both production builds. This evidence closes these ticket gates; the final release criteria still require verification on the final integrated revision.
 
 ## Non-goals
 
@@ -75,3 +75,13 @@ WS-02 is locally complete and independently reviewed. Integrated revision `62b0a
 - Kubernetes distribution
 - Native clients
 - Features outside the MVP contract
+
+
+## Open external gate — PROV-03-E1
+
+- [ ] Run the combined `postgres-providers` job on the PROV-03 revision, including explicit
+  Responses protocol round-trip through the real restricted runtime role and encrypted storage.
+- [ ] Keep `postgres-auth` and Compose green on that combined revision. Earlier PROV-01/WS-02
+  evidence does not certify later provider protocol/transport changes.
+
+Local evidence and independent reviews are recorded in [PROV-03 verification](../PROV-03-VERIFICATION.md).

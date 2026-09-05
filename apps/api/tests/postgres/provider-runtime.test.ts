@@ -67,6 +67,7 @@ postgresDescribe('personal connections using the deployed restricted database ro
       },
     );
     const created = await service.save(owner, {
+      protocol: 'openai-responses',
       name: 'Personal model',
       baseUrl: 'https://models.example/v1',
       modelId: 'model',
@@ -76,6 +77,8 @@ postgresDescribe('personal connections using the deployed restricted database ro
     const stored = await runtime.query('SELECT * FROM personal_model_connections WHERE id=$1', [
       created.id,
     ]);
+    expect(stored.rows[0].metadata.protocol).toBe('openai-responses');
+    expect(await service.get(owner, created.id)).toMatchObject({ protocol: 'openai-responses' });
     expect(JSON.stringify(stored.rows)).not.toMatch(/ci-provider-secret|ci-header-secret/u);
     expect(await service.list(randomUUID())).toEqual([]);
     const stale = await repository.find(owner, created.id);

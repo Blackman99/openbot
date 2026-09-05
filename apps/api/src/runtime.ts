@@ -8,7 +8,7 @@ import { PostgresAuthRepository } from './auth/postgres-auth-repository.js';
 import { LocalAuthService } from './auth/service.js';
 import type { ProviderConfig } from './providers/config.js';
 import { ProviderConnections } from './providers/connections.js';
-import { OpenAiChatProbe } from './providers/openai-chat-probe.js';
+import { ProtocolConnectionProbe } from './providers/protocols.js';
 import { PostgresProviderRepository } from './providers/postgres-repository.js';
 import { ProviderSecretBox } from './providers/secrets.js';
 import { ProviderUrlPolicy } from './providers/url-policy.js';
@@ -60,7 +60,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
           new PostgresProviderRepository(pool),
           new ProviderSecretBox(providerOptions.encryptionKey),
           policy,
-          new OpenAiChatProbe(policy),
+          new ProtocolConnectionProbe(policy),
         )
       : undefined;
   const corsOptions: FastifyCorsOptionsDelegate = (request, callback) => {

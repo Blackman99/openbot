@@ -2,7 +2,7 @@
 sequence: 4
 id: WS-02
 title: "Join a workspace through a one-time invitation"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - WS-01
 labels:
@@ -60,12 +60,12 @@ Workspace owners and administrators can issue copyable invitation links that saf
 - Independent standards and spec reviews are clean through implementation commit `8b4713c`. Two standards findings were fixed and rechecked: sign-in, owner setup and invited signup now share one two-operation password budget; invitation HTTP 429 preserves validated Retry-After and a retryable form without returning credentials.
 - Browser red→green evidence: a `no-referrer` policy remained in effect after enhanced navigation and caused native sign-out POST to send `Origin: null`. The join page now uses `same-origin`; actual Origin headers on both enhanced acceptance and native sign-out are asserted without weakening server Origin checks. Test Chromium no longer disables web security.
 
-## External verification exception — WS-02-E1
+## Closed external verification — WS-02-E1
 
-- [ ] Execute `apps/api/tests/postgres/invitations-runtime.test.ts` against real PostgreSQL; prove one winner in consumption/revocation/account-uniqueness races and complete rollback on account failure.
-- [ ] Execute the root integration's Compose invitation create/accept/revoke/replay smoke and minimum-privilege assertions using the deployed `openbot_runtime` role.
+- [x] Execute `apps/api/tests/postgres/invitations-runtime.test.ts` against real PostgreSQL; prove one winner in consumption/revocation/account-uniqueness races and complete rollback on account failure.
+- [x] Execute the root integration's Compose invitation create/accept/revoke/replay smoke and minimum-privilege assertions using the deployed `openbot_runtime` role.
 
-These are mandatory release gates and were not executed locally because PostgreSQL/Docker are unavailable. The isolated-schema PostgreSQL tests are included in `pnpm --filter @openbot/api run test:postgres`; an administrative test pool alone does not prove restricted deployment privileges. Root integration must add and pass the Compose smoke before this ticket is marked fully complete.
+These gates passed in [Verify33941168646](https://github.com/Blackman99/openbot/actions/runs/33941168646) on published commit `98f15fc88cdc44bc6cd14ac5542a9aad3fb58166`, completed on 2026-09-05 at 03:13:55 UTC. The authentication job executed 2 authentication and 2 invitation PostgreSQL tests. Compose executed the invitation flow using the deployed restricted runtime role and verified its exact column privileges. Integrated local revision `62b0ab6` also passed 186 unit/integration tests and 7 browser scenarios before publication.
 
 ## Downstream handoff
 

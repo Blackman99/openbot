@@ -3,6 +3,7 @@ import { ProviderApiClient } from '../../src/lib/server/provider-api.js';
 
 const connection = {
   id: 'connection-id',
+  protocol: 'openai-responses',
   name: 'My model',
   baseUrl: 'https://models.example/v1',
   modelId: 'chat-model',

@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { ConnectionProbe, ProbeInput, ProbeReport } from './openai-chat-probe.js';
+import type { ProviderProtocol } from './model-events.js';
+import type { ConnectionProbe, ProbeInput, ProbeReport } from './model-probe.js';
 import { ProviderSecretBox, redactProviderText } from './secrets.js';
 import { ProviderError, ProviderUrlPolicy } from './url-policy.js';
 
 export interface ConnectionInput {
+  protocol: ProviderProtocol;
   name: string;
   baseUrl: string;
   modelId: string;
@@ -11,6 +13,7 @@ export interface ConnectionInput {
   headers: Record<string, string>;
 }
 export interface ConnectionMetadata {
+  protocol: ProviderProtocol;
   id: string;
   name: string;
   baseUrl: string;
@@ -40,6 +43,8 @@ export function parseConnectionInput(value: unknown): ConnectionInput {
   };
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return invalid();
   const input = value as Record<string, unknown>;
+  const protocol = input.protocol ?? 'openai-chat';
+  if (protocol !== 'openai-chat' && protocol !== 'openai-responses') return invalid();
   for (const name of ['name', 'baseUrl', 'modelId', 'apiKey']) {
     if (
       typeof input[name] !== 'string' ||
@@ -86,6 +91,7 @@ export function parseConnectionInput(value: unknown): ConnectionInput {
   const apiKey = input.apiKey as string;
   if (/[^\x20-\x7e]/u.test(apiKey) || (apiKey && headers.authorization)) return invalid();
   return {
+    protocol,
     name,
     modelId,
     apiKey,
@@ -109,6 +115,7 @@ export class ProviderConnections {
     const id = randomUUID();
     const metadata: ConnectionMetadata = {
       id,
+      protocol: input.protocol,
       name: input.name,
       baseUrl: input.baseUrl,
       modelId: input.modelId,
@@ -160,6 +167,7 @@ export class ProviderConnections {
     const report = await this.runProbe(input, signal);
     const metadata: ConnectionMetadata = {
       id,
+      protocol: input.protocol,
       name: input.name,
       baseUrl: input.baseUrl,
       modelId: input.modelId,

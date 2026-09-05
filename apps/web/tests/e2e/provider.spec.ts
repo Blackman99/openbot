@@ -18,6 +18,7 @@ test('manages a personal model through settings with masked credentials and prob
   await expect(page).toHaveURL('/app/settings/models');
   const add = page.getByRole('region', { name: 'Add a model' });
   await add.getByLabel('Name', { exact: true }).fill('Personal model');
+  await add.getByLabel('Protocol').selectOption('openai-responses');
   await add.getByLabel('Base URL').fill('https://models.example/v1');
   await add.getByLabel('Model ID').fill('chat-model');
   await add.getByLabel('API key', { exact: true }).fill('private-api-key');
@@ -27,13 +28,17 @@ test('manages a personal model through settings with masked credentials and prob
   await expect(model).toBeVisible();
   await expect(model).toContainText('API key: configured');
   await expect(model).toContainText('Text stream: passed');
+  await expect(model).toContainText('OpenAI Responses');
   await expect(page.locator('body')).not.toContainText('private-api-key');
   await expect(page.locator('body')).not.toContainText('private-header');
   await page.reload();
   await model.getByText('Edit connection', { exact: true }).click();
+  await expect(model.getByLabel('Protocol')).toHaveValue('openai-responses');
+  await model.getByLabel('Protocol').selectOption('openai-chat');
   await model.getByLabel('Name', { exact: true }).fill('Renamed model');
   await model.getByRole('button', { name: 'Test and save' }).click();
   const renamed = page.getByRole('article', { name: 'Renamed model' });
+  await expect(renamed).toContainText('OpenAI Chat Completions');
   await renamed.getByRole('button', { name: 'Test again' }).click();
   await expect(renamed).toContainText('Structured actions: passed');
   await renamed.getByRole('button', { name: 'Disable', exact: true }).click();

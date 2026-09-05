@@ -11,7 +11,7 @@ type Row = {
 function fromRow(row: Row): ConnectionRecord {
   return {
     ownerId: row.owner_user_id,
-    metadata: row.metadata,
+    metadata: { ...row.metadata, protocol: row.metadata.protocol ?? 'openai-chat' },
     sealedCredentials: row.sealed_credentials,
     revision: row.revision,
   };

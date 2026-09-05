@@ -8,6 +8,10 @@
 {#snippet fields(connection:PersonalConnection|undefined)}
   {#if connection}<input type="hidden" name="id" value={connection.id} />{/if}
   <label>Name<input name="name" required maxlength="120" value={connection?.name ?? ''} /></label>
+  <label>Protocol<select name="protocol" value={connection?.protocol ?? 'openai-chat'}>
+    <option value="openai-chat">OpenAI Chat Completions</option>
+    <option value="openai-responses">OpenAI Responses</option>
+  </select></label>
   <label>Base URL<input name="baseUrl" type="url" required placeholder="https://api.openai.com/v1" value={connection?.baseUrl ?? ''} /></label>
   <label>Model ID<input name="modelId" required maxlength="256" value={connection?.modelId ?? ''} /></label>
   <label>API key<input name="apiKey" type="password" autocomplete="new-password" maxlength="4096" placeholder={connection ? 'Leave empty to keep saved key' : 'Optional for unauthenticated endpoints'} /></label>
@@ -19,7 +23,7 @@
 <main>
   <a href="/app">← Workspace</a>
   <h1>Personal models</h1>
-  <p>Connect an OpenAI Chat-compatible model. Only you can use or manage these connections.</p>
+  <p>Connect an OpenAI Chat Completions or Responses-compatible model. Only you can use or manage these connections.</p>
   {#if form?.error}<p role="alert">{form.error}</p>{/if}
   {#if form?.success}<p role="status">{form.success}</p>{/if}
   <section aria-labelledby="new-model">
@@ -30,7 +34,7 @@
   {#each data.connections as connection (connection.id)}
     <article aria-labelledby={`model-${connection.id}`}>
       <h2 id={`model-${connection.id}`}>{connection.name}</h2>
-      <p>{connection.enabled ? 'Enabled' : 'Disabled'} · {connection.modelId}</p>
+      <p>{connection.enabled ? 'Enabled' : 'Disabled'} · {connection.modelId} · {connection.protocol === 'openai-responses' ? 'OpenAI Responses' : 'OpenAI Chat Completions'}</p>
       <p>API key: {connection.apiKeyConfigured ? 'configured' : 'not configured'}</p>
       <p>Configured headers: {connection.headerNames.join(', ') || 'none'}</p>
       <p>Text stream: {connection.lastProbe.text.ok ? 'passed' : 'failed'} · Structured actions: {connection.lastProbe.action.ok ? 'passed' : 'unavailable'}</p>
@@ -54,8 +58,8 @@
   p { line-height:1.6;overflow-wrap:anywhere; }
   label { display:grid;gap:.4rem;margin:1rem 0; }
   label.inline { display:flex;align-items:center; }
-  input,textarea,button { box-sizing:border-box;border:1px solid #8b949e;border-radius:.4rem;background:#161b22;color:inherit;font:inherit;padding:.7rem; }
-  input,textarea { width:100%;min-width:0; }
+  input,textarea,select,button { box-sizing:border-box;border:1px solid #8b949e;border-radius:.4rem;background:#161b22;color:inherit;font:inherit;padding:.7rem; }
+  input,textarea,select { width:100%;min-width:0; }
   input[type="checkbox"] { width:auto; }
   button { cursor:pointer; }
   button:disabled { opacity:.5;cursor:default; }

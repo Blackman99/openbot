@@ -2,7 +2,7 @@
 sequence: 7
 id: PROV-01
 title: "Connect a personal OpenAI Chat-compatible model"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - AUTH-01
 labels:
@@ -24,7 +24,7 @@ Users can save, test, and manage personal OpenAI Chat-compatible endpoints and m
 
 - [AUTH-01](02-auth-01-claim-an-instance-and-authenticate-a-local-owner.md)
 
-`AUTH-01` implementation is complete under external verification exception `AUTH-01-E1`.
+`AUTH-01` and its original external evidence are complete under successful baseline Verify run `33938570768`.
 
 ## Acceptance criteria
 
@@ -46,4 +46,4 @@ Users can save, test, and manage personal OpenAI Chat-compatible endpoints and m
 
 Integrated commit `af206cfeb2486254783e6170dc874fa07a320bbe` passes formatting, types,145 unit/integration tests,6 browser scenarios, and API/Web production builds. Two independent review axes found three defects; all were fixed with witnessed regressions and root rechecked13 focused tests. Details and downstream adapter seams are in [PROV-01-VERIFICATION.md](../PROV-01-VERIFICATION.md).
 
-External exception `PROV-01-E1`: implementation and local acceptance evidence are complete, but actual `postgres-providers`, `postgres-auth`, and Compose CI on the integrated revision must pass before final release completion. This gate is tracked in REL-01 and permits dependent local adapter implementation.
+External gate `PROV-01-E1` closed: [Verify33941168646](https://github.com/Blackman99/openbot/actions/runs/33941168646) passed on published commit `98f15fc88cdc44bc6cd14ac5542a9aad3fb58166`, completed on 2026-09-05 at 03:13:55 UTC. The provider runtime test passed with actual migration and restricted-role provisioning, while authentication, invitation concurrency, and Compose checks also passed. The missing infrastructure `pg` dependency discovered in the preceding run was reproduced and fixed before this successful run.

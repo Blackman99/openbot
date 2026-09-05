@@ -47,6 +47,7 @@ export function handleProviderFixture(
       const connectionId = id ?? `connection-${connections.size + 1}`;
       const metadata = {
         id: connectionId,
+        protocol: input.protocol ?? existing?.protocol ?? 'openai-chat',
         name: input.name,
         baseUrl: input.baseUrl,
         modelId: input.modelId,

@@ -9,6 +9,7 @@ it('renders personal connection management, masked credentials, and dated probe 
         connections: [
           {
             id: 'model-id',
+            protocol: 'openai-responses',
             name: 'Private model',
             baseUrl: 'https://models.example/v1',
             modelId: 'chat-model',
@@ -40,6 +41,8 @@ it('renders personal connection management, masked credentials, and dated probe 
     'Test again',
     'type="password"',
     'name="headers"',
+    'name="protocol"',
+    'OpenAI Responses',
   ])
     expect(rendered.body).toContain(text);
   expect(rendered.body).not.toContain('value="configured"');

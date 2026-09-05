@@ -59,6 +59,7 @@ it('protects personal connection lifecycle API, returns masks, and rejects cross
   const path = '/api/v1/model-connections';
   expect((await app.inject({ url: path })).statusCode).toBe(401);
   const input = {
+    protocol: 'openai-responses',
     name: 'Model',
     baseUrl: 'https://models.example/v1',
     modelId: 'chat-model',
@@ -87,6 +88,7 @@ it('protects personal connection lifecycle API, returns masks, and rejects cross
   expect(malformed.headers['cache-control']).toBe('private, no-store');
   const created = await app.inject({ method: 'POST', url: path, headers, payload: input });
   expect(created.statusCode).toBe(201);
+  expect(created.json()).toMatchObject({ protocol: 'openai-responses' });
   expect(created.headers['cache-control']).toBe('private, no-store');
   expect(created.body).not.toMatch(/secret-key|sensitive-header/u);
   const id = created.json<{ id: string }>().id;
@@ -104,7 +106,7 @@ it('protects personal connection lifecycle API, returns masks, and rejects cross
         payload: { name: 'Changed', modelId: 'another' },
       })
     ).json(),
-  ).toMatchObject({ name: 'Changed' });
+  ).toMatchObject({ name: 'Changed', protocol: 'openai-responses' });
   expect(
     (
       await app.inject({

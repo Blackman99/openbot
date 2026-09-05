@@ -170,3 +170,30 @@ it('rejects unsafe headers and cancelled or forbidden probes without persisting 
   await expect(service.save(owner, input)).rejects.toThrow('provider_url_not_allowed');
   expect(await service.list(owner)).toEqual([]);
 });
+
+it('persists explicit Responses protocol through updates and defaults legacy Chat records', async () => {
+  const { owner, probe, service, pool } = await fixture();
+  const connection = await service.save(owner, { ...input, protocol: 'openai-responses' });
+  expect(connection).toMatchObject({ protocol: 'openai-responses' });
+  expect(probe.run).toHaveBeenLastCalledWith(
+    expect.objectContaining({ protocol: 'openai-responses' }),
+    undefined,
+  );
+  expect(await service.update(owner, connection.id, { name: 'Renamed Responses' })).toMatchObject({
+    protocol: 'openai-responses',
+  });
+  const stored = await pool.query('SELECT metadata FROM personal_model_connections WHERE id=$1', [
+    connection.id,
+  ]);
+  expect(stored.rows[0].metadata.protocol).toBe('openai-responses');
+  const legacy = { ...stored.rows[0].metadata };
+  delete legacy.protocol;
+  await pool.query('UPDATE personal_model_connections SET metadata=$1::jsonb WHERE id=$2', [
+    JSON.stringify(legacy),
+    connection.id,
+  ]);
+  expect(await service.get(owner, connection.id)).toMatchObject({ protocol: 'openai-chat' });
+  await expect(service.save(owner, { ...input, protocol: 'guess' })).rejects.toThrow(
+    'invalid_connection',
+  );
+});

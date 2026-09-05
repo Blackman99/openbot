@@ -9,6 +9,7 @@ export interface ProviderProbeReport {
   action: ProviderProbeResult;
 }
 export interface PersonalConnection {
+  protocol: 'openai-chat' | 'openai-responses';
   id: string;
   name: string;
   baseUrl: string;
@@ -53,6 +54,7 @@ function connection(value: unknown): value is PersonalConnection {
     record(value) &&
     keys(value, [
       'id',
+      'protocol',
       'name',
       'baseUrl',
       'modelId',
@@ -61,6 +63,7 @@ function connection(value: unknown): value is PersonalConnection {
       'headerNames',
       'lastProbe',
     ]) &&
+    (value.protocol === 'openai-chat' || value.protocol === 'openai-responses') &&
     ['id', 'name', 'baseUrl', 'modelId'].every((key) => typeof value[key] === 'string') &&
     typeof value.enabled === 'boolean' &&
     typeof value.apiKeyConfigured === 'boolean' &&
