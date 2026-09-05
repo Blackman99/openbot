@@ -1317,4 +1317,83 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       ),
     ).not.toContain('cobalt');
   });
+  it('enqueues extraction from a successful Run and approves the pending same-group candidate', async () => {
+    const f = await fixture(),
+      e = await execution(f),
+      owner = await f.headers(f.ownerId);
+    expect(
+      await new TaskWorker(runtime, {
+        secrets,
+        createAdapter: () => ({
+          generate: async () => ({
+            events: [
+              { type: 'text', text: 'Remember: native reviewed evidence.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          }),
+        }),
+      }).runOnce(),
+    ).toBe(true);
+    expect(
+      (await runtime.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [e.runId]))
+        .rows,
+    ).toEqual([{ status: 'completed' }]);
+    const inbox = `/api/v1/workspaces/${f.workspaceId}/conversations/${f.conversation.id}/memory-candidates`;
+    const listed = await f.app.inject({ method: 'GET', url: inbox, headers: owner });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().candidates).toEqual([
+      expect.objectContaining({
+        status: 'pending',
+        body: 'native reviewed evidence.',
+        proposedScope: { kind: 'group', id: f.group.id },
+      }),
+    ]);
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url: `${f.path}/search`,
+          headers: owner,
+          payload: { query: 'reviewed evidence' },
+        })
+      ).json().memories,
+    ).toEqual([]);
+    const approved = await f.app.inject({
+      method: 'POST',
+      url: `${inbox}/${listed.json().candidates[0]!.id}/approvals`,
+      headers: owner,
+      payload: {
+        expectedRevision: listed.json().candidates[0]!.revision,
+        destination: { kind: 'group', id: f.group.id },
+        confidence: 0.8,
+        idempotencyKey: 'native-approve',
+      },
+    });
+    expect(approved.statusCode).toBe(201);
+    expect(approved.json()).toMatchObject({
+      replayed: false,
+      candidate: { status: 'approved' },
+      fact: {
+        kind: 'approved_fact',
+        text: 'native reviewed evidence.',
+        scope: { kind: 'group', workspaceId: f.workspaceId, id: f.group.id },
+      },
+    });
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url: `${f.path}/search`,
+          headers: owner,
+          payload: { query: 'reviewed evidence' },
+        })
+      ).json().memories,
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'approved_fact',
+        text: 'native reviewed evidence.',
+      }),
+    ]);
+  });
 });
