@@ -24,8 +24,12 @@ export class TaskWorker {
   }
   async runOnce(signal?: AbortSignal): Promise<boolean> {
     const handled = await this.runTaskOnce(signal);
-    if (signal?.aborted) return handled;
-    return (await this.extraction.runOnce()) || handled;
+    let extracted = false;
+    // Drain every due extraction job on this tick. A just-completed Run enqueues
+    // its job at finish; older leftover jobs must not hide that work from an
+    // immediately following idle poll, and must not start a new generation.
+    while (!signal?.aborted && (await this.extraction.runOnce())) extracted = true;
+    return extracted || handled;
   }
   private async runTaskOnce(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false;

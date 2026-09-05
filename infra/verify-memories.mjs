@@ -303,6 +303,7 @@ try {
     'memory_candidates',
     'memory_candidate_revisions',
     'memory_candidate_sources',
+    'memory_extraction_jobs',
   ]) {
     const privileges = (
       await pool.query(
@@ -310,21 +311,39 @@ try {
         [table],
       )
     ).rows[0];
-    assert.deepEqual(privileges, {
-      read: true,
-      append: true,
-      mutate: false,
-      remove: false,
-      truncate: false,
-    });
+    assert.deepEqual(
+      privileges,
+      {
+        read: true,
+        append: true,
+        mutate: false,
+        remove: false,
+        truncate: false,
+      },
+      table,
+    );
   }
   assert.deepEqual(
     (
       await pool.query(
-        "SELECT has_table_privilege(current_user,'memory_extraction_jobs','SELECT') AS read,has_table_privilege(current_user,'memory_extraction_jobs','INSERT') AS append,has_table_privilege(current_user,'memory_extraction_jobs','UPDATE') AS mutate,has_table_privilege(current_user,'memory_extraction_jobs','DELETE') AS remove",
+        "SELECT column_name,has_column_privilege(current_user,'memory_extraction_jobs',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='memory_extraction_jobs' ORDER BY column_name",
       )
     ).rows,
-    [{ read: true, append: true, mutate: true, remove: false }],
+    [
+      { column_name: 'attempt_count', allowed: true },
+      { column_name: 'available_at', allowed: true },
+      { column_name: 'claim_token', allowed: true },
+      { column_name: 'created_at', allowed: false },
+      { column_name: 'extractor_version', allowed: false },
+      { column_name: 'last_error_code', allowed: true },
+      { column_name: 'lease_expires_at', allowed: true },
+      { column_name: 'manifest_digest', allowed: false },
+      { column_name: 'normalizer_version', allowed: false },
+      { column_name: 'output_event_id', allowed: false },
+      { column_name: 'run_id', allowed: false },
+      { column_name: 'status', allowed: true },
+      { column_name: 'updated_at', allowed: true },
+    ],
   );
   assert.deepEqual(
     (

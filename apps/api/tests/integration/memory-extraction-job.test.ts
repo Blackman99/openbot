@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { taskFixture } from '../helpers/task-fixture.js';
 import { memoryFixture } from '../helpers/memory-fixture.js';
 import { TaskService } from '../../src/tasks/service.js';
+import { TaskQueue } from '../../src/tasks/queue.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import {
@@ -175,6 +176,46 @@ describe('successful-Run extraction enqueue', () => {
           .rows,
       ),
     ).not.toContain('cobalt');
+  });
+
+  it('drains older leftover extraction jobs on the same tick as a later completion', async () => {
+    const f = await taskFixture(cleanup);
+    const queue = new TaskQueue(f.pool);
+    const first = await queue.claimNext();
+    expect(first.claim).toBeDefined();
+    expect(await queue.finish(first.claim!, { body: 'Older completed answer.', usage: null })).toBe(
+      true,
+    );
+    expect(
+      (
+        await f.pool.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+          first.claim!.runId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'queued' }]);
+    const later = await f.tasks.submit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, {
+      idempotencyKey: 'later-completion',
+      body: 'Ask again after the leftover job.',
+    });
+    const worker = f.worker(async () => ({
+      events: [
+        { type: 'text', text: 'Later completed answer.' },
+        { type: 'complete', stopReason: 'stop' },
+      ],
+      raw: '',
+    }));
+    expect(await worker.runOnce()).toBe(true);
+    expect(await worker.runOnce()).toBe(false);
+    expect(
+      (
+        await f.pool.query(
+          'SELECT run_id,status FROM memory_extraction_jobs ORDER BY created_at,run_id',
+        )
+      ).rows,
+    ).toEqual([
+      { run_id: first.claim!.runId, status: 'completed' },
+      { run_id: later.runs[0]!.id, status: 'completed' },
+    ]);
   });
 
   it('does not enqueue an extraction job when the Run fails', async () => {

@@ -484,6 +484,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'memory_candidates',
       'memory_candidate_revisions',
       'memory_candidate_sources',
+      'memory_extraction_jobs',
     ]) {
       for (const privilege of [
         'SELECT',
@@ -509,17 +510,24 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     expect(
       (
         await admin.query(
-          "SELECT has_table_privilege('openbot_runtime','memory_extraction_jobs','SELECT') AS read,has_table_privilege('openbot_runtime','memory_extraction_jobs','INSERT') AS append,has_table_privilege('openbot_runtime','memory_extraction_jobs','UPDATE') AS mutate,has_table_privilege('openbot_runtime','memory_extraction_jobs','DELETE') AS remove",
+          "SELECT column_name,has_column_privilege('openbot_runtime','memory_extraction_jobs',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='memory_extraction_jobs' ORDER BY column_name",
         )
-      ).rows[0],
-    ).toEqual({ read: true, append: true, mutate: true, remove: false });
-    expect(
-      (
-        await admin.query(
-          "SELECT has_column_privilege('openbot_runtime','memory_extraction_jobs','status','UPDATE') AS status,has_column_privilege('openbot_runtime','memory_extraction_jobs','run_id','UPDATE') AS run",
-        )
-      ).rows[0],
-    ).toEqual({ status: true, run: false });
+      ).rows,
+    ).toEqual([
+      { column_name: 'attempt_count', allowed: true },
+      { column_name: 'available_at', allowed: true },
+      { column_name: 'claim_token', allowed: true },
+      { column_name: 'created_at', allowed: false },
+      { column_name: 'extractor_version', allowed: false },
+      { column_name: 'last_error_code', allowed: true },
+      { column_name: 'lease_expires_at', allowed: true },
+      { column_name: 'manifest_digest', allowed: false },
+      { column_name: 'normalizer_version', allowed: false },
+      { column_name: 'output_event_id', allowed: false },
+      { column_name: 'run_id', allowed: false },
+      { column_name: 'status', allowed: true },
+      { column_name: 'updated_at', allowed: true },
+    ]);
     for (const fn of [
       'protect_group_memory()',
       'protect_memory_version()',
