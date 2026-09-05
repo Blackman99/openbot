@@ -138,10 +138,16 @@ async function promoteFile(
 describe('KNW-01 pre-rank isolation and untrusted framing', () => {
   it('filters a principal outside the selected scope before ranking and hides chunk text and source metadata', async () => {
     const f = await fixture();
-    await promoteFile(f, f.base, 'Quarterly notes\nKeep the cobalt key\n', {
-      kind: 'group',
-      id: f.group.id,
-    }, 'promote-admitted');
+    await promoteFile(
+      f,
+      f.base,
+      'Quarterly notes\nKeep the cobalt key\n',
+      {
+        kind: 'group',
+        id: f.group.id,
+      },
+      'promote-admitted',
+    );
     await promoteFile(
       f,
       f.otherBase,
@@ -312,9 +318,11 @@ describe('KNW-01 pre-rank isolation and untrusted framing', () => {
       ).rows[0],
     ).toEqual(beforeConfig);
     expect(
-      (await f.pool.query('SELECT user_id,role FROM bot_acl WHERE bot_id=$1 ORDER BY user_id', [
-        f.bot.id,
-      ])).rows,
+      (
+        await f.pool.query('SELECT user_id,role FROM bot_acl WHERE bot_id=$1 ORDER BY user_id', [
+          f.bot.id,
+        ])
+      ).rows,
     ).toEqual(beforeAcl);
     expect(
       (
