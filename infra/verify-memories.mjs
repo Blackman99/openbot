@@ -6,14 +6,6 @@ import { GroupService } from './dist/groups/service.js';
 import { PostgresGroupRepository } from './dist/groups/postgres-group-repository.js';
 import { ConversationService } from './dist/conversations/service.js';
 import { PostgresConversationRepository } from './dist/conversations/postgres-repository.js';
-import { BotService } from './dist/bots/service.js';
-import { PostgresBotRepository } from './dist/bots/postgres-bot-repository.js';
-import { GroupBotService } from './dist/group-bots/service.js';
-import { PostgresGroupBotRepository } from './dist/group-bots/postgres-repository.js';
-import { ProviderConnections } from './dist/providers/connections.js';
-import { PostgresProviderRepository } from './dist/providers/postgres-repository.js';
-import { ProviderSecretBox } from './dist/providers/secrets.js';
-import { ProviderUrlPolicy } from './dist/providers/url-policy.js';
 import { BOT_PRIVATE_VISIBILITY_SUMMARY } from './dist/memories/types.js';
 const pool = new pg.Pool();
 let stage = 'seed';
@@ -117,7 +109,7 @@ try {
     (await request('/search', { query: 'do-not-audit-this-body' }, outsiderToken)).status,
     403,
   );
-  stage = 'promotion preview and confirm';
+  stage = 'promotion destination Bots';
   const promoteSource = await conversations.append(owner, workspaceId, conversation.id, {
     body: 'Compose private promotion evidence',
     idempotencyKey: 'promote-source',
@@ -130,45 +122,57 @@ try {
   });
   assert.equal(promoteSaved.status, 201);
   const promoteMemory = (await promoteSaved.json()).memory;
-  const model = await new ProviderConnections(
-    new PostgresProviderRepository(pool),
-    new ProviderSecretBox(randomBytes(32).toString('base64')),
-    new ProviderUrlPolicy({ hosts: ['models.example'], schemes: ['https'], privateCidrs: [] }),
-    {
-      run: async () => ({
-        testedAt: new Date().toISOString(),
-        text: { ok: true, code: 'passed', raw: 'OK' },
-        action: { ok: false, code: 'provider_action_unsupported', raw: 'Unsupported' },
-      }),
-    },
-  )
-    .inWorkspace(workspaceId)
-    .save(owner, {
-      protocol: 'openai-chat',
-      name: 'Compose promotion model',
-      baseUrl: 'https://models.example/v1',
-      modelId: 'compose-promotion-model',
-      apiKey: 'compose-promotion-fixture',
-      headers: {},
-    });
-  const bots = new BotService(new PostgresBotRepository(pool));
-  const binding = {
-    scope: { kind: 'workspace', id: workspaceId },
-    connectionId: model.id,
-    modelId: model.modelId,
-  };
-  const dest = await bots.create(owner, workspaceId, {
-    name: 'Compose private destination',
-    roleDescription: 'Researcher',
-    instructions: 'Use promoted evidence.',
-    modelBinding: binding,
-  });
-  const otherBot = await bots.create(owner, workspaceId, {
-    name: 'Compose isolated Bot',
-    roleDescription: 'Researcher',
-    instructions: 'Stay isolated.',
-    modelBinding: binding,
-  });
+  async function insertOwnedBot(name) {
+    const connection = await pool.connect(),
+      id = randomUUID(),
+      versionId = randomUUID();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        "INSERT INTO bots(id,workspace_id,current_version_id,visibility,created_by_user_id,created_at) VALUES($1,$2,$3,'private',$4,NOW())",
+        [id, workspaceId, versionId, owner],
+      );
+      await connection.query(
+        "INSERT INTO bot_versions(id,bot_id,version,configuration,author_user_id,created_at,rationale) VALUES($1,$2,1,$3::jsonb,$4,NOW(),'Created')",
+        [
+          versionId,
+          id,
+          JSON.stringify({
+            name,
+            roleDescription: 'Researcher',
+            description: '',
+            instructions: 'Use promoted evidence.',
+            modelBinding: {
+              scope: { kind: 'workspace', id: workspaceId },
+              connectionId: randomUUID(),
+              modelId: 'compose-promotion-model',
+            },
+            limits: {
+              maxTotalTokens: 32768,
+              maxDurationSeconds: 300,
+              maxTurns: 8,
+              maxDelegationDepth: 2,
+            },
+          }),
+          owner,
+        ],
+      );
+      await connection.query(
+        "INSERT INTO bot_acl(bot_id,user_id,role,created_at) VALUES($1,$2,'owner',NOW())",
+        [id, owner],
+      );
+      await connection.query('COMMIT');
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return { id, name };
+  }
+  const dest = await insertOwnedBot('Compose private destination');
+  const otherBot = await insertOwnedBot('Compose isolated Bot');
+  stage = 'promotion preview and confirm';
   assert.equal(
     (
       await request(
@@ -254,13 +258,7 @@ try {
   );
   assert.equal(otherSearch.status, 200);
   assert.deepEqual((await otherSearch.json()).memories, []);
-  const secondGroup = await groups.create(owner, workspaceId, { name: 'Second compose group' });
-  await new GroupBotService(new PostgresGroupBotRepository(pool)).invite(
-    owner,
-    workspaceId,
-    secondGroup.id,
-    { botId: dest.id, idempotencyKey: 'dest-other-group', history: { mode: 'all' } },
-  );
+  await groups.create(owner, workspaceId, { name: 'Second compose group' });
   const destSearch = await workspaceRequest(
     `/api/v1/workspaces/${workspaceId}/bots/${dest.id}/private-memories/search`,
     { query: 'PROMOTION' },

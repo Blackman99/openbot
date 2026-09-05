@@ -1221,7 +1221,11 @@ jobs:
           set -Eeuo pipefail
           memory_report="$(mktemp)"
           trap 'rm -f "$memory_report"' EXIT
-          docker compose exec -T api node --input-type=module < infra/verify-memories.mjs > "$memory_report"
+          if ! docker compose exec -T api node --input-type=module < infra/verify-memories.mjs > "$memory_report"; then
+            echo 'Memory Compose script failed' >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
           jq --exit-status --slurp '
             def uuid: type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
             length == 1 and (.[0] |
