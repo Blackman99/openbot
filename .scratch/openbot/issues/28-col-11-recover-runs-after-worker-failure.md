@@ -6,6 +6,8 @@ status: blocked
 blocked_by:
   - COL-05
   - COL-09
+  - COL-07
+  - COL-10
 labels:
   - area:collaboration
   - area:worker
@@ -24,6 +26,8 @@ Leases, heartbeats, startup reconciliation, and guarded commits recover interrup
 
 - [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md)
 - [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md)
+- [COL-07](24-col-07-cancel-task-trees-safely.md)
+- [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md)
 
 ## Acceptance criteria
 
@@ -38,3 +42,7 @@ Leases, heartbeats, startup reconciliation, and guarded commits recover interrup
 - High-availability database deployment
 - Exactly-once provider execution
 - Cross-region workers
+
+## Discovered implementation dependencies
+
+Recovery reuses COL-07 durable partial-output and cancellation fences, plus COL-10 persisted attempt chains, the shared continuation writer and the common automatic-run budget. It must not introduce a competing partial table or reset the shared budget. See [frontier handoff](../EXECUTION-FRONTIER-HANDOFF.md). These are implementation prerequisites for the approved criteria, not new criteria. All 67 tickets and 401 original acceptance texts remain unchanged.

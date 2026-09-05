@@ -47,7 +47,97 @@ async function safePage(page: Page) {
   expect(await page.content()).not.toMatch(
     /fixture-only-password|sealedCredential|authorization:|connectionId|apiKey|modelBinding|instructions/iu,
   );
-  await expect(page.getByRole('button', { name: /cancel|retry task|retry run/iu })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /cancel/iu })).toHaveCount(0);
+}
+
+for (const lostResponse of ['server', 'browser'] as const) {
+  test(`failed task retry preserves one attempt after a lost ${lostResponse} response and retains earlier evidence`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const { conversationId } = await setup(page);
+    await page.request.post(`${api}/__conversation/state`, {
+      data: {
+        conversationId,
+        seed: Array.from({ length: 30 }, (_, index) => `Earlier message ${index}`),
+      },
+    });
+    const prompt = 'Retry this exact original task.';
+    await page.getByLabel('Prompt', { exact: true }).fill(prompt);
+    await page.getByRole('button', { name: 'Run task', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Saved task', exact: true })).toBeVisible();
+    const taskId = (await taskState(page)).tasks[0].id;
+    await page.request.post(`${api}/__task/state`, {
+      data: { taskId, status: 'failed', usage: { inputTokens: 5, outputTokens: 1 } },
+    });
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Retry failed task', exact: true }),
+    ).toBeVisible();
+    const oldRun = (await taskState(page)).tasks[0].runs[0];
+    const key = await page.locator('input[name="idempotencyKey"]').inputValue();
+    await expect(page.locator('input[name="expectedRunId"]')).toHaveValue(oldRun.id);
+    const action = (url: URL) =>
+      url.pathname.endsWith(`/tasks/${taskId}`) && url.search === '?/retry';
+    if (lostResponse === 'server')
+      await page.request.post(`${api}/__task/state`, { data: { failAfterCommit: true } });
+    else
+      await page.route(action, async (route) => {
+        await route.fetch();
+        await route.abort('failed');
+      });
+    await page.getByRole('button', { name: 'Retry failed task', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('could not be confirmed');
+    if (lostResponse === 'browser') await page.unroute(action);
+    await expect(page.locator('input[name="idempotencyKey"]')).toHaveValue(key);
+    await expect(page.locator('input[name="expectedRunId"]')).toHaveValue(oldRun.id);
+    expect((await taskState(page)).tasks[0].runCount).toBe(2);
+    await page.request.post(`${api}/__task/state`, {
+      data: { taskId, status: 'completed', usage: { inputTokens: 9, outputTokens: 7 } },
+    });
+    await page.getByRole('button', { name: 'Confirm unchanged retry', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Researcher · Completed', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('Current attempt 2 of 2', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry failed task', exact: true })).toHaveCount(
+      0,
+    );
+    const saved = await taskState(page);
+    expect(saved.tasks).toHaveLength(1);
+    expect(saved.tasks[0].runs).toHaveLength(1);
+    expect(saved.retryAttempts.map((attempt: { command: unknown }) => attempt.command)).toEqual([
+      { idempotencyKey: key, expectedRunId: oldRun.id },
+      { idempotencyKey: key, expectedRunId: oldRun.id },
+    ]);
+    expect(saved.histories[0].runs).toHaveLength(2);
+    expect(saved.histories[0].runs[0]).toEqual(oldRun);
+    await page.getByRole('link', { name: 'View earlier attempts', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Attempt history', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Attempt 1 · Failed', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Input tokens: 5 · Output tokens: 1', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('The model request failed.', { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('Current attempt 2 of 2', { exact: true })).toBeVisible();
+    await page.getByRole('link', { name: 'Open conversation response', exact: true }).click();
+    await expect(
+      page.getByRole('article', { name: 'Message by Researcher', exact: true }).locator('pre'),
+    ).toHaveText('The saved Bot response remains readable after reload.');
+    const conversation = await conversationState(page);
+    expect(conversation.threads[0].messages).toHaveLength(32);
+    expect(
+      conversation.threads[0].messages.filter(
+        (message: { versions: { body: string }[] }) => message.versions[0]?.body === prompt,
+      ),
+    ).toHaveLength(1);
+    await safePage(page);
+    expect(errors).toEqual([]);
+  });
 }
 
 test('direct tasks reload queued, running and completed state with actual usage and retained Bot authorship', async ({
@@ -62,7 +152,7 @@ test('direct tasks reload queued, running and completed state with actual usage 
       seed: Array.from({ length: 30 }, (_, index) => `Earlier message ${index}`),
     },
   });
-  await expect(page.getByLabel('Bot', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Mention a Bot (optional)', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
   const body = 'Summarize the saved evidence.\n  Preserve this prompt.';
   await page.getByLabel('Prompt', { exact: true }).fill(body);
@@ -151,7 +241,7 @@ test('group members replay one explicit grant without Bot ACL, reload a failed r
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   const { conversationUrl } = await setup(page, 'group');
-  const choice = page.getByLabel('Bot', { exact: true });
+  const choice = page.getByLabel('Mention a Bot (optional)', { exact: true });
   await expect(choice).toHaveValue('');
   await expect(page.getByRole('option', { name: 'Closed helper', exact: true })).toHaveCount(0);
   await choice.selectOption(grantId);

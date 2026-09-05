@@ -2,7 +2,7 @@
 sequence: 22
 id: COL-05
 title: "Stream authorized conversation events over SSE"
-status: in-progress
+status: complete-with-external-verification
 blocked_by:
   - COL-03
   - COL-04
@@ -26,14 +26,20 @@ Authorized clients receive ordered model deltas and Task and Run state changes, 
 
 ## Acceptance criteria
 
-- [ ] A slow test provider delivers at least one assistant delta before the Run completes.
-- [ ] Last-Event-ID resumes after the acknowledged event without gaps or duplicates.
-- [ ] Callers without conversation read access cannot open or resume its stream.
-- [ ] A completed stream converges to exactly one final ledger message.
-- [ ] Text deltas and Task and Run updates share one ordered, resumable cursor.
+- [x] A slow test provider delivers at least one assistant delta before the Run completes.
+- [x] Last-Event-ID resumes after the acknowledged event without gaps or duplicates.
+- [x] Callers without conversation read access cannot open or resume its stream.
+- [x] A completed stream converges to exactly one final ledger message.
+- [x] Text deltas and Task and Run updates share one ordered, resumable cursor.
 
 ## Non-goals
 
 - WebSocket delivery
 - Native push notifications
 - Permanent storage of superseded rendering deltas
+
+## Accepted implementation and external evidence
+
+Source `9425c6647869668bc6de9112349d69219cd40131` is integrated in reviewed source `0ff6898eee671f04987fd5024a0bbc3c2d0afef4`, tree `3173dfcb6ea9af4913c0eae5fea67748a623dce2`; the accepted evidence commit is `0fd1198e2c0dc1c43dc3e8f59742e4e58ab99f72`. Component and combined Spec/Standards reviews are CLEAN. The dedicated merger ran one complete `pnpm verify` with exit 0: 1,453 nonbrowser tests, 53 ordinary browser journeys, one OIDC journey, formatting, zero-error/zero-warning Web types and both production builds. See [combined evidence](../STREAM-BATCH-VERIFICATION.md).
+
+`COL-05-E1` remains an explicit [REL-01 release gate](67-rel-01-mvp-release-acceptance-and-distribution.md): execute 40 dedicated stream PostgreSQL cases and real running/reloaded Compose delivery witnesses. Local skips and syntax checks do not satisfy native PostgreSQL or Compose evidence. The original acceptance texts are unchanged.

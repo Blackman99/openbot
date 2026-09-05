@@ -169,10 +169,17 @@ as owner. It does not copy permissions, conversation history, private memory or 
 
 ## Single-Bot tasks
 
-Open **Tasks** from a Bot conversation, enter a prompt, and submit. In a group conversation,
-select one active Bot grant. PostgreSQL retains the Task and its first Run, and a separate
-worker executes the pinned Bot version using the triggering user's current model permissions.
-Reloading shows the saved status, actual model, usage, and final Bot response.
+Open **Tasks** from a Bot conversation, enter a prompt, and submit. In a group, an explicit Bot
+mention selects that membership; otherwise an eligible default Bot is used, followed by a local
+match against eligible Bots' public profiles. **Why this Bot?** opens the saved routing decision.
+PostgreSQL retains the Task and its Runs, and a separate worker executes the pinned Bot version
+using the triggering user's current model permissions.
+
+Live draft text and Run updates resume after reconnecting and converge on one saved Bot response.
+The original requester can manually retry a failed Task as a new Run on the same Task and inspect
+its attempt history. Reloading shows the saved status, actual model, usage and final response.
+In a group conversation, **Save as group memory** records a reference to a current human or Bot
+message; **Group memories** opens its source details and scoped search.
 
 The worker uses the same provider encryption key and network policy as the API. Without a key,
 it reports `task_worker_unconfigured` and leaves queued work untouched. Configure the key and

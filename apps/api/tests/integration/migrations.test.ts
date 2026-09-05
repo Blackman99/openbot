@@ -52,6 +52,10 @@ describe('database migrations', () => {
       '0016_bot_lifecycle',
       '0017_single_bot_tasks',
       '0018_conversation_attachments',
+      '0019_conversation_delivery',
+      '0020_group_source_memories',
+      '0021_deterministic_group_routing',
+      '0022_failed_task_retries',
     ]);
 
     const database: DatabaseClient = {
@@ -94,19 +98,29 @@ describe('database migrations', () => {
       'bot_avatar_references',
       'bot_versions',
       'bots',
+      'conversation_delivery_events',
+      'conversation_delivery_state',
       'conversation_events',
       'conversations',
       'group_bot_grants',
       'group_memberships',
+      'group_memories',
+      'group_routing_settings',
       'groups',
       'instance_claims',
       'local_credentials',
+      'memory_versions',
       'message_purges',
       'oidc_identities',
       'oidc_transactions',
       'openbot_schema_migrations',
       'personal_model_connections',
+      'run_memory_references',
       'sessions',
+      'task_retry_commands',
+      'task_routing_decisions',
+      'task_run_delivery_receipts',
+      'task_run_streams',
       'task_runs',
       'tasks',
       'users',
@@ -126,7 +140,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0018_conversation_attachments' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0022_failed_task_retries' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

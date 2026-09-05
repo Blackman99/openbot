@@ -2,7 +2,7 @@
 sequence: 24
 id: COL-07
 title: "Cancel Task trees safely"
-status: blocked
+status: in-progress
 blocked_by:
   - COL-04
   - COL-05

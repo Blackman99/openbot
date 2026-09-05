@@ -1,4 +1,5 @@
 import { readMessageEvents } from '../conversations/projection.js';
+import { selectCurrentMessageSource } from '../conversations/message-source.js';
 import type { AttachmentRow } from '../attachments/types.js';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
@@ -95,6 +96,18 @@ export class GroupBotTransaction {
     ).rows[0];
     if (!row) throw new GroupBotAccessError();
     return row;
+  }
+  async sourceForMemory(messageId: string) {
+    return selectCurrentMessageSource(
+      this.connection,
+      {
+        workspaceId: this.access.workspaceId,
+        groupId: this.access.groupId,
+        conversationId: this.grant.conversationId,
+      },
+      messageId,
+      this.grant.lowerBound,
+    );
   }
   async context(read: MessageRead): Promise<GroupBotContext> {
     read = { ...read };

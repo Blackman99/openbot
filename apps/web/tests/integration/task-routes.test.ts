@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadTasksPage, loadTaskPage, submitTask } from '../../src/lib/server/task-page.js';
+import {
+  loadTasksPage,
+  loadTaskPage,
+  loadTaskRunsPage,
+  submitTask,
+  retryTask,
+} from '../../src/lib/server/task-page.js';
 import { task, conversation, workspace, user, token } from '../fixtures/tasks.js';
 import { page } from '../fixtures/conversations.js';
 import { grant, membership } from '../fixtures/group-bots.js';
@@ -45,6 +51,198 @@ function context() {
 }
 
 describe('Task page boundary', () => {
+  it('omits the automatic group choice from the API command and retains it when no candidate is available', async () => {
+    const event = context();
+    const values = {
+      idempotencyKey: 'automatic-choice',
+      body: 'Find the right helper',
+      groupGrantId: '',
+    };
+    const request = () =>
+      new Request(event.url, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        body: new URLSearchParams(values),
+      });
+    event.fetch
+      .mockResolvedValueOnce(Response.json({ error: { code: 'no_eligible_bot' } }, { status: 409 }))
+      .mockResolvedValueOnce(
+        Response.json(
+          {
+            task: {
+              ...task,
+              groupGrantId: grant.id,
+              routing: { algorithm: 'local-terms-v1', reason: 'local-match' },
+            },
+          },
+          { status: 202 },
+        ),
+      );
+    expect(
+      await submitTask({ ...event, request: request() }, workspace.id, conversation.id),
+    ).toMatchObject({
+      status: 409,
+      data: {
+        values,
+        uncertain: false,
+        conflict: false,
+        error: expect.stringContaining('No group Bot'),
+      },
+    });
+    await expect(
+      submitTask({ ...event, request: request() }, workspace.id, conversation.id),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/tasks/${task.id}`,
+    });
+    expect(event.fetch.mock.calls).toHaveLength(2);
+    for (const [, init] of event.fetch.mock.calls)
+      expect(JSON.parse(String(init?.body))).toEqual({
+        idempotencyKey: values.idempotencyKey,
+        body: values.body,
+      });
+  });
+
+  it('rejects whitespace as a forged group choice before any API request', async () => {
+    const event = context();
+    const request = new Request(event.url, {
+      method: 'POST',
+      headers: { origin: 'http://localhost:3000' },
+      body: new URLSearchParams({
+        idempotencyKey: 'forged-choice',
+        body: 'Find the right helper',
+        groupGrantId: ' ',
+      }),
+    });
+    expect(await submitTask({ ...event, request }, workspace.id, conversation.id)).toMatchObject({
+      status: 400,
+    });
+    expect(event.fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves an uncertain retry command and confirms exactly that receipt without editing the Task prompt', async () => {
+    const event = context();
+    const values = { idempotencyKey: 'uncertain-retry', expectedRunId: task.runs[0]!.id };
+    const queued = {
+      ...task,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      runs: [{ ...task.runs[0], id: grant.id, attempt: 2 }],
+    };
+    event.fetch
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: 'task_unavailable' } }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ task: queued, receipt: { runId: grant.id, attempt: 2 } }, { status: 202 }),
+      );
+    const request = () =>
+      new Request(event.url, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        body: new URLSearchParams(values),
+      });
+    expect(
+      await retryTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).toMatchObject({ status: 503, data: { values, uncertain: true, conflict: false } });
+    await expect(
+      retryTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/tasks/${task.id}`,
+    });
+    expect(event.fetch).toHaveBeenCalledTimes(2);
+    for (const [url, init] of event.fetch.mock.calls) {
+      expect(String(url)).toMatch(new RegExp(`/tasks/${task.id}/retries$`, 'u'));
+      expect(init?.body).toBe(JSON.stringify(values));
+    }
+    expect(event.cookies.delete).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [401, 'authentication_required', false],
+    [403, 'task_forbidden', false],
+    [409, 'task_retry_state_conflict', true],
+    [409, 'task_retry_run_conflict', true],
+    [409, 'idempotency_conflict', true],
+  ] as const)(
+    'handles retry HTTP %s/%s without disguising a lost session',
+    async (status, code, conflict) => {
+      const event = context(),
+        values = { idempotencyKey: 'retained-key', expectedRunId: task.runs[0]!.id };
+      event.fetch.mockResolvedValueOnce(Response.json({ error: { code } }, { status }));
+      const pending = retryTask(
+        {
+          ...event,
+          request: new Request(event.url, {
+            method: 'POST',
+            headers: { origin: 'http://localhost:3000' },
+            body: new URLSearchParams(values),
+          }),
+        },
+        workspace.id,
+        conversation.id,
+        task.id,
+      );
+      if (status === 401) {
+        await expect(pending).rejects.toMatchObject({ status: 303, location: '/sign-in' });
+        expect(event.cookies.delete).toHaveBeenCalled();
+      } else {
+        expect(await pending).toMatchObject({
+          status,
+          data: { values, conflict, uncertain: false },
+        });
+        expect(event.cookies.delete).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('reads older attempts using conversation access even when the retained Bot grant cannot execute', async () => {
+    const event = context(),
+      original = event.fetch.getMockImplementation()!;
+    const saved = {
+      ...task,
+      groupGrantId: grant.id,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      runs: [{ ...task.runs[0], id: grant.id, attempt: 2 }],
+    };
+    const failed = {
+      ...task.runs[0],
+      status: 'failed',
+      error: 'execution_forbidden',
+      finishedAt: '2026-09-05T00:00:01.000Z',
+    };
+    event.fetch.mockImplementation(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith(`/tasks/${task.id}`)) return Response.json({ task: saved });
+      if (path.endsWith(`/tasks/${task.id}/runs`))
+        return Response.json({
+          conversationId: conversation.id,
+          taskId: task.id,
+          runs: [failed],
+          nextCursor: null,
+        });
+      if (path.includes('/bots') || path.includes('model-connections'))
+        throw new Error('history_does_not_admit_provider');
+      return original(url, init);
+    });
+    event.url.search = '?cursor=older_attempt&limit=5';
+    expect(await loadTaskRunsPage(event, workspace.id, conversation.id, task.id)).toMatchObject({
+      task: saved,
+      runs: [failed],
+      nextCursor: null,
+      cursor: 'older_attempt',
+      limit: 5,
+    });
+    expect(event.fetch.mock.calls).toHaveLength(5);
+    expect(event.fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(
+      true,
+    );
+    expect(String(event.fetch.mock.calls.at(-1)?.[0])).toContain(
+      '/runs?cursor=older_attempt&limit=5',
+    );
+  });
   it.each(['archived', 'deleted'] as const)(
     'keeps saved tasks readable while excluding a Bot with %s lifecycle from executable group choices',
     async (lifecycleState) => {

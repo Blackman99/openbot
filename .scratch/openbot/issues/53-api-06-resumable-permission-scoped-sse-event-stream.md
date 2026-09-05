@@ -6,6 +6,9 @@ status: blocked
 blocked_by:
   - API-01
   - COL-05
+  - COL-07
+  - COL-12
+  - COL-19
 labels:
   - area:api
   - area:realtime
@@ -23,6 +26,9 @@ Web and external clients can subscribe to workspace and task events over SSE and
 
 - [API-01](48-api-01-scoped-api-token-lifecycle.md)
 - [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md)
+- [COL-07](24-col-07-cancel-task-trees-safely.md)
+- [COL-12](29-col-12-enforce-hierarchical-execution-limits.md)
+- [COL-19](36-col-19-pause-tasks-for-human-input-and-approval.md)
 
 ## Acceptance criteria
 
@@ -38,3 +44,7 @@ Web and external clients can subscribe to workspace and task events over SSE and
 - WebSocket protocol
 - Infinite event retention
 - Cross-instance event bus
+
+## Discovered implementation dependencies
+
+The existing fifth criterion requires actual cancellation, approval and budget-exhaustion events. COL-07, COL-12 and COL-19 supply those domain transitions; generic fixtures cannot substitute for their real producers. See [frontier handoff](../EXECUTION-FRONTIER-HANDOFF.md). These are implementation prerequisites for the approved criteria, not new criteria. All 67 tickets and 401 original acceptance texts remain unchanged.

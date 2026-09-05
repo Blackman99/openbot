@@ -1,4 +1,6 @@
 import { ATTACHMENT_SCHEMA_STATEMENTS, ATTACHMENT_POSTGRES_GUARDS } from '../attachments/schema.js';
+import { MEMORY_SCHEMA_STATEMENTS, MEMORY_POSTGRES_GUARDS } from '../memories/schema.js';
+import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
 import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
@@ -14,6 +16,11 @@ import {
 import { GROUP_SCHEMA_STATEMENTS } from '../groups/schema.js';
 import { GROUP_BOT_SCHEMA_STATEMENTS, GROUP_BOT_POSTGRES_GUARDS } from '../group-bots/schema.js';
 import { TASK_SCHEMA_STATEMENTS, TASK_POSTGRES_GUARDS } from '../tasks/schema.js';
+import { TASK_RETRY_SCHEMA_STATEMENTS, TASK_RETRY_POSTGRES_GUARDS } from '../tasks/retry-schema.js';
+import {
+  CONVERSATION_STREAM_SCHEMA_STATEMENTS,
+  CONVERSATION_STREAM_POSTGRES_GUARDS,
+} from '../conversations/stream-schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -249,6 +256,26 @@ const MIGRATIONS = [
     version: '0018_conversation_attachments',
     statements: ATTACHMENT_SCHEMA_STATEMENTS,
     postgresStatements: ATTACHMENT_POSTGRES_GUARDS,
+  },
+  {
+    version: '0019_conversation_delivery',
+    statements: CONVERSATION_STREAM_SCHEMA_STATEMENTS,
+    postgresStatements: CONVERSATION_STREAM_POSTGRES_GUARDS,
+  },
+  {
+    version: '0020_group_source_memories',
+    statements: MEMORY_SCHEMA_STATEMENTS,
+    postgresStatements: MEMORY_POSTGRES_GUARDS,
+  },
+  {
+    version: '0021_deterministic_group_routing',
+    statements: ROUTING_SCHEMA_STATEMENTS,
+    postgresStatements: ROUTING_POSTGRES_GUARDS,
+  },
+  {
+    version: '0022_failed_task_retries',
+    statements: TASK_RETRY_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_RETRY_POSTGRES_GUARDS,
   },
 ] as const;
 

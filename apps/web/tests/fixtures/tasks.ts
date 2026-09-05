@@ -14,6 +14,8 @@ export const task = {
   executionUser: { id: user.id, displayName: user.displayName },
   groupGrantId: null,
   trigger: receipt,
+  runCount: 1,
+  olderRunsCursor: null,
   runs: [
     {
       id: '40000000-0000-4000-8000-000000000004',

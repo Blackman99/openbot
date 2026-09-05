@@ -21,7 +21,7 @@ const server = createServer(async (request, response) => {
     return;
   }
   if (request.method === 'POST' && request.url === '/release') {
-    for (const output of pending) complete(output, 'Persisted separate worker response.');
+    for (const output of pending) complete(output, 'separate worker response.');
     pending.clear();
     response.end('released');
     return;
@@ -58,6 +58,7 @@ const server = createServer(async (request, response) => {
         response.end();
       } else {
         response.flushHeaders();
+        frame(response, { choices: [{ delta: { content: 'Persisted ' }, finish_reason: null }] });
         pending.add(response);
         response.once('close', () => pending.delete(response));
       }

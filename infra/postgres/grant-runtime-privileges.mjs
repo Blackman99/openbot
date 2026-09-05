@@ -162,6 +162,13 @@ try {
     REVOKE ALL ON FUNCTION protect_task() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_run() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_bot_output() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_group_memory() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_version() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_memory_reference() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION require_current_task_run() FROM PUBLIC, openbot_runtime;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -181,6 +188,7 @@ try {
       group_bot_grants,
       tasks,
       task_runs,
+      task_retry_commands,
       instance_claims,
       sessions
     TO openbot_runtime;
@@ -191,6 +199,10 @@ try {
     GRANT UPDATE (role) ON bot_acl TO openbot_runtime;
     GRANT DELETE ON bot_acl TO openbot_runtime;
     GRANT UPDATE (last_sequence) ON conversations TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON conversation_delivery_events TO openbot_runtime;
+    GRANT SELECT, INSERT ON conversation_delivery_state, task_run_streams, task_run_delivery_receipts TO openbot_runtime;
+    GRANT UPDATE (floor, retained_count, retained_bytes) ON conversation_delivery_state TO openbot_runtime;
+    GRANT UPDATE (delivered_bytes) ON task_run_streams TO openbot_runtime;
     GRANT UPDATE (status) ON tasks TO openbot_runtime;
     GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
       provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,
@@ -205,6 +217,9 @@ try {
     GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;
     GRANT DELETE ON group_memberships TO openbot_runtime;
     GRANT SELECT, INSERT ON attachment_objects, message_purges TO openbot_runtime;
+    GRANT SELECT, INSERT ON group_memories, memory_versions, run_memory_references TO openbot_runtime;
+    GRANT SELECT, INSERT ON group_routing_settings, task_routing_decisions TO openbot_runtime;
+    GRANT UPDATE (default_grant_id,revision,updated_by_user_id,updated_at) ON group_routing_settings TO openbot_runtime;
     GRANT UPDATE (state, message_id, filename, media_type, bytes, sha256, lease_until, cleanup_after, attempts, cleanup_token) ON attachment_objects TO openbot_runtime;
     GRANT UPDATE (state, completed_at) ON message_purges TO openbot_runtime;
     GRANT EXECUTE ON FUNCTION purge_conversation_message(UUID,UUID,UUID) TO openbot_runtime;

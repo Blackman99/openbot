@@ -23,7 +23,8 @@ export async function botAclFixture(
   cleanup: Array<() => Promise<unknown>>,
   options: { onAclQuery?: (statement: string) => void; now?: () => Date } = {},
 ) {
-  const pool: Pool = new (newProviderDatabase().adapters.createPg().Pool)();
+  const database = newProviderDatabase();
+  const pool: Pool = new (database.adapters.createPg().Pool)();
   cleanup.push(() => pool.end());
   await migrateDatabase(pool, { installPostgresGuards: false });
   const session = randomBytes(32).toString('base64url');
@@ -125,5 +126,5 @@ export async function botAclFixture(
     });
     return { id, email, headers: { ...headers, cookie: `openbot_session=${token}` } };
   }
-  return { pool, app, auth, owner, headers, path, bot, addUser, providers, model };
+  return { database, pool, app, auth, owner, headers, path, bot, addUser, providers, model };
 }

@@ -9,6 +9,7 @@ import {
 } from './conversation-api.js';
 import { createGroupBotApiClient } from './group-bot-api.js';
 import { createTaskApiClient } from './task-api.js';
+import { readTaskRoutingDecision } from './task-routing.js';
 import {
   clearSessionCookie,
   readSessionCookie,
@@ -30,7 +31,134 @@ export async function loadTaskPage(
     taskId,
   );
   if (result.status !== 'available') readFailure(result.status, context);
-  return { ...page, task: result.value };
+  const routing = await readTaskRoutingDecision(
+    context.fetch,
+    readSessionCookie(context.cookies),
+    page.workspace.id,
+    page.conversation.id,
+    result.value,
+    context.request.signal,
+  );
+  if (routing.status !== 'available') readFailure(routing.status, context);
+  return {
+    ...page,
+    task: result.value,
+    ...(routing.value === null ? {} : { routingDecision: routing.value }),
+    canRetry:
+      page.canWrite &&
+      page.user.id === result.value.executionUser.id &&
+      result.value.status === 'failed',
+    idempotencyKey: String(randomUUID()),
+  };
+}
+export async function loadTaskRunsPage(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  const pageQuery = query(context.url);
+  const page = await loadTaskPage(context, workspaceId, conversationId, taskId);
+  const result = await createTaskApiClient(context.fetch, context.request.signal).runs(
+    readSessionCookie(context.cookies),
+    page.workspace.id,
+    page.conversation.id,
+    page.task.id,
+    pageQuery,
+  );
+  if (result.status !== 'available') readFailure(result.status, context);
+  return {
+    ...page,
+    runs: result.value.runs,
+    nextCursor: result.value.nextCursor,
+    cursor: pageQuery.cursor ?? null,
+    limit: pageQuery.limit ?? 20,
+  };
+}
+function retryFailure(status: string, context: Context, values: Record<string, string>) {
+  if (status === 'anonymous') readFailure(status, context);
+  const known: Record<string, [number, string]> = {
+    forbidden: [
+      403,
+      'Your current access does not allow this retry. The existing task and attempts are preserved.',
+    ],
+    invalid: [400, 'This retry request is invalid. Refresh the task before starting a retry.'],
+    'model-unavailable': [
+      409,
+      'The original Bot model is currently unavailable to you. The existing attempts are preserved.',
+    ],
+    'idempotency-conflict': [
+      409,
+      'This retry key was already used for another attempt. Refresh the task to inspect the saved result.',
+    ],
+    'retry-state-conflict': [
+      409,
+      'The task is no longer failed. Refresh the task to inspect its current attempt.',
+    ],
+    'retry-run-conflict': [409, 'A newer attempt exists. Refresh the task before retrying.'],
+    'attempt-exhausted': [
+      409,
+      'This task cannot create another attempt. Its existing attempts remain available.',
+    ],
+  };
+  const detail = known[status];
+  return fail(detail?.[0] ?? 503, {
+    values,
+    conflict: [
+      'invalid',
+      'idempotency-conflict',
+      'retry-state-conflict',
+      'retry-run-conflict',
+      'attempt-exhausted',
+    ].includes(status),
+    uncertain: !detail,
+    error:
+      detail?.[1] ??
+      'The retry could not be confirmed. Confirm this unchanged retry to check whether its attempt was created.',
+  });
+}
+export async function retryTask(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (
+    context.request.headers.get('origin') !==
+    new URL(process.env.WEB_ORIGIN ?? 'http://localhost:3000').origin
+  )
+    return retryFailure('forbidden', context, {});
+  const values: Record<string, string> = {};
+  try {
+    const form = await context.request.formData();
+    for (const [key, value] of form) {
+      if (
+        !['idempotencyKey', 'expectedRunId'].includes(key) ||
+        typeof value !== 'string' ||
+        form.getAll(key).length !== 1 ||
+        value.length > 128
+      )
+        return retryFailure('invalid', context, values);
+      values[key] = value;
+    }
+  } catch {
+    return retryFailure('invalid', context, values);
+  }
+  if (!isCommandKey(values.idempotencyKey) || !isConversationUuid(values.expectedRunId))
+    return retryFailure('invalid', context, values);
+  const result = await createTaskApiClient(context.fetch, context.request.signal).retry(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+    { idempotencyKey: values.idempotencyKey, expectedRunId: values.expectedRunId },
+  );
+  if (result.status !== 'available') return retryFailure(result.status, context, values);
+  redirect(
+    303,
+    `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
+  );
 }
 function actionFailure(status: string, context: Context, values: Record<string, string>) {
   if (status === 'anonymous') readFailure(status, context);
@@ -39,9 +167,10 @@ function actionFailure(status: string, context: Context, values: Record<string, 
       403,
       'Your current access does not allow this task. Refresh to check conversation and Bot membership.',
     ],
-    invalid: [
-      400,
-      'Enter a nonblank prompt of up to 32,000 characters and choose a current group Bot when required.',
+    invalid: [400, 'Enter a nonblank prompt of up to 32,000 characters and a valid Bot choice.'],
+    'routing-unavailable': [
+      409,
+      'No group Bot currently has an available model you can use. Your draft is preserved. Check group membership and model access, then retry.',
     ],
     'model-unavailable': [
       409,
@@ -88,7 +217,9 @@ export async function submitTask(context: Context, workspaceId: string, conversa
   if (
     !isCommandKey(values.idempotencyKey) ||
     !values.body?.trim() ||
-    (values.groupGrantId !== undefined && !isConversationUuid(values.groupGrantId))
+    (values.groupGrantId !== undefined &&
+      values.groupGrantId !== '' &&
+      !isConversationUuid(values.groupGrantId))
   )
     return actionFailure('invalid', context, values);
   const result = await createTaskApiClient(context.fetch, context.request.signal).submit(
@@ -98,7 +229,9 @@ export async function submitTask(context: Context, workspaceId: string, conversa
     {
       idempotencyKey: values.idempotencyKey,
       body: values.body,
-      ...(values.groupGrantId === undefined ? {} : { groupGrantId: values.groupGrantId }),
+      ...(values.groupGrantId === undefined || values.groupGrantId === ''
+        ? {}
+        : { groupGrantId: values.groupGrantId }),
     },
   );
   if (result.status !== 'available') return actionFailure(result.status, context, values);

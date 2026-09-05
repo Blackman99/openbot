@@ -1,8 +1,10 @@
 import { BotCopyService } from './bots/copy-service.js';
+import { MemoryService } from './memories/service.js';
 import { AttachmentService } from './attachments/service.js';
 import { attachmentLimit } from './attachments/types.js';
 import { BotVersionService } from './bots/version-service.js';
 import { TaskService } from './tasks/service.js';
+import { GroupRoutingService } from './routing/service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
 import { startAvatarCleanup } from './bots/avatar-cleanup.js';
 import { createObjectStore, type ObjectStorageConfig } from './objects/config.js';
@@ -13,6 +15,8 @@ import { BotAclService } from './bots/acl-service.js';
 import { PostgresBotAclRepository } from './bots/postgres-bot-acl-repository.js';
 import { ConversationService } from './conversations/service.js';
 import { PostgresConversationRepository } from './conversations/postgres-repository.js';
+import { ConversationStreamService } from './conversations/stream-service.js';
+import { startConversationStreamCleanup } from './conversations/stream-cleanup.js';
 import { PostgresBotRepository } from './bots/postgres-bot-repository.js';
 import { OpenIdProvider } from './oidc/provider.js';
 import { PostgresOidcRepository } from './oidc/postgres-repository.js';
@@ -117,8 +121,11 @@ export function buildProductionApp(options: ProductionAppOptions) {
     auth,
     avatars,
     attachments,
+    memories: new MemoryService(pool),
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
+    conversationStreams: new ConversationStreamService(pool),
     tasks: new TaskService(pool),
+    groupRouting: new GroupRoutingService(pool),
     botVersions: new BotVersionService(pool, avatars),
     botCopies: new BotCopyService(pool),
     bots: new BotService(new PostgresBotRepository(pool)),
@@ -154,7 +161,11 @@ export function buildProductionApp(options: ProductionAppOptions) {
   });
   let stopCleanup: (() => Promise<void>) | undefined;
   let stopAttachmentCleanup: (() => Promise<void>) | undefined;
+  let stopStreamCleanup: (() => Promise<void>) | undefined;
   app.addHook('onReady', async () => {
+    stopStreamCleanup = startConversationStreamCleanup(pool, () =>
+      app.log.error('Conversation delivery cleanup failed'),
+    );
     stopAttachmentCleanup = startAvatarCleanup(
       () => attachments.cleanup(5),
       () => app.log.error('Attachment object cleanup failed'),
@@ -165,6 +176,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     );
   });
   app.addHook('onClose', async () => {
+    await stopStreamCleanup?.();
     await stopCleanup?.();
     await stopAttachmentCleanup?.();
     if (attachmentStore instanceof S3ObjectStore) attachmentStore.destroy();

@@ -51,12 +51,13 @@
       <form method="POST" action={`${base}/tasks`} use:enhance={submit}>
         <input type="hidden" name="idempotencyKey" value={values.idempotencyKey ?? data.idempotencyKey} />
         {#if data.conversation.subject.kind === 'group'}
-          <label for="task-bot">Bot</label>
-          <select id="task-bot" name={locked ? undefined : 'groupGrantId'} bind:value={grantId} required disabled={locked}>
-            <option value="">Choose a Bot</option>
-            {#each data.grants as grant (grant.id)}<option value={grant.id}>{grant.name}</option>{/each}
+          <label for="task-bot">Mention a Bot (optional)</label>
+          <select id="task-bot" name={locked ? undefined : 'groupGrantId'} bind:value={grantId} disabled={locked}>
+            <option value="">Automatic · default or local match</option>
+            {#each data.grants as grant (grant.id)}<option value={grant.id}>@ {grant.name}</option>{/each}
           </select>
           {#if locked}<input type="hidden" name="groupGrantId" value={grantId} />{/if}
+          <p>A mention chooses that exact Bot. Automatic routing uses an eligible group default, then local persona matches.</p>
         {/if}
         <label for="task-prompt">Prompt</label>
         <textarea id="task-prompt" name="body" bind:value={prompt} rows="5" maxlength="32000" required readonly={locked}></textarea>

@@ -1,10 +1,14 @@
 import { registerBotCopyRoutes } from './bots/copy-routes.js';
 import type { BotCopyService } from './bots/copy-service.js';
 import { registerAttachmentRoutes } from './attachments/routes.js';
+import { registerMemoryRoutes } from './memories/routes.js';
+import type { MemoryService } from './memories/service.js';
 import type { AttachmentService } from './attachments/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
 import type { TaskService } from './tasks/service.js';
+import type { GroupRoutingService } from './routing/service.js';
+import { registerGroupRoutingRoutes } from './routing/routes.js';
 import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
 import { registerPublicBotRoutes } from './bots/public-routes.js';
@@ -15,6 +19,8 @@ import type { BotAclService } from './bots/acl-service.js';
 import { registerBotAvatarRoutes } from './bots/avatar-routes.js';
 import type { BotAvatarService } from './bots/avatar-service.js';
 import { registerConversationRoutes } from './conversations/routes.js';
+import { registerConversationStreamRoutes } from './conversations/stream-routes.js';
+import type { ConversationStreams } from './conversations/stream-delivery.js';
 import type { ConversationService } from './conversations/service.js';
 import type { BotService } from './bots/service.js';
 import { registerOidcRoutes } from './oidc/routes.js';
@@ -52,7 +58,10 @@ import { registerWorkspaceRoutes } from './workspaces/routes.js';
 import type { WorkspaceService } from './workspaces/service.js';
 
 export interface BuildAppOptions {
+  memories?: MemoryService;
+  conversationStreams?: ConversationStreams;
   tasks?: TaskService;
+  groupRouting?: GroupRoutingService;
   oidc?: OidcService;
   auth?: AuthService;
   apiTokens?: ApiTokenService;
@@ -152,6 +161,7 @@ function sendAuthenticatedSession(
 }
 
 export function buildApp({
+  memories,
   oidc,
   auth,
   apiTokens,
@@ -172,9 +182,11 @@ export function buildApp({
   avatars,
   attachments,
   conversations,
+  conversationStreams,
   botVersions,
   botCopies,
   tasks,
+  groupRouting,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -219,13 +231,16 @@ export function buildApp({
   if (apiTokens && bots && botVersions && botLifecycle)
     registerPublicBotRoutes(app, apiTokens, bots, botVersions, botLifecycle);
   if (auth) {
+    if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
     if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);
+    if (groupRouting) registerGroupRoutingRoutes(app, auth, groupRouting, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (attachments) registerAttachmentRoutes(app, auth, attachments, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
+    if (conversationStreams) registerConversationStreamRoutes(app, conversationStreams);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
     if (botAcl) registerBotAclRoutes(app, auth, botAcl, webOrigin);
     if (botLifecycle) registerBotLifecycleRoutes(app, auth, botLifecycle, webOrigin);

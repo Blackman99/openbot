@@ -2,7 +2,7 @@
 sequence: 41
 id: ATT-01
 title: "Upload, view, and download conversation attachments with history-aware access"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-02
   - COL-02
@@ -46,4 +46,4 @@ A member can attach a validated file to a conversation message, while object acc
 
 Accepted at dedicated merge0bbaf8562fc2727cc5c563f1f3a1555cdd910779, tree4ec3bdd61b175c32ef53f773673623ba535a8629. Both independent source review axes and the shared integration review are CLEAN. The complete merged gate passed1,062 unit/integration tests,36 ordinary browser journeys and one signed OIDC journey, formatting, zero-error/zero-warning types and final builds. See [ATT-01 integration evidence](../ATT-01-INTEGRATION.md).
 
-[Verify33959031255](../VERIFY-33959031255.md) passed all five actual restricted-role PostgreSQL attachment cases and the deployed Compose publication, private download and durable original/derived object purge through migration0018. ATT-01-E1 now retains only the new real-S3 large attachment/avatar byte-bound case: it timed out at the default 5,000 ms budget, with 7,823 ms reported, while the other 13 local/S3 cases passed. The independently reviewed case-only 30,000 ms budget correction is integrated as `86c77c6ce50478703ee32c5a0fb7a05dce24775e`; actual CI rerun remains required. No production deadline, retry count or assertion changed. See [S3 test-budget evidence](../ATT-01-S3-TEST-BUDGET.md).
+ATT-01-E1 closed by [Verify33960029570](../VERIFY-33960029570.md), completed successfully on 2026-09-05 at 10:17:34 UTC with all 12 jobs green on the exact accepted local `e51fafe4` tree. Five actual restricted-role PostgreSQL attachment cases passed. All seven real private-S3 and seven local-store cases passed, including the 3 MiB attachment/avatar byte-bound case in 7,713 ms after the independently reviewed 30,000 ms case-budget correction `86c77c6ce50478703ee32c5a0fb7a05dce24775e`. General Compose passed fresh/upgrade through actual0018 and deployed private upload/download/acknowledged original and derived object purge. No production deadline, retry count or assertion changed; the earlier timeout remains documented in [S3 test-budget evidence](../ATT-01-S3-TEST-BUDGET.md).

@@ -324,6 +324,39 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/tasks-runtime.test.ts
 
+  postgres-conversation-streams:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_conversation_streams_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_conversation_streams_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_CONVERSATION_STREAM_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_conversation_streams_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify ordered delivery with real waits and restricted PostgreSQL privileges
+        run: |
+          : "${TEST_CONVERSATION_STREAM_DATABASE_URL:?Conversation stream PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/conversation-stream-runtime.test.ts
+
   postgres-attachments:
     needs: code
     runs-on: ubuntu-latest
@@ -353,6 +386,36 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/attachments-runtime.test.ts
+
+  postgres-memories:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_memories_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_memories_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_MEMORY_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_memories_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/memories-runtime.test.ts
 
   compose:
     needs: code
@@ -393,7 +456,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -1120,6 +1183,8 @@ jobs:
           test "$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")" = "$audit_count"
       - name: Verify attachments with the restricted runtime role and private volume
         run: docker compose exec -T api node --input-type=module < infra/verify-attachments.mjs
+      - name: Verify scoped source memories through the running API
+        run: docker compose exec -T api node --input-type=module < infra/verify-memories.mjs
       - name: Verify scoped API tokens with the restricted runtime role
         run: docker compose exec -T api node --input-type=module < infra/verify-api-tokens.mjs
       - name: Verify the real unavailable state after database outage
@@ -1196,20 +1261,23 @@ jobs:
           docker compose start api web
           ready=false
           for attempt in {1..60}; do
-            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null; then
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
               ready=true
               break
             fi
             sleep 1
           done
           test "$ready" = true
+          docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=running api node --input-type=module < infra/verify-conversation-stream.mjs
           docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=running api node --input-type=module < infra/verify-tasks.mjs
       - name: Verify reloaded Task history after API and worker restart
         run: |
           docker compose restart worker api web
           ready=false
           for attempt in {1..60}; do
-            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null; then
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
               ready=true
               break
             fi
@@ -1217,6 +1285,7 @@ jobs:
           done
           test "$ready" = true
           docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-tasks.mjs
+          docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-conversation-stream.mjs
       - if: always()
         run: |
           docker compose logs

@@ -1,5 +1,6 @@
 import { isBotLifecycleState, type BotLifecycleState } from './bot-api.js';
-import { parseAttachment } from './attachment-contract.js';
+import { parseConversationMessage, type MessageProjection } from '../conversation-message.js';
+export type { MessageAuthor, MessageProjection } from '../conversation-message.js';
 import { SESSION_COOKIE_NAME } from './auth-api.js';
 export interface ConversationSubject {
   kind: 'group' | 'direct-bot';
@@ -28,26 +29,6 @@ export interface TombstoneCommand {
   idempotencyKey: string;
   expectedVersion: number;
   reason?: string;
-}
-export type MessageAuthor =
-  | { id: string; displayName: string }
-  | { kind: 'bot'; id: string; displayName: string; versionId: string; versionNumber: number };
-export interface MessageProjection {
-  attachment?: NonNullable<ReturnType<typeof parseAttachment>>;
-  id: string;
-  creationSequence: number;
-  versionEventId: string;
-  sequence: number;
-  version: number;
-  author: MessageAuthor;
-  body: string | null;
-  reason: string | null;
-  deleted: boolean;
-  createdAt: string;
-  updatedAt: string;
-  canEdit: boolean;
-  canDelete: boolean;
-  canAudit: boolean;
 }
 export interface ConversationPage {
   conversation: Conversation;
@@ -116,26 +97,6 @@ function actor(value: unknown) {
     ? { id: value.id.toLowerCase(), displayName: value.displayName }
     : undefined;
 }
-function messageAuthor(value: unknown): MessageAuthor | undefined {
-  const person = actor(value);
-  if (person) return person;
-  if (
-    !keys(value, 'displayName,id,kind,versionId,versionNumber') ||
-    value.kind !== 'bot' ||
-    !isConversationUuid(value.id) ||
-    !isConversationUuid(value.versionId) ||
-    !positive(value.versionNumber) ||
-    !text(value.displayName, 100)
-  )
-    return undefined;
-  return {
-    kind: 'bot',
-    id: value.id.toLowerCase(),
-    displayName: value.displayName,
-    versionId: value.versionId.toLowerCase(),
-    versionNumber: value.versionNumber,
-  };
-}
 function parseConversation(value: unknown, workspaceId: string): Conversation | undefined {
   if (
     (!keys(value, 'createdAt,id,subject,workspaceId') &&
@@ -160,56 +121,6 @@ function parseConversation(value: unknown, workspaceId: string): Conversation | 
       ? { botLifecycleState: value.botLifecycleState }
       : {}),
     createdAt: value.createdAt,
-  };
-}
-function projection(value: unknown): MessageProjection | undefined {
-  if (
-    !keys(
-      value,
-      (value && typeof value === 'object' && 'attachment' in value ? 'attachment,' : '') +
-        'author,body,canAudit,canDelete,canEdit,createdAt,creationSequence,deleted,id,reason,sequence,updatedAt,version,versionEventId',
-    ) ||
-    !isConversationUuid(value.id) ||
-    !isConversationUuid(value.versionEventId) ||
-    !positive(value.creationSequence) ||
-    !positive(value.sequence) ||
-    value.sequence < value.creationSequence ||
-    !positive(value.version) ||
-    typeof value.deleted !== 'boolean' ||
-    !date(value.createdAt) ||
-    !date(value.updatedAt) ||
-    typeof value.canEdit !== 'boolean' ||
-    typeof value.canDelete !== 'boolean' ||
-    typeof value.canAudit !== 'boolean'
-  )
-    return undefined;
-  if (
-    value.deleted
-      ? value.body !== null || !text(value.reason, 500) || value.canEdit || value.canDelete
-      : !text(value.body, 32000) || value.reason !== null
-  )
-    return undefined;
-  const attachment = value.attachment === undefined ? undefined : parseAttachment(value.attachment);
-  if (value.attachment !== undefined && (!attachment || value.deleted)) return undefined;
-  const author = messageAuthor(value.author);
-  if (!author || ('kind' in author && (value.canEdit || value.canDelete || value.canAudit)))
-    return undefined;
-  return {
-    ...(attachment ? { attachment } : {}),
-    id: value.id.toLowerCase(),
-    creationSequence: value.creationSequence,
-    versionEventId: value.versionEventId.toLowerCase(),
-    sequence: value.sequence,
-    version: value.version,
-    author,
-    body: typeof value.body === 'string' ? value.body : null,
-    reason: typeof value.reason === 'string' ? value.reason : null,
-    deleted: value.deleted,
-    createdAt: value.createdAt,
-    updatedAt: value.updatedAt,
-    canEdit: value.canEdit,
-    canDelete: value.canDelete,
-    canAudit: value.canAudit,
   };
 }
 function parseVersion(value: unknown): MessageVersion | undefined {
@@ -450,7 +361,7 @@ export class ConversationApiClient {
     const messages: MessageProjection[] = [];
     const ids = new Set<string>();
     for (const item of payload.messages) {
-      const message = projection(item);
+      const message = parseConversationMessage(item);
       if (
         !message ||
         ids.has(message.id) ||

@@ -77,6 +77,15 @@ describe('durable single-Bot execution', () => {
       conversation.id,
       submitted.id,
     );
+    const savedOutputs = (
+      await f.pool.query(
+        "SELECT id,message_id,sequence FROM conversation_events WHERE conversation_id=$1 AND bot_run_id=$2 AND event_type='bot.message.created'",
+        [conversation.id, submitted.runs[0]!.id],
+      )
+    ).rows;
+    expect(savedOutputs).toHaveLength(1);
+    const output = savedOutputs[0];
+    expect(Number(output.sequence)).toBeGreaterThan(submitted.trigger.sequence);
     expect(final).toMatchObject({
       status: 'completed',
       runs: [
@@ -86,7 +95,11 @@ describe('durable single-Bot execution', () => {
           provider: { protocol: 'openai-chat', modelId: 'test-model' },
           usage: { inputTokens: 15, outputTokens: 5 },
           error: null,
-          output: { messageId: expect.any(String), eventId: expect.any(String), sequence: 2 },
+          output: {
+            messageId: output.message_id,
+            eventId: output.id,
+            sequence: Number(output.sequence),
+          },
         },
       ],
     });

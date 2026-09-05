@@ -21,11 +21,50 @@ const data = {
   limit: 30,
   commands: {
     append: 'new-message-key',
-    messages: { [message.id]: { edit: 'edit-message-key', tombstone: 'delete-message-key' } },
+    messages: {
+      [message.id]: {
+        edit: 'edit-message-key',
+        tombstone: 'delete-message-key',
+        saveMemory: 'save-memory-key',
+      },
+    },
   },
 };
 const params = { workspaceId: workspace.id, conversationId: conversation.id };
 describe('Conversation pages', () => {
+  it('renders a current delivered source before a server command map contains its message ID', () => {
+    const html = render(ConversationPage, {
+      props: {
+        data: { ...data, commands: { ...data.commands, messages: {} } },
+        form: null,
+        params,
+      },
+    }).body;
+    expect(html).toContain('Save as group memory');
+    expect(html).toContain(`name="expectedSourceEventId" value="${message.versionEventId}"`);
+  });
+  it('lets a current group member save human or Bot text with an explicit human confidence estimate', () => {
+    const html = render(ConversationPage, { props: { data, form: null, params } }).body;
+    expect(html).toContain('Save as group memory');
+    expect(html).toContain('Confidence (your estimate, 0–1)');
+    expect(html).toContain(`name="expectedSourceEventId" value="${message.versionEventId}"`);
+    expect(html).toContain('name="confidence"');
+    expect(html).toContain('value="0.5"');
+    const direct = render(ConversationPage, {
+      props: {
+        data: {
+          ...data,
+          conversation: {
+            ...conversation,
+            subject: { ...conversation.subject, kind: 'direct-bot' },
+          },
+        },
+        form: null,
+        params,
+      },
+    }).body;
+    expect(direct).not.toContain('Save as group memory');
+  });
   it('labels pinned Bot replies and links the conversation to durable Tasks', () => {
     const html = render(ConversationPage, {
       props: {

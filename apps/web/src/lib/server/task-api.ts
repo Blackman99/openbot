@@ -2,17 +2,33 @@ import { SESSION_COOKIE_NAME } from './auth-api.js';
 import { isCommandKey, isConversationUuid, isConversationCursor } from './conversation-api.js';
 import {
   parseTask,
+  parseTaskRun,
   taskKeys,
   taskText,
   taskInteger,
   type TaskPage,
   type TaskView,
+  type TaskRun,
 } from './task-contract.js';
 export type { TaskPage, TaskView, TaskRun, TaskStatus, TaskErrorCode } from './task-contract.js';
 export interface TaskCommand {
   idempotencyKey: string;
   body: string;
   groupGrantId?: string;
+}
+export interface TaskRetryCommand {
+  idempotencyKey: string;
+  expectedRunId: string;
+}
+export interface TaskRetryResult {
+  task: TaskView;
+  receipt: { runId: string; attempt: number };
+}
+export interface TaskRunsPage {
+  conversationId: string;
+  taskId: string;
+  runs: TaskRun[];
+  nextCursor: string | null;
 }
 export type TaskResult<T> =
   | { status: 'available'; value: T }
@@ -23,6 +39,10 @@ export type TaskResult<T> =
         | 'forbidden'
         | 'idempotency-conflict'
         | 'model-unavailable'
+        | 'retry-state-conflict'
+        | 'retry-run-conflict'
+        | 'attempt-exhausted'
+        | 'routing-unavailable'
         | 'unavailable';
     };
 async function readJson(response: Response, controller: AbortController): Promise<unknown> {
@@ -158,16 +178,125 @@ export class TaskApiClient {
     const task = taskKeys(result.value, 'task')
       ? parseTask(result.value.task, conversationId)
       : undefined;
-    return task && task.groupGrantId === (command.groupGrantId?.toLowerCase() ?? null)
-      ? { status: 'available', value: task }
-      : { status: 'unavailable' };
+    if (!task) return { status: 'unavailable' };
+    const matchesCommand =
+      command.groupGrantId === undefined
+        ? (task.groupGrantId === null && task.routing === undefined) ||
+          (task.groupGrantId !== null &&
+            (task.routing?.reason === 'default' || task.routing?.reason === 'local-match'))
+        : task.groupGrantId === command.groupGrantId.toLowerCase() &&
+          (task.routing === undefined || task.routing.reason === 'mention');
+    return matchesCommand ? { status: 'available', value: task } : { status: 'unavailable' };
+  }
+  async retry(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    command: TaskRetryCommand,
+  ): Promise<TaskResult<TaskRetryResult>> {
+    if (
+      !isConversationUuid(taskId) ||
+      !taskKeys(command, 'expectedRunId,idempotencyKey') ||
+      !isCommandKey(command.idempotencyKey) ||
+      !isConversationUuid(command.expectedRunId)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/retries',
+      {
+        idempotencyKey: command.idempotencyKey,
+        expectedRunId: command.expectedRunId.toLowerCase(),
+      },
+    );
+    if (result.status !== 'available') return result;
+    if (!taskKeys(result.value, 'receipt,task')) return { status: 'unavailable' };
+    const task = parseTask(result.value.task, conversationId),
+      receipt = result.value.receipt;
+    if (
+      !task ||
+      task.id !== taskId.toLowerCase() ||
+      !taskKeys(receipt, 'attempt,runId') ||
+      !isConversationUuid(receipt.runId) ||
+      !taskInteger(receipt.attempt, 2) ||
+      receipt.attempt > task.runCount ||
+      receipt.runId.toLowerCase() === command.expectedRunId.toLowerCase() ||
+      (receipt.attempt === task.runCount) !== (receipt.runId.toLowerCase() === task.runs[0]?.id)
+    )
+      return { status: 'unavailable' };
+    return {
+      status: 'available',
+      value: {
+        task,
+        receipt: { runId: receipt.runId.toLowerCase(), attempt: receipt.attempt },
+      },
+    };
+  }
+  async runs(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    query: { cursor?: string; limit?: number } = {},
+  ): Promise<TaskResult<TaskRunsPage>> {
+    if (
+      !isConversationUuid(taskId) ||
+      Object.keys(query).some((key) => !['cursor', 'limit'].includes(key)) ||
+      (query.cursor !== undefined && !isConversationCursor(query.cursor)) ||
+      (query.limit !== undefined && (!taskInteger(query.limit) || query.limit > 50))
+    )
+      return { status: 'invalid' };
+    const params = new URLSearchParams();
+    if (query.cursor !== undefined) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/runs' + (params.size ? '?' + params : ''),
+    );
+    if (result.status !== 'available') return result;
+    const value = result.value;
+    if (
+      !taskKeys(value, 'conversationId,nextCursor,runs,taskId') ||
+      !isConversationUuid(value.conversationId) ||
+      value.conversationId.toLowerCase() !== conversationId.toLowerCase() ||
+      !isConversationUuid(value.taskId) ||
+      value.taskId.toLowerCase() !== taskId.toLowerCase() ||
+      !Array.isArray(value.runs) ||
+      value.runs.length > (query.limit ?? 20) ||
+      (value.nextCursor !== null &&
+        (!isConversationCursor(value.nextCursor) || value.runs.length === 0))
+    )
+      return { status: 'unavailable' };
+    const runs: TaskRun[] = [],
+      ids = new Set<string>();
+    for (const row of value.runs) {
+      const run = parseTaskRun(row);
+      if (!run || ids.has(run.id) || (runs.at(-1)?.attempt ?? Infinity) <= run.attempt)
+        return { status: 'unavailable' };
+      runs.push(run);
+      ids.add(run.id);
+    }
+    return {
+      status: 'available',
+      value: {
+        conversationId: value.conversationId.toLowerCase(),
+        taskId: value.taskId.toLowerCase(),
+        runs,
+        nextCursor: value.nextCursor,
+      },
+    };
   }
   private async send(
     session: string | undefined,
     workspaceId: string,
     conversationId: string,
     suffix: string,
-    body?: TaskCommand,
+    body?: TaskCommand | TaskRetryCommand,
   ): Promise<TaskResult<unknown>> {
     if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
     if (!isConversationUuid(workspaceId) || !isConversationUuid(conversationId))
@@ -208,8 +337,16 @@ export class TaskApiClient {
           return { status: 'invalid' };
         if (response.status === 409 && code === 'idempotency_conflict')
           return { status: 'idempotency-conflict' };
+        if (response.status === 409 && code === 'no_eligible_bot')
+          return { status: 'routing-unavailable' };
         if (response.status === 409 && code === 'task_model_unavailable')
           return { status: 'model-unavailable' };
+        if (response.status === 409 && code === 'task_retry_state_conflict')
+          return { status: 'retry-state-conflict' };
+        if (response.status === 409 && code === 'task_retry_run_conflict')
+          return { status: 'retry-run-conflict' };
+        if (response.status === 409 && code === 'task_attempt_exhausted')
+          return { status: 'attempt-exhausted' };
       }
 
       return response.status === (body === undefined ? 200 : 202)

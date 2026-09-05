@@ -5,6 +5,9 @@ import { createAuthApiClient } from './auth-api.js';
 import { createWorkspaceApiClient } from './workspace-api.js';
 import { createGroupApiClient } from './group-api.js';
 import { createBotApiClient } from './bot-api.js';
+import { createTaskApiClient, type TaskView } from './task-api.js';
+import { readTaskRoutingDecision } from './task-routing.js';
+import type { RoutingDecision } from '../routing-contract.js';
 import {
   createConversationApiClient,
   isCommandKey,
@@ -39,10 +42,16 @@ function pageQuery(url: URL) {
   };
 }
 export async function loadConversationPage(
-  context: PageContext & Pick<RequestEvent, 'url'>,
+  context: PageContext & Pick<RequestEvent, 'url'> & Partial<Pick<RequestEvent, 'request'>>,
   workspaceId: string,
   conversationId: string,
 ) {
+  const routingTaskId = context.url.searchParams.get('routingTaskId');
+  if (
+    context.url.searchParams.getAll('routingTaskId').length > 1 ||
+    (routingTaskId !== null && !isConversationUuid(routingTaskId))
+  )
+    readFailure('invalid', context);
   const page = await requireWorkspace(context, workspaceId);
   const query = pageQuery(context.url);
   const result = await createConversationApiClient(context.fetch).get(
@@ -52,13 +61,40 @@ export async function loadConversationPage(
     query,
   );
   if (result.status !== 'available') readFailure(result.status, context);
-  const messages: Record<string, { edit: string; tombstone: string }> = {};
+  let selectedRouting: { task: TaskView; decision: RoutingDecision } | undefined;
+  if (routingTaskId !== null) {
+    const session = readSessionCookie(context.cookies);
+    const task = await createTaskApiClient(context.fetch, context.request?.signal).get(
+      session,
+      workspaceId,
+      conversationId,
+      routingTaskId,
+    );
+    if (task.status !== 'available') readFailure(task.status, context);
+    const decision = await readTaskRoutingDecision(
+      context.fetch,
+      session,
+      workspaceId,
+      conversationId,
+      task.value,
+      context.request?.signal,
+    );
+    if (decision.status !== 'available') readFailure(decision.status, context);
+    if (decision.value === null) readFailure('forbidden', context);
+    selectedRouting = { task: task.value, decision: decision.value };
+  }
+  const messages: Record<string, { edit: string; tombstone: string; saveMemory: string }> = {};
   for (const message of result.value.messages)
-    messages[message.id] = { edit: randomUUID(), tombstone: randomUUID() };
+    messages[message.id] = {
+      edit: randomUUID(),
+      tombstone: randomUUID(),
+      saveMemory: randomUUID(),
+    };
   const append: string = randomUUID();
   return {
     ...page,
     ...result.value,
+    ...(selectedRouting === undefined ? {} : { selectedRouting }),
     attachmentMaximum: attachmentMaximum(),
     cursor: query.cursor ?? null,
     limit: query.limit ?? 30,

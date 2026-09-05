@@ -1,10 +1,16 @@
 import { handlePublicBotFixture, resetPublicBotFixture } from './public-bot-fixture.mjs';
+import { handleRoutingFixture, resetRoutingFixture } from './routing-fixture.mjs';
 import { handleGroupBotFixture, resetGroupBotFixture } from './group-bot-fixture.mjs';
+import {
+  handleConversationStreamFixture,
+  resetConversationStreamFixture,
+} from './conversation-stream-fixture.mjs';
 import { handleBotFixture, resetBotFixture } from './bot-fixture.mjs';
 import { handleBotVersionFixture, resetBotVersionFixture } from './bot-version-fixture.mjs';
 import { handleBotAclFixture, resetBotAclFixture } from './bot-acl-fixture.mjs';
 import { handleConversationFixture, resetConversationFixture } from './conversation-fixture.mjs';
 import { handleTaskFixture, resetTaskFixture } from './task-fixture.mjs';
+import { handleMemoryFixture, resetMemoryFixture } from './memory-fixture.mjs';
 import { handleApiTokenFixture, resetApiTokenFixture } from './api-token-fixture.mjs';
 import { createServer } from 'node:http';
 import { handleGroupFixture, resetGroupFixture } from './group-fixture.mjs';
@@ -48,6 +54,7 @@ function readJson(request, callback) {
 }
 
 function resetAuth() {
+  resetMemoryFixture();
   resetTaskFixture();
   resetBotVersionFixture();
   resetGroupBotFixture();
@@ -92,7 +99,20 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
+  if (request.url === '/__scenario') void resetConversationStreamFixture();
+  if (handleConversationStreamFixture(request, response, { sendJson, trustedOrigin })) return;
+  if (handleRoutingFixture(request, response, { sendJson, readJson, trustedOrigin })) return;
   if (handlePublicBotFixture(request, response, { sendJson, trustedOrigin })) return;
+  if (
+    handleMemoryFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      memberships,
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
   if (
     handleTaskFixture(request, response, {
       user: sessions.get(readSession(request)),
@@ -231,6 +251,7 @@ const server = createServer((request, response) => {
     return;
   if (request.method === 'POST' && request.url === '/__scenario') {
     readJson(request, ({ scenario: requestedScenario }) => {
+      void resetRoutingFixture();
       void resetPublicBotFixture();
       scenario = requestedScenario === 'unavailable' ? 'unavailable' : 'ready';
       if (requestedScenario === 'unclaimed') {
@@ -534,6 +555,7 @@ server.listen(4399, '127.0.0.1');
 
 const close = () => {
   server.close();
+  void resetRoutingFixture();
   void resetPublicBotFixture();
 };
 process.once('SIGINT', close);

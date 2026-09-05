@@ -2,7 +2,7 @@
 sequence: 49
 id: API-02
 title: "Manage bots through the public API"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - API-01
   - BOT-03
@@ -53,4 +53,4 @@ All six functional criteria are implemented and independently reviewed at source
 
 The accepted local composite gate passed 1,075 unit/integration tests (API 99 + 372, Web 65 + 539), 37 ordinary browser journeys, one signed OIDC journey, formatting, zero-error/zero-warning types and final builds. The public Bot journey uses real Fastify/domain services, migrated pg-mem, private avatar storage and the Svelte UI; it passed within the final ordinary suite. The initial `pnpm verify` exited 1 because a public fixture remained active for a later status scenario. The reviewed fixture-only reset correction then passed the unchanged targeted three-case regression and complete ordinary/OIDC suites plus final builds. This is a composite gate, not one full `pnpm verify` exit 0.
 
-API-02-E1 remains explicit in REL-01: all 31 registered public-Bot PostgreSQL cases require actual execution under the deployed restricted role. Locally all 31 were skipped, with zero native cases executed. Verify33959031255 predates API-02 and supplies no API-02 native evidence. See [integration evidence](../API-02-INTEGRATION.md), [author acceptance evidence](../API-02-EVIDENCE.md), [native coverage](../API-02-NATIVE-EVIDENCE.md) and [API contract](../API-02-CONTRACT.md).
+API-02-E1 closed by [Verify33960029570](../VERIFY-33960029570.md), completed successfully on 2026-09-05 at 10:17:34 UTC with all 12 jobs green on the exact accepted local `e51fafe4` tree. The dedicated postgres-bots job101290513512 ran all 31 public-Bot cases with actual PostgreSQL and the deployed restricted role, serially after all six preceding Bot suites. This run also passed a new full `pnpm verify`: 1,075 nonbrowser tests, 37 ordinary browser journeys and one signed OIDC journey, formatting, types and builds. The earlier local skips/composite result remain historical facts. See [integration evidence](../API-02-INTEGRATION.md), [author acceptance evidence](../API-02-EVIDENCE.md), [native coverage](../API-02-NATIVE-EVIDENCE.md) and [API contract](../API-02-CONTRACT.md).

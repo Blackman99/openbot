@@ -1,3 +1,4 @@
+import { selectCurrentMessageSource } from './message-source.js';
 import {
   attachmentCommandHash,
   type AttachmentCommand,
@@ -293,6 +294,18 @@ export class ConversationTransaction {
     if (!chain[0] || chain.at(-1)!.event_type === 'message.deleted')
       throw new ConversationAccessError();
     return { creationSequence: Number(chain[0].sequence) };
+  }
+  async sourceForMemory(messageId: string) {
+    if (this.subject.kind !== 'group') throw new ConversationAccessError();
+    return selectCurrentMessageSource(
+      this.connection,
+      {
+        workspaceId: this.access.workspaceId,
+        conversationId: this.access.conversationId,
+        groupId: this.subject.id,
+      },
+      messageId,
+    );
   }
   async attachmentMetadata(messageId: string) {
     await this.messageEligibility(messageId);

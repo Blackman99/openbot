@@ -1,0 +1,15 @@
+# COL-05 actual0019 and worker checkpoint
+
+This is an implementation checkpoint for dependent work, not final ticket acceptance or independent review. The original five ticket22 acceptance criteria remain unchanged. Source base is accepted ATT-01 merge `0bbaf8562fc2727cc5c563f1f3a1555cdd910779`.
+
+Migration `0019_conversation_delivery` follows actual `0018_conversation_attachments`. It adds retained delivery events, atomic floor/count/byte metadata, text-free per-Run byte progress and immutable per-transition delivery receipts. It does not rewrite0017/0018. Receipt identity survives delivery retention, so a repeated typed state writer cannot allocate a duplicate after its earlier frame expires. Prefix guards, role grants and PostgreSQL transaction/lock behavior still require the new native gate; pg-mem is not native evidence.
+
+The private allocator stays inside `conversations/append-event.ts`. Exported transition seams are `appendQueuedRunState(connection, runId, now)`, `appendRunningRunState`, `appendCompletedRunState`, `appendFailedRunState`. They select their persisted current Task/Run and allowlisted execution identity. No arbitrary event type/payload or sequence allocator is exported. The caller owns its resource/Task/Run locks and mandatory audit transaction.
+
+`TaskQueue` retains the persisted attempt, locks workspace → group when present → Bot → conversation before Task/Run even on failed admission, and re-admits current target/claim/provider before each delta and final output. `TaskDeltaPublication` publishes the first callback immediately, caps a pending segment at4KiB plus one in-flight segment, coalesces later callbacks for at most25ms and awaits ordered flush before final publication. Terminal response rebuilding only validates/accumulates, never publishes a callback twice.
+
+MEM-01 insertion points stay after fresh target admission for selecting contribution, after successful running CAS for persisting immutable references, and before both `publishDelta` and `finish` output for `assertRunMemoryReferencesCurrent`. COL-09 can call the queued writer in its retry transaction; stream DTO attempts are positive safe integers while COL-05 still creates only attempt1.
+
+Witnessed RED/GREEN: missing cursor/protocol module →7 passing protocol tests; missing delivery storage/guard →2 passing storage tests; first callback missing queued/running/delta sequence →passing delayed-provider test; reclaimed state transition published a second sequence3 rather than staying at2 →passing immutable-receipt regression. The core focused suite has23 cases after that additional regression (7 protocol +3 storage +1 stream-worker +12 existing worker). A prior hardcoded ledger output sequence3 assertion now expects5 because queued/running updates share the conversation counter.
+
+HTTP/read/BFF/UI integration, aggregate preview tests, native/Compose evidence and both independent review axes remain ongoing in the COL-05 worktree. Do not treat this checkpoint as a completed COL-05 ticket or a native pass.

@@ -44,7 +44,9 @@ test('uploads above the avatar limit, retries one message, reloads, downloads an
   expect(state.attempts).toHaveLength(2);
   await page.locator('summary').filter({ hasText: 'Permanently purge message and files' }).click();
   await page.getByRole('button', { name: 'Permanently purge', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('permanently purged');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Message and files permanently purged.' }),
+  ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Download report.txt' })).toHaveCount(0);
   expect((await page.request.get(downloadUrl!)).status()).toBe(403);
   expect(errors).toEqual([]);

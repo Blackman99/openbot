@@ -1,6 +1,6 @@
 # API-02 accepted integration
 
-API-02 is implemented and independently reviewed, with actual native PostgreSQL execution retained as API-02-E1 in REL-01. The local gate is an accepted composite result; the first full `pnpm verify` invocation exited 1.
+API-02 is fully complete. [Verify33960029570](VERIFY-33960029570.md) closed API-02-E1 with 31 actual restricted-role public-Bot PostgreSQL cases and all 12 jobs successful on 2026-09-05 at 10:17:34 UTC. That subsequent run passed a new complete `pnpm verify`. The earlier local gate below remains an accepted composite result; its first full invocation exited 1.
 
 ## Accepted source and integration
 
@@ -34,8 +34,8 @@ The final ordinary suite includes `public-bots.spec.ts` (3.1 seconds): a real Fa
 
 The local environment used existing installed dependencies with `pnpm_config_verify_deps_before_run=false`; exact Ajv 8.20.0 and ajv-formats 3.0.1 links required no dependency installation or repository configuration change. Ports 4399/4173 were confirmed closed and released after verification.
 
-## Remaining actual-service evidence
+## Historical local skips and subsequent actual-service evidence
 
 All 31 public-Bot native cases were registered and skipped locally because the database URL was absent; **zero API-02 native cases were executed**. [Verify33959031255](VERIFY-33959031255.md) predates API-02 and cannot close API-02-E1. [Native coverage](API-02-NATIVE-EVIDENCE.md) records the exact lock, final-admission and rollback assertions.
 
-The separate attachment S3 test-budget correction was integrated after this tested merge as `86c77c6ce50478703ee32c5a0fb7a05dce24775e`; it was not part of the API-02 composite gate and still awaits actual service CI. The authoritative local record is `api02-integration-final.json`, with the original full-command log/exit, focused regression and remaining browser/build log/exit retained outside the repository.
+The separate attachment S3 test-budget correction was integrated after this tested merge as `86c77c6ce50478703ee32c5a0fb7a05dce24775e`; it was not part of the API-02 composite gate. Verify33960029570 subsequently passed all 14 local/S3 cases, including the unchanged large-file case in 7,713 ms, closing ATT-01-E1 too. The authoritative local record is `api02-integration-final.json`, with the original full-command log/exit, focused regression and remaining browser/build log/exit retained outside the repository.

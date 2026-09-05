@@ -12,6 +12,7 @@ const bot = { id: botId, name: 'Researcher', versionId, versionNumber: 3 };
 let conversation;
 let records = [];
 let attempts = [];
+let retryAttempts = [];
 let protectedReads = [];
 let failAfterCommit = false;
 
@@ -19,6 +20,7 @@ export function resetTaskFixture() {
   conversation = undefined;
   records = [];
   attempts = [];
+  retryAttempts = [];
   protectedReads = [];
   failAfterCommit = false;
 }
@@ -39,7 +41,13 @@ export function handleTaskFixture(request, response, context) {
   }
   if (!conversation) return false;
   if (request.method === 'GET' && path === '/__task/state') {
-    sendJson(response, 200, { tasks: records.map(({ task }) => task), attempts, protectedReads });
+    sendJson(response, 200, {
+      tasks: records.map(({ task }) => task),
+      attempts,
+      retryAttempts,
+      protectedReads,
+      histories: records.map(({ task, runs }) => ({ taskId: task.id, runs })),
+    });
     return true;
   }
   if (request.method === 'POST' && path === '/__task/state') {
@@ -51,13 +59,13 @@ export function handleTaskFixture(request, response, context) {
         const run = task.runs[0];
         task.status = input.status;
         run.status = input.status;
-        run.startedAt = '2026-09-05T00:00:01.000Z';
+        run.startedAt = runTime(run.attempt, 1000);
         run.provider = {
           protocol: task.groupGrantId ? 'openai-chat' : 'openai-responses',
           modelId: task.groupGrantId ? 'actual-group-model' : 'actual-direct-model',
         };
         run.usage = input.usage ?? { inputTokens: 12, outputTokens: 0 };
-        if (input.status !== 'running') run.finishedAt = '2026-09-05T00:00:02.000Z';
+        if (input.status !== 'running') run.finishedAt = runTime(run.attempt, 2000);
         if (input.status === 'failed') run.error = 'provider_failed';
         if (input.status === 'completed' && !run.output)
           run.output = appendTaskMessageFixture(
@@ -139,7 +147,7 @@ export function handleTaskFixture(request, response, context) {
     });
     return true;
   }
-  const taskId = path.slice(taskBase.length + 1);
+  const [taskId, resource] = path.slice(taskBase.length + 1).split('/');
   if (request.method === 'GET') {
     if (path === taskBase)
       sendJson(response, 200, {
@@ -152,16 +160,99 @@ export function handleTaskFixture(request, response, context) {
     else {
       const record = records.find(({ task }) => task.id === taskId);
       if (!record) fail(403, 'task_forbidden');
-      else sendJson(response, 200, { task: record.task });
+      else if (resource === 'runs') {
+        let before = record.task.runCount + 1;
+        try {
+          const cursor = url.searchParams.get('cursor');
+          if (cursor) {
+            const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+            if (decoded.taskId !== taskId || decoded.conversationId !== conversation.id)
+              throw new Error('invalid_cursor');
+            before = decoded.before;
+          }
+          const limit = Number(url.searchParams.get('limit') ?? 20);
+          const candidates = record.runs.filter((run) => run.attempt < before).toReversed();
+          const runs = candidates.slice(0, limit);
+          sendJson(response, 200, {
+            conversationId: conversation.id,
+            taskId,
+            runs,
+            nextCursor:
+              candidates.length > limit ? historyCursor(record.task, runs.at(-1).attempt) : null,
+          });
+        } catch {
+          fail(400, 'invalid_task_request');
+        }
+      } else sendJson(response, 200, { task: record.task });
     }
     return true;
   }
-  if (request.method !== 'POST' || path !== taskBase) {
+  if (request.method !== 'POST' || (path !== taskBase && resource !== 'retries')) {
     fail(404, 'not_found');
     return true;
   }
   if (request.headers.origin !== trustedOrigin) {
     fail(403, 'invalid_origin');
+    return true;
+  }
+  if (resource === 'retries') {
+    readJson(request, (command) => {
+      retryAttempts.push({ actorId: user.id, command });
+      const record = records.find(({ task }) => task.id === taskId);
+      if (!record || record.executionUser.id !== user.id) {
+        fail(403, 'task_forbidden');
+        return;
+      }
+      if (
+        Object.keys(command).sort().join(',') !== 'expectedRunId,idempotencyKey' ||
+        typeof command.expectedRunId !== 'string' ||
+        !/^[!-~]{1,128}$/u.test(command.idempotencyKey ?? '')
+      ) {
+        fail(400, 'invalid_task_request');
+        return;
+      }
+      const prior = record.retries.find(
+        (retry) => retry.command.idempotencyKey === command.idempotencyKey,
+      );
+      if (prior) {
+        if (prior.command.expectedRunId !== command.expectedRunId)
+          fail(409, 'idempotency_conflict');
+        else sendJson(response, 202, { task: record.task, receipt: prior.receipt });
+        return;
+      }
+      const { task } = record;
+      if (task.status !== 'failed') {
+        fail(409, 'task_retry_state_conflict');
+        return;
+      }
+      if (task.runs[0].id !== command.expectedRunId) {
+        fail(409, 'task_retry_run_conflict');
+        return;
+      }
+      const run = {
+        id: randomUUID(),
+        attempt: task.runCount + 1,
+        status: 'queued',
+        createdAt: runTime(task.runCount + 1, 0),
+        startedAt: null,
+        finishedAt: null,
+        provider: null,
+        usage: null,
+        error: null,
+        output: null,
+      };
+      task.runCount = run.attempt;
+      task.status = 'queued';
+      task.runs = [run];
+      task.olderRunsCursor = historyCursor(task, run.attempt);
+      record.runs.push(run);
+      const receipt = { runId: run.id, attempt: run.attempt };
+      record.retries.push({ command, receipt });
+      if (failAfterCommit) {
+        failAfterCommit = false;
+        fail(503, 'task_unavailable');
+      } else sendJson(response, 202, { task, receipt });
+    });
     return true;
   }
   readJson(request, (command) => {
@@ -205,6 +296,8 @@ export function handleTaskFixture(request, response, context) {
       executionUser,
       groupGrantId: command.groupGrantId ?? null,
       trigger: appendTaskMessageFixture(conversation.id, user, command.body),
+      runCount: 1,
+      olderRunsCursor: null,
       runs: [
         {
           id: randomUUID(),
@@ -220,11 +313,26 @@ export function handleTaskFixture(request, response, context) {
         },
       ],
     };
-    records.push({ task, command, executionUser });
+    records.push({ task, command, executionUser, runs: [task.runs[0]], retries: [] });
     if (failAfterCommit) {
       failAfterCommit = false;
       fail(503, 'task_unavailable');
     } else sendJson(response, 202, { task });
   });
   return true;
+}
+
+function runTime(attempt, offset) {
+  return new Date(Date.parse(time) + (attempt - 1) * 3000 + offset).toISOString();
+}
+function historyCursor(task, before) {
+  return Buffer.from(
+    JSON.stringify({
+      v: 1,
+      taskId: task.id,
+      conversationId: task.conversationId,
+      horizon: task.runCount,
+      before,
+    }),
+  ).toString('base64url');
 }

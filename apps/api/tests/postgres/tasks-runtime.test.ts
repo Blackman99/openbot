@@ -18,6 +18,7 @@ import { GroupService } from '../../src/groups/service.js';
 import { ProviderConnections } from '../../src/providers/connections.js';
 import type {
   ModelAdapter,
+  ModelEvent,
   ModelInput,
   ModelResponse,
   ProviderProtocol,
@@ -30,6 +31,7 @@ import { ProviderError, ProviderUrlPolicy } from '../../src/providers/url-policy
 import { TaskQueue } from '../../src/tasks/queue.js';
 import { TaskAccessError, TaskConflictError, TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
+import { GroupRoutingService, RoutingSettingConflictError } from '../../src/routing/service.js';
 
 // This provisioner rotates the fixed runtime role. Use the isolated task job's
 // disposable database, never another native suite's PostgreSQL service.
@@ -42,7 +44,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
     const workspaces: string[] = [];
 
     beforeAll(async () => {
-      // Exercise the ordered, integrated 0016 + 0017 migration and every PG guard.
+      // Exercise the actual ordered migrations through 0022 and every PG guard.
       // There is deliberately no fixture-only schema or migration placeholder.
       await migrateDatabase(admin);
       const versions = (await admin.query('SELECT version FROM openbot_schema_migrations')).rows;
@@ -50,6 +52,11 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         expect.arrayContaining([
           expect.stringMatching(/^0016_/u),
           expect.stringMatching(/^0017_/u),
+          expect.stringMatching(/^0018_/u),
+          expect.stringMatching(/^0019_/u),
+          expect.stringMatching(/^0020_/u),
+          expect.stringMatching(/^0021_/u),
+          expect.stringMatching(/^0022_/u),
         ]),
       );
       const url = new URL(databaseUrl!);
@@ -82,16 +89,26 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       // legal transitions so the global queue cannot select a previous case.
       const ids = workspaces.splice(0);
       if (!ids.length) return;
-      await admin.query(
-        `UPDATE task_runs SET status='failed',finished_at=NOW(),error_code='worker_stopped'
+      const connection = await admin.connect();
+      try {
+        await connection.query('BEGIN');
+        await connection.query(
+          `UPDATE task_runs SET status='failed',finished_at=NOW(),error_code='worker_stopped'
        WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=ANY($1::uuid[]))
        AND status IN ('queued','running')`,
-        [ids],
-      );
-      await admin.query(
-        "UPDATE tasks SET status='failed' WHERE workspace_id=ANY($1::uuid[]) AND status IN ('queued','running')",
-        [ids],
-      );
+          [ids],
+        );
+        await connection.query(
+          "UPDATE tasks SET status='failed' WHERE workspace_id=ANY($1::uuid[]) AND status IN ('queued','running')",
+          [ids],
+        );
+        await connection.query('COMMIT');
+      } catch (error) {
+        await connection.query('ROLLBACK');
+        throw error;
+      } finally {
+        connection.release();
+      }
     });
     afterAll(async () => {
       await runtime?.end();
@@ -219,7 +236,10 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
        (SELECT jsonb_agg(e ORDER BY e.sequence) FROM conversation_events e WHERE conversation_id=$1) AS events,
        (SELECT jsonb_agg(t ORDER BY t.id) FROM tasks t WHERE conversation_id=$1) AS tasks,
        (SELECT jsonb_agg(r ORDER BY r.id) FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE t.conversation_id=$1) AS runs,
-       (SELECT jsonb_agg(a ORDER BY a.id) FROM audit_events a WHERE metadata->>'conversationId'=$1::text) AS audits`,
+       (SELECT jsonb_agg(a ORDER BY a.id) FROM audit_events a WHERE metadata->>'conversationId'=$1::text) AS audits,
+       (SELECT jsonb_agg(c ORDER BY c.id) FROM task_retry_commands c JOIN tasks t ON t.id=c.task_id WHERE t.conversation_id=$1) AS retries,
+       (SELECT jsonb_agg(d ORDER BY d.sequence) FROM conversation_delivery_events d WHERE d.conversation_id=$1) AS delivery,
+       (SELECT jsonb_agg(r ORDER BY r.sequence) FROM task_run_delivery_receipts r WHERE r.conversation_id=$1) AS delivery_receipts`,
           [f.conversationId],
         )
       ).rows[0];
@@ -282,7 +302,13 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       }
     }
     async function rejectingAudit(
-      type: 'task.queued' | 'task.running' | 'task.completed' | 'task.failed',
+      type:
+        | 'task.queued'
+        | 'task.running'
+        | 'task.completed'
+        | 'task.failed'
+        | 'task.retried'
+        | 'task.routed',
       action: () => Promise<unknown>,
     ) {
       const name = `fail_task_audit_${randomBytes(8).toString('hex')}`;
@@ -337,6 +363,360 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         secrets: f.secrets,
         createAdapter: () => ({ generate }),
       });
+
+    it('serializes observed duplicate retry commands into one immutable receipt and next attempt', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, {
+        error: 'provider_failed',
+        usage: { inputTokens: 5, outputTokens: 1 },
+      });
+      const before = await snapshot(f);
+      const command = { idempotencyKey: 'concurrent-retry', expectedRunId: failedClaim.runId };
+      const results = await contenders(f, (pool) =>
+        new TaskService(pool).retry(f.actorId, f.workspaceId, f.conversationId, task.id, command),
+      );
+      expect(results[0]).toEqual(results[1]);
+      expect(results[0]).toMatchObject({
+        task: {
+          id: task.id,
+          status: 'queued',
+          runCount: 2,
+          trigger: task.trigger,
+          runs: [{ attempt: 2, status: 'queued' }],
+        },
+        receipt: { attempt: 2 },
+      });
+      const saved = await snapshot(f);
+      expect(saved.tasks).toHaveLength(1);
+      expect(saved.runs).toHaveLength(2);
+      expect(saved.retries).toHaveLength(1);
+      expect(saved.events).toEqual(before.events);
+      expect(saved.runs.find((run: { id: string }) => run.id === failedClaim.runId)).toEqual(
+        before.runs[0],
+      );
+      const added = saved.audits.filter(
+        (audit: { id: string }) =>
+          !before.audits.some((previous: { id: string }) => previous.id === audit.id),
+      );
+      expect(added).toHaveLength(1);
+      expect(added[0]).toMatchObject({
+        event_type: 'task.retried',
+        actor_user_id: f.actorId,
+        metadata: {
+          taskId: task.id,
+          retryCommandId: saved.retries[0].id,
+          previousRunId: failedClaim.runId,
+          runId: results[0]!.receipt.runId,
+          attempt: 2,
+        },
+      });
+    }, 20000);
+
+    it('creates only one next attempt when two different retry keys contend for one failed Run', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const results = await contenders(f, async (pool) => {
+        try {
+          return {
+            receipt: (
+              await new TaskService(pool).retry(
+                f.actorId,
+                f.workspaceId,
+                f.conversationId,
+                task.id,
+                { idempotencyKey: randomUUID(), expectedRunId: failedClaim.runId },
+              )
+            ).receipt,
+          };
+        } catch (error) {
+          if (error instanceof TaskConflictError) return { code: error.code };
+          throw error;
+        }
+      });
+      expect(results.filter((result) => result.receipt)).toHaveLength(1);
+      expect(results.filter((result) => result.code)).toEqual([
+        { code: 'task_retry_state_conflict' },
+      ]);
+      const saved = await snapshot(f);
+      expect(saved.retries).toHaveLength(1);
+      expect(saved.runs).toHaveLength(2);
+    }, 20000);
+
+    it('rolls back the next Run, retry receipt, Task state and ordered ledger when its mandatory retry audit fails', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const before = await snapshot(f);
+      await rejectingAudit('task.retried', () =>
+        new TaskService(runtime).retry(f.actorId, f.workspaceId, f.conversationId, task.id, {
+          idempotencyKey: 'atomic-retry',
+          expectedRunId: failedClaim.runId,
+        }),
+      );
+      expect(await snapshot(f)).toEqual(before);
+    });
+
+    it('completes a retried Run with fresh credentials while fencing all old output and preserving its failed evidence', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        oldClaim = await claim();
+      const queue = new TaskQueue(runtime);
+      await queue.finish(oldClaim, {
+        error: 'provider_failed',
+        usage: { inputTokens: 7, outputTokens: 2 },
+      });
+      const original = (await snapshot(f)).runs[0];
+      await f.providers.update(f.ownerId, f.model.id, { apiKey: 'rotated-native-task-credential' });
+      const command = { idempotencyKey: 'retry-success', expectedRunId: oldClaim.runId };
+      const retried = await new TaskService(runtime).retry(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        command,
+      );
+      let calls = 0;
+      expect(
+        await worker(f, async (input, _signal, observe) => {
+          calls++;
+          expect(input.apiKey).toBe('rotated-native-task-credential');
+          expect(input.modelId).toBe('task-model');
+          const beforeLate = await snapshot(f);
+          expect(
+            await queue.finish(oldClaim, { body: 'Late old final answer.', usage: null }),
+          ).toBe(false);
+          await expect(queue.publishDelta(oldClaim, 'Late old preview.')).rejects.toMatchObject({
+            code: 'worker_stopped',
+          });
+          expect(await snapshot(f)).toEqual(beforeLate);
+          const events: ModelEvent[] = [
+            { type: 'text', text: 'One current retry answer.' },
+            { type: 'usage', inputTokens: 8, outputTokens: 4 },
+            { type: 'complete', stopReason: 'stop' },
+          ];
+          for (const event of events) await observe?.(event);
+          return { events, raw: 'private provider response' };
+        }).runOnce(),
+      ).toBe(true);
+      expect(calls).toBe(1);
+      expect(await queue.claimNext()).toEqual({ handled: false });
+      const current = await read(f, task.id),
+        saved = await snapshot(f);
+      expect(current).toMatchObject({
+        status: 'completed',
+        runCount: 2,
+        trigger: task.trigger,
+        runs: [
+          {
+            id: retried.receipt.runId,
+            attempt: 2,
+            status: 'completed',
+            usage: { inputTokens: 8, outputTokens: 4 },
+          },
+        ],
+      });
+      expect(saved.runs.find((run: { id: string }) => run.id === oldClaim.runId)).toEqual(original);
+      expect(
+        saved.runs.find((run: { id: string }) => run.id === retried.receipt.runId)
+          .connection_revision,
+      ).toBe(original.connection_revision + 1);
+      const outputs = saved.events.filter(
+        (event: { event_type: string }) => event.event_type === 'bot.message.created',
+      );
+      expect(outputs).toHaveLength(1);
+      expect(current.runs[0]!.output).toEqual({
+        messageId: outputs[0].message_id,
+        eventId: outputs[0].id,
+        sequence: outputs[0].sequence,
+      });
+      expect(
+        await new TaskService(runtime).retry(
+          f.actorId,
+          f.workspaceId,
+          f.conversationId,
+          task.id,
+          command,
+        ),
+      ).toEqual({ task: current, receipt: retried.receipt });
+      await expect(
+        new TaskService(runtime).retry(f.actorId, f.workspaceId, f.conversationId, task.id, {
+          idempotencyKey: 'completed-new-retry',
+          expectedRunId: retried.receipt.runId,
+        }),
+      ).rejects.toMatchObject({ code: 'task_retry_state_conflict' });
+      await f.providers.disable(f.ownerId, f.model.id);
+      const history = await new TaskService(runtime).runs(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { cursor: current.olderRunsCursor },
+      );
+      expect(history.runs).toHaveLength(1);
+      expect(history.runs[0]).toMatchObject({
+        id: oldClaim.runId,
+        attempt: 1,
+        status: 'failed',
+        error: 'provider_failed',
+        provider: { modelId: 'task-model' },
+      });
+    }, 20000);
+
+    it('rechecks original model admission after an observed provider lock wait and leaves no retry receipt', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const before = await snapshot(f);
+      const result = await duringWait(
+        f,
+        (pool) =>
+          new TaskService(pool).retry(f.actorId, f.workspaceId, f.conversationId, task.id, {
+            idempotencyKey: 'wait-model',
+            expectedRunId: failedClaim.runId,
+          }),
+        async (connection) => {
+          await connection.query(
+            "UPDATE personal_model_connections SET metadata=jsonb_set(metadata,'{enabled}','false'),revision=revision+1 WHERE id=$1",
+            [f.model.id],
+          );
+        },
+        true,
+      );
+      expect(result).toMatchObject({ status: 'rejected', reason: expect.any(ProviderError) });
+      expect(await snapshot(f)).toEqual(before);
+    }, 20000);
+
+    it('reauthorizes an existing retry receipt after an observed exact-grant revocation', async () => {
+      const f = await fixture('workspace', true),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const command = { idempotencyKey: 'retained-receipt', expectedRunId: failedClaim.runId };
+      const retried = await new TaskService(runtime).retry(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        command,
+      );
+      const result = await duringWait(
+        f,
+        (pool) =>
+          new TaskService(pool).retry(f.actorId, f.workspaceId, f.conversationId, task.id, command),
+        async (connection) => {
+          const grant = f.grant!;
+          await connection.query('SELECT id FROM groups WHERE id=$1 FOR UPDATE', [grant.groupId]);
+          await connection.query('SELECT id FROM bots WHERE id=$1 FOR UPDATE', [f.bot.id]);
+          await connection.query('SELECT id FROM conversations WHERE id=$1 FOR UPDATE', [
+            f.conversationId,
+          ]);
+          await closeGroupBotGrant(
+            connection,
+            f.ownerId,
+            {
+              id: grant.id,
+              workspaceId: f.workspaceId,
+              groupId: grant.groupId,
+              botId: f.bot.id,
+              conversationId: f.conversationId,
+              grantorUserId: f.ownerId,
+            },
+            'removed',
+            {
+              idempotencyKey: 'close-retry-grant',
+              hash: createHash('sha256')
+                .update(
+                  JSON.stringify({ type: 'bot.removed', grantId: grant.id, reason: 'removed' }),
+                )
+                .digest('hex'),
+            },
+            () => new Date(),
+          );
+        },
+      );
+      expect(result).toMatchObject({ status: 'rejected', reason: expect.any(TaskAccessError) });
+      const saved = await snapshot(f);
+      expect(saved.retries).toHaveLength(1);
+      expect(saved.runs).toHaveLength(2);
+      expect((await read(f, task.id)).runs[0]!.id).toBe(retried.receipt.runId);
+      expect(
+        (
+          await new TaskService(runtime).runs(f.actorId, f.workspaceId, f.conversationId, task.id, {
+            cursor: retried.task.olderRunsCursor,
+          })
+        ).runs.map((run) => run.id),
+      ).toEqual([failedClaim.runId]);
+    }, 20000);
+
+    it('retains retry commands and rejects terminal edits or an orphan next Run even for the migration owner', async () => {
+      const f = await fixture(),
+        task = await submit(f),
+        failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const before = await snapshot(f);
+      await expect(
+        admin.query(
+          "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,2,'queued',NOW())",
+          [randomUUID(), task.id],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(await snapshot(f)).toEqual(before);
+      const retried = await new TaskService(runtime).retry(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { idempotencyKey: 'immutable-retry', expectedRunId: failedClaim.runId },
+      );
+      const saved = await snapshot(f);
+      for (const privilege of [
+        'SELECT',
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'TRUNCATE',
+        'REFERENCES',
+        'TRIGGER',
+      ]) {
+        expect(
+          (
+            await admin.query('SELECT has_table_privilege($1,$2,$3) AS allowed', [
+              'openbot_runtime',
+              'task_retry_commands',
+              privilege,
+            ])
+          ).rows[0].allowed,
+        ).toBe(['SELECT', 'INSERT'].includes(privilege));
+      }
+      for (const pool of [runtime, admin]) {
+        await expect(
+          pool.query(
+            "UPDATE task_runs SET status='queued',finished_at=NULL,error_code=NULL WHERE id=$1",
+            [failedClaim.runId],
+          ),
+        ).rejects.toMatchObject({ code: '55000' });
+        await expect(
+          pool.query('UPDATE task_retry_commands SET run_id=$2 WHERE id=$1', [
+            saved.retries[0].id,
+            failedClaim.runId,
+          ]),
+        ).rejects.toMatchObject({ code: pool === runtime ? '42501' : '55000' });
+        await expect(
+          pool.query('DELETE FROM task_retry_commands WHERE id=$1', [saved.retries[0].id]),
+        ).rejects.toMatchObject({ code: pool === runtime ? '42501' : '55000' });
+        await expect(pool.query('TRUNCATE task_retry_commands')).rejects.toMatchObject({
+          code: pool === runtime ? '42501' : '55000',
+        });
+      }
+      expect(await snapshot(f)).toEqual(saved);
+      expect((await read(f, task.id)).runs[0]!.id).toBe(retried.receipt.runId);
+    });
 
     it('grants only lifecycle columns and guards retained identities even against the migration owner', async () => {
       const f = await fixture(),
@@ -472,7 +852,16 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           TaskConflictError,
         );
         const saved = await snapshot(f);
-        expect(saved.events).toHaveLength(1);
+        expect(saved.events).toEqual([
+          expect.objectContaining({
+            id: first!.trigger.eventId,
+            message_id: first!.trigger.messageId,
+            sequence: first!.trigger.sequence,
+            event_type: 'message.created',
+            actor_user_id: f.actorId,
+            body: 'Explain the evidence.',
+          }),
+        ]);
         expect(saved.tasks).toHaveLength(1);
         expect(saved.runs).toHaveLength(1);
         expect(saved.audits).toHaveLength(before.audits.length + 2);
@@ -506,7 +895,53 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
             }),
           ]),
         );
-        expect(saved.conversation.last_sequence).toBe(1);
+        expect(first!.trigger.sequence).toBe(1);
+        const delivery = (
+          await runtime.query(
+            'SELECT sequence,event_type,ledger_event_id,run_id,run_status,execution FROM conversation_delivery_events WHERE conversation_id=$1 ORDER BY sequence',
+            [f.conversationId],
+          )
+        ).rows.map((event) => ({ ...event, sequence: Number(event.sequence) }));
+        expect(delivery).toEqual([
+          {
+            sequence: first!.trigger.sequence,
+            event_type: 'message.changed',
+            ledger_event_id: first!.trigger.eventId,
+            run_id: null,
+            run_status: null,
+            execution: null,
+          },
+          {
+            sequence: first!.trigger.sequence + 1,
+            event_type: 'task.run.updated',
+            ledger_event_id: null,
+            run_id: first!.runs[0]!.id,
+            run_status: 'queued',
+            execution: expect.objectContaining({
+              taskId: first!.id,
+              runId: first!.runs[0]!.id,
+              attempt: 1,
+              taskStatus: 'queued',
+              runStatus: 'queued',
+            }),
+          },
+        ]);
+        const queuedSequence = delivery[1]!.sequence;
+        expect(saved.conversation.last_sequence).toBe(queuedSequence);
+        const receipts = (
+          await runtime.query(
+            'SELECT run_id,run_status,conversation_id,sequence FROM task_run_delivery_receipts WHERE conversation_id=$1',
+            [f.conversationId],
+          )
+        ).rows.map((receipt) => ({ ...receipt, sequence: Number(receipt.sequence) }));
+        expect(receipts).toEqual([
+          {
+            run_id: first!.runs[0]!.id,
+            run_status: 'queued',
+            conversation_id: f.conversationId,
+            sequence: queuedSequence,
+          },
+        ]);
         const rebuilt = observedPool();
         try {
           expect(await read(f, first!.id, rebuilt.pool)).toEqual(first);
@@ -666,6 +1101,15 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       const rebuilt = observedPool();
       try {
         const final = await read(f, task.id, rebuilt.pool);
+        const outputs = (
+          await rebuilt.pool.query(
+            "SELECT id,message_id,sequence FROM conversation_events WHERE conversation_id=$1 AND bot_run_id=$2 AND event_type='bot.message.created'",
+            [f.conversationId, task.runs[0]!.id],
+          )
+        ).rows;
+        expect(outputs).toHaveLength(1);
+        const output = outputs[0]!;
+        expect(Number(output.sequence)).toBeGreaterThan(task.trigger.sequence);
         expect(final).toMatchObject({
           status: 'completed',
           bot: { versionId: task.bot.versionId },
@@ -675,7 +1119,11 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
               status: 'completed',
               usage: { inputTokens: 5, outputTokens: 3 },
               error: null,
-              output: { sequence: 4 },
+              output: {
+                messageId: output.message_id,
+                eventId: output.id,
+                sequence: Number(output.sequence),
+              },
             },
           ],
         });
@@ -794,7 +1242,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       await expect(
         runtime.query(
           `INSERT INTO conversation_events(id,conversation_id,sequence,message_id,message_version,event_type,actor_user_id,occurred_at,body,idempotency_key,command_hash,event_data,bot_run_id)
-       VALUES($1,$2,2,$3,1,'bot.message.created',$4,NOW(),'Forged Bot identity.',$5,$6,'{}'::jsonb,$7)`,
+       SELECT $1,id,last_sequence+1,$3,1,'bot.message.created',$4,NOW(),'Forged Bot identity.',$5,$6,'{}'::jsonb,$7 FROM conversations WHERE id=$2`,
           [
             randomUUID(),
             f.conversationId,
@@ -833,7 +1281,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         await expect(
           pool.query(
             `INSERT INTO conversation_events(id,conversation_id,sequence,message_id,message_version,event_type,actor_user_id,occurred_at,body,idempotency_key,command_hash,event_data)
-         VALUES($1,$2,3,$3,2,'message.edited',$4,NOW(),'Human forgery.',$5,$6,'{}'::jsonb)`,
+         SELECT $1,id,last_sequence+1,$3,2,'message.edited',$4,NOW(),'Human forgery.',$5,$6,'{}'::jsonb FROM conversations WHERE id=$2`,
             [
               randomUUID(),
               f.conversationId,
@@ -983,7 +1431,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       await expect(
         runtime.query(
           `INSERT INTO conversation_events(id,conversation_id,sequence,message_id,message_version,event_type,actor_user_id,occurred_at,body,idempotency_key,command_hash,event_data,bot_run_id)
-         VALUES($1,$2,2,$3,1,'bot.message.created',$4,NOW(),'Expired output.',$5,$6,$7::jsonb,$8)`,
+         SELECT $1,id,last_sequence+1,$3,1,'bot.message.created',$4,NOW(),'Expired output.',$5,$6,$7::jsonb,$8 FROM conversations WHERE id=$2`,
           [
             randomUUID(),
             f.conversationId,
@@ -1184,5 +1632,227 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         ).rows,
       ).toHaveLength(0);
     });
+
+    const automatic = (f: Fixture, pool = runtime, key = 'routed-turn') =>
+      new TaskService(pool).submit(f.actorId, f.workspaceId, f.conversationId, {
+        idempotencyKey: key,
+        body: 'Explain the evidence.',
+      });
+    const routing = (f: Fixture, taskId: string, pool = runtime) =>
+      new TaskService(pool).routing(f.actorId, f.workspaceId, f.conversationId, taskId);
+    async function routedSnapshot(f: Fixture) {
+      return {
+        ...(await snapshot(f)),
+        decisions: (
+          await admin.query(
+            'SELECT * FROM task_routing_decisions WHERE conversation_id=$1 ORDER BY task_id',
+            [f.conversationId],
+          )
+        ).rows,
+      };
+    }
+    async function anotherRoutingBot(f: Fixture) {
+      const bot = await new BotService(new PostgresBotRepository(runtime)).create(
+        f.ownerId,
+        f.workspaceId,
+        {
+          name: 'Second helper',
+          roleDescription: 'Reasoning assistant',
+          instructions: 'Private second instructions',
+          modelBinding: {
+            scope: { kind: 'workspace', id: f.workspaceId },
+            connectionId: f.model.id,
+            modelId: f.model.modelId,
+          },
+        },
+      );
+      return grants().invite(f.ownerId, f.workspaceId, f.grant!.groupId, {
+        botId: bot.id,
+        idempotencyKey: 'second-routing-grant',
+      });
+    }
+
+    it('routes observed concurrent identical commands once, then invokes only their selected Lead', async () => {
+      const f = await fixture('workspace', true);
+      const generate = vi.fn<ModelAdapter['generate']>(async (_input, _signal, observe) => {
+        const events: ModelResponse['events'] = [
+          { type: 'text', text: 'One routed answer.' },
+          { type: 'complete', stopReason: 'stop' },
+        ];
+        for (const event of events) await observe?.(event);
+        return { events, raw: '' };
+      });
+      const [first, duplicate] = await contenders(f, (pool) => automatic(f, pool));
+      expect(duplicate).toEqual(first);
+      expect(first).toMatchObject({
+        groupGrantId: f.grant!.id,
+        routing: { algorithm: 'local-terms-v1', reason: 'local-match' },
+      });
+      expect(generate).not.toHaveBeenCalled();
+      const stored = await routedSnapshot(f);
+      expect(stored.tasks).toHaveLength(1);
+      expect(stored.runs).toHaveLength(1);
+      expect(stored.decisions).toHaveLength(1);
+      expect(
+        stored.audits.filter((audit: { event_type: string }) => audit.event_type === 'task.routed'),
+      ).toHaveLength(1);
+      expect(stored.tasks[0].command_hash).toBe(
+        stored.events.find((event: { id: string }) => event.id === first!.trigger.eventId)
+          .command_hash,
+      );
+      expect(await worker(f, generate).runOnce()).toBe(true);
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(await read(f, first!.id)).toMatchObject({ status: 'completed' });
+      expect(
+        (await routedSnapshot(f)).events.filter(
+          (event: { event_type: string }) => event.event_type === 'bot.message.created',
+        ),
+      ).toHaveLength(1);
+    }, 15000);
+
+    it('preserves original routing across default changes, restart and permanent grant replacement', async () => {
+      const f = await fixture('workspace', true);
+      const first = await automatic(f),
+        evidence = await routing(f, first.id);
+      const other = await anotherRoutingBot(f);
+      await new GroupRoutingService(runtime).update(f.ownerId, f.workspaceId, f.grant!.groupId, {
+        expectedRevision: 0,
+        defaultGrantId: other.id,
+      });
+      const rebuilt = observedPool();
+      try {
+        expect(await automatic(f, rebuilt.pool)).toEqual(first);
+        expect(await routing(f, first.id, rebuilt.pool)).toEqual(evidence);
+        expect(await automatic(f, rebuilt.pool, 'new-turn')).toMatchObject({
+          groupGrantId: other.id,
+          routing: { reason: 'default' },
+        });
+      } finally {
+        await rebuilt.pool.end();
+      }
+      await grants().remove(f.ownerId, f.workspaceId, f.grant!.groupId, f.grant!.id, {
+        idempotencyKey: 'close-routed-grant',
+      });
+      const replacement = await grants().invite(f.ownerId, f.workspaceId, f.grant!.groupId, {
+        botId: f.bot.id,
+        idempotencyKey: 'replace-routed-grant',
+      });
+      expect(replacement.id).not.toBe(f.grant!.id);
+      await expect(automatic(f)).rejects.toBeInstanceOf(TaskAccessError);
+      expect(await routing(f, first.id)).toEqual(evidence);
+    });
+
+    it('rechecks candidate lifecycle after an observed structural admission wait', async () => {
+      const f = await fixture('workspace', true),
+        before = await routedSnapshot(f);
+      const result = await duringWait(
+        f,
+        (pool) => automatic(f, pool),
+        (holder) =>
+          holder.query("UPDATE bots SET lifecycle_state='archived' WHERE id=$1", [f.bot.id]),
+      );
+      expect(result).toMatchObject({ status: 'rejected', reason: { code: 'no_eligible_bot' } });
+      expect(await routedSnapshot(f)).toEqual(before);
+    }, 15000);
+
+    it('rechecks the actual human membership after an observed routing admission wait', async () => {
+      const f = await fixture('workspace', true),
+        before = await routedSnapshot(f);
+      const result = await duringWait(
+        f,
+        (pool) => automatic(f, pool),
+        (holder) =>
+          holder.query('DELETE FROM group_memberships WHERE group_id=$1 AND user_id=$2', [
+            f.grant!.groupId,
+            f.actorId,
+          ]),
+      );
+      expect(result).toMatchObject({ status: 'rejected', reason: expect.any(TaskAccessError) });
+      expect(await routedSnapshot(f)).toEqual(before);
+    }, 15000);
+
+    it('rolls back the trigger, sequence, Task, Run and routing evidence when its final routing audit fails', async () => {
+      const f = await fixture('workspace', true),
+        before = await routedSnapshot(f);
+      await rejectingAudit('task.routed', () => automatic(f));
+      expect(await routedSnapshot(f)).toEqual(before);
+      await automatic(f);
+      expect((await routedSnapshot(f)).decisions).toHaveLength(1);
+    });
+
+    it('enforces immutable routing receipts and same-scope identities under the deployed role', async () => {
+      const f = await fixture('workspace', true),
+        task = await automatic(f);
+      const before = await routing(f, task.id);
+      await expect(
+        runtime.query('UPDATE task_routing_decisions SET reason=$2 WHERE task_id=$1', [
+          task.id,
+          'mention',
+        ]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await expect(
+        runtime.query('DELETE FROM task_routing_decisions WHERE task_id=$1', [task.id]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await expect(runtime.query('TRUNCATE task_routing_decisions')).rejects.toMatchObject({
+        code: '42501',
+      });
+      await expect(
+        admin.query('UPDATE task_routing_decisions SET reason=$2 WHERE task_id=$1', [
+          task.id,
+          'mention',
+        ]),
+      ).rejects.toMatchObject({ code: '55000' });
+      await expect(
+        admin.query('DELETE FROM task_routing_decisions WHERE task_id=$1', [task.id]),
+      ).rejects.toMatchObject({ code: '55000' });
+      const wrong = await fixture('workspace', true);
+      await expect(
+        runtime.query(
+          `INSERT INTO task_routing_decisions(task_id,workspace_id,conversation_id,group_id,request_hash,algorithm,reason,decision,created_at)
+         SELECT task_id,$2,conversation_id,group_id,request_hash,algorithm,reason,decision,created_at FROM task_routing_decisions WHERE task_id=$1`,
+          [task.id, wrong.workspaceId],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      await expect(runtime.query('SELECT protect_task_routing_decision()')).rejects.toMatchObject({
+        code: '42501',
+      });
+      expect(await routing(f, task.id)).toEqual(before);
+    });
+
+    it('serializes competing default changes with one CAS revision and mandatory safe audit', async () => {
+      const f = await fixture('workspace', true),
+        other = await anotherRoutingBot(f);
+      let index = 0;
+      const results = await contenders(f, async (pool) => {
+        const grantId = index++ === 0 ? f.grant!.id : other.id;
+        try {
+          return {
+            value: await new GroupRoutingService(pool).update(
+              f.ownerId,
+              f.workspaceId,
+              f.grant!.groupId,
+              { expectedRevision: 0, defaultGrantId: grantId },
+            ),
+          };
+        } catch (error) {
+          return { error };
+        }
+      });
+      expect(results.filter((result) => result.value)).toHaveLength(1);
+      expect(
+        results.filter((result) => result.error instanceof RoutingSettingConflictError),
+      ).toHaveLength(1);
+      expect(
+        await new GroupRoutingService(runtime).get(f.actorId, f.workspaceId, f.grant!.groupId),
+      ).toMatchObject({ revision: 1, canManage: false });
+      expect(
+        (
+          await runtime.query(
+            "SELECT id FROM audit_events WHERE event_type='group.routing_updated' AND metadata->>'groupId'=$1",
+            [f.grant!.groupId],
+          )
+        ).rows,
+      ).toHaveLength(1);
+    }, 15000);
   },
 );

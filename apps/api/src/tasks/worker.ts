@@ -1,7 +1,8 @@
 import type { SqlPool } from '../auth/postgres-auth-repository.js';
 import type { ModelAdapter, ProviderProtocol } from '../providers/model-events.js';
 import type { ProviderSecretBox } from '../providers/secrets.js';
-import { TaskQueue, type TaskFailure, type Usage } from './queue.js';
+import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
+import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent } from '../providers/model-events.js';
 
 export interface TaskWorkerOptions {
@@ -29,6 +30,10 @@ export class TaskWorker {
     }
     const controller = new AbortController(),
       combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const publication = new TaskDeltaPublication(
+      (text) => this.queue.publishDelta(claim, text),
+      () => controller.abort(),
+    );
     let timedOut = false,
       limit = false;
     const timer = setTimeout(() => {
@@ -40,8 +45,9 @@ export class TaskWorker {
       bytes = 0;
     const observe = (event: ModelEvent) => {
       if (event.type === 'text') {
-        body += event.text;
-        bytes += Buffer.byteLength(event.text);
+        const text = Buffer.from(event.text).toString('utf8');
+        body += text;
+        bytes += Buffer.byteLength(text);
         if (body.length > 32000 || bytes > 128000) limit = true;
       } else if (event.type === 'usage') {
         if (
@@ -85,11 +91,15 @@ export class TaskWorker {
             maxResponseBytes: 8 * 1024 * 1024,
           },
           combined,
-          observe,
+          async (event) => {
+            observe(event);
+            if (event.type === 'text' && event.text)
+              await publication.push(Buffer.from(event.text).toString('utf8'));
+          },
         );
       if (response.error) failure = 'provider_failed';
-      // Rebuild from the terminal response once; callback snapshots are only
-      // early budget checks and never independently authorize publication.
+      // Rebuild only the pure accumulator. The callback has already published
+      // each delta; terminal response.events must never publish that text again.
       if (!failure) {
         body = '';
         bytes = 0;
@@ -100,11 +110,13 @@ export class TaskWorker {
         }
         if (!body.trim() || !response.events.some((event) => event.type === 'complete'))
           failure = 'provider_failed';
+        if (!failure) await publication.flush();
       }
-    } catch {
-      failure = 'provider_failed';
+    } catch (error) {
+      failure = error instanceof TaskPublicationError ? error.code : 'provider_failed';
     } finally {
       clearTimeout(timer);
+      await publication.discard();
     }
     if (limit) failure = 'output_limit';
     else if (timedOut || this.now().getTime() >= claim.deadlineAt.getTime())

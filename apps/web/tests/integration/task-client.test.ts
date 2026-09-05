@@ -2,6 +2,93 @@ import { describe, expect, it, vi } from 'vitest';
 import { TaskApiClient } from '../../src/lib/server/task-api.js';
 import { task, conversation, workspace, token } from '../fixtures/tasks.js';
 describe('Task API client', () => {
+  it.each(['default', 'local-match'] as const)(
+    'accepts an automatically %s routed group task with only its bounded summary',
+    async (reason) => {
+      const routed = {
+        ...task,
+        groupGrantId: '70000000-0000-4000-8000-000000000007',
+        routing: { algorithm: 'local-terms-v1', reason },
+      };
+      const request = vi.fn<typeof fetch>(async () =>
+        Response.json({ task: routed }, { status: 202 }),
+      );
+      const result = await new TaskApiClient(
+        request,
+        'http://api:3001',
+        'http://localhost:3000',
+      ).submit(token, workspace.id, conversation.id, {
+        idempotencyKey: 'auto-routing',
+        body: 'Choose a helper',
+      });
+      expect(result).toEqual({ status: 'available', value: routed });
+      expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({
+        idempotencyKey: 'auto-routing',
+        body: 'Choose a helper',
+      });
+    },
+  );
+
+  it('requires the exact mentioned grant and mention reason when accepting a routed explicit submission', async () => {
+    const grantId = '70000000-0000-4000-8000-000000000007';
+    const routed = {
+      ...task,
+      groupGrantId: grantId,
+      routing: { algorithm: 'local-terms-v1', reason: 'mention' },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ task: routed }, { status: 202 }))
+      .mockResolvedValueOnce(
+        Response.json(
+          { task: { ...routed, routing: { ...routed.routing, reason: 'default' } } },
+          { status: 202 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json(
+          { task: { ...routed, groupGrantId: '70000000-0000-4000-8000-000000000008' } },
+          { status: 202 },
+        ),
+      );
+    const client = new TaskApiClient(request, 'http://api:3001', 'http://localhost:3000');
+    const command = {
+      idempotencyKey: 'mention-routing',
+      body: 'Choose a helper',
+      groupGrantId: grantId,
+    };
+    expect(await client.submit(token, workspace.id, conversation.id, command)).toEqual({
+      status: 'available',
+      value: routed,
+    });
+    expect(await client.submit(token, workspace.id, conversation.id, command)).toEqual({
+      status: 'unavailable',
+    });
+    expect(await client.submit(token, workspace.id, conversation.id, command)).toEqual({
+      status: 'unavailable',
+    });
+  });
+
+  it.each([
+    { algorithm: 'remote-model', reason: 'default' },
+    { algorithm: 'local-terms-v1', reason: 'invented' },
+    { algorithm: 'local-terms-v1', reason: 'default', private: 'secret' },
+    null,
+  ])('rejects an invalid routing summary in a saved Task', async (routing) => {
+    const request = vi.fn(async () =>
+      Response.json({
+        task: { ...task, groupGrantId: '70000000-0000-4000-8000-000000000007', routing },
+      }),
+    );
+    expect(
+      await new TaskApiClient(request, 'http://api:3001', 'http://localhost:3000').get(
+        token,
+        workspace.id,
+        conversation.id,
+        task.id,
+      ),
+    ).toEqual({ status: 'unavailable' });
+  });
   it('does not send a task request after the page request has already been aborted', async () => {
     const abort = new AbortController();
     abort.abort();
@@ -90,6 +177,8 @@ describe('Task API client', () => {
     [413, 'invalid_task_request', 'invalid'],
     [409, 'idempotency_conflict', 'idempotency-conflict'],
     [409, 'task_model_unavailable', 'model-unavailable'],
+    [409, 'no_eligible_bot', 'routing-unavailable'],
+    [503, 'no_eligible_bot', 'unavailable'],
     [503, 'authentication_required', 'unavailable'],
     [403, 'authentication_required', 'unavailable'],
   ] as const)('maps HTTP %s with code %s to the safe result %s', async (status, code, expected) => {

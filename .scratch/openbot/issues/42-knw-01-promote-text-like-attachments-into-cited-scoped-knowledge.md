@@ -2,7 +2,7 @@
 sequence: 42
 id: KNW-01
 title: "Promote text-like attachments into cited scoped knowledge"
-status: blocked
+status: in-progress
 blocked_by:
   - ATT-01
   - MEM-01

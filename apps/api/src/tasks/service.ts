@@ -1,8 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
-import type { BotConfiguration } from '../bots/service.js';
+import { BotModelError, type BotConfiguration } from '../bots/service.js';
+import { ProviderError } from '../providers/url-policy.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
 import { admitTaskTarget } from './admission.js';
+import { admitTaskSubmission, taskSubmissionHash } from './submission-admission.js';
+import { GroupAccessError } from '../groups/service.js';
+import type { RoutingDecision, RoutingSummary } from '../routing/matcher.js';
+import { appendQueuedRunState } from '../conversations/append-event.js';
 import { ConversationTransaction } from '../conversations/postgres-repository.js';
 import { messageCursor, encodeMessageCursor } from '../conversations/cursor.js';
 import {
@@ -12,9 +17,10 @@ import {
   type ConversationAccess,
   messageRead,
 } from '../conversations/service.js';
-import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { ProviderProtocol } from '../providers/model-events.js';
+import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { TaskFailure, Usage } from './queue.js';
+import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from './run-history.js';
 
 export class TaskInputError extends Error {}
 export class TaskAccessError extends Error {}
@@ -32,7 +38,10 @@ export interface TaskView {
   bot: { id: string; name: string; versionId: string; versionNumber: number };
   executionUser: { id: string; displayName: string };
   groupGrantId: string | null;
+  routing?: RoutingSummary;
   trigger: { messageId: string; eventId: string; sequence: number };
+  runCount: number;
+  olderRunsCursor: string | null;
   runs: {
     id: string;
     attempt: number;
@@ -62,17 +71,16 @@ type TaskRow = {
   message_id: string;
   sequence: string | number;
   command_hash: string;
+  routing_algorithm: RoutingSummary['algorithm'] | null;
+  routing_reason: RoutingSummary['reason'] | null;
 };
-async function readTask(connection: SqlConnection, id: string): Promise<TaskView> {
-  const row = (
-    await connection.query<TaskRow>(
-      `SELECT t.*,v.version,v.configuration,u.display_name,e.message_id,e.sequence FROM tasks t
-     JOIN bot_versions v ON v.bot_id=t.bot_id AND v.id=t.bot_version_id
-     JOIN users u ON u.id=t.execution_user_id JOIN conversation_events e ON e.id=t.trigger_event_id
-     WHERE t.id=$1`,
-      [id],
-    )
-  ).rows[0]!;
+export type TaskRunView = TaskView['runs'][number];
+async function readRuns(
+  connection: SqlConnection,
+  id: string,
+  limit: number,
+  window?: RunHistoryCursor,
+): Promise<TaskRunView[]> {
   const runs = (
     await connection.query<{
       id: string;
@@ -90,10 +98,40 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
       message_id: string | null;
       sequence: string | number | null;
     }>(
-      'SELECT r.*,e.message_id,e.sequence FROM task_runs r LEFT JOIN conversation_events e ON e.id=r.output_event_id WHERE r.task_id=$1 ORDER BY r.attempt',
-      [id],
+      `SELECT r.*,e.message_id,e.sequence FROM task_runs r LEFT JOIN conversation_events e ON e.id=r.output_event_id WHERE r.task_id=$1 ${window ? 'AND r.attempt<$3::bigint AND r.attempt<=$4' : ''} ORDER BY r.attempt DESC LIMIT $2`,
+      window ? [id, limit, window.before, window.horizon] : [id, limit],
     )
   ).rows;
+  return runs.map((run) => ({
+    id: run.id,
+    attempt: run.attempt,
+    status: run.status,
+    createdAt: run.created_at,
+    startedAt: run.started_at,
+    finishedAt: run.finished_at,
+    provider: run.protocol ? { protocol: run.protocol, modelId: run.model_id! } : null,
+    usage:
+      run.input_tokens === null
+        ? null
+        : { inputTokens: Number(run.input_tokens), outputTokens: Number(run.output_tokens) },
+    error: run.error_code,
+    output: run.output_event_id
+      ? { messageId: run.message_id!, eventId: run.output_event_id, sequence: Number(run.sequence) }
+      : null,
+  }));
+}
+async function readTask(connection: SqlConnection, id: string): Promise<TaskView> {
+  const row = (
+    await connection.query<TaskRow>(
+      `SELECT t.*,v.version,v.configuration,u.display_name,e.message_id,e.sequence,d.algorithm AS routing_algorithm,d.reason AS routing_reason FROM tasks t
+     JOIN bot_versions v ON v.bot_id=t.bot_id AND v.id=t.bot_version_id
+     JOIN users u ON u.id=t.execution_user_id JOIN conversation_events e ON e.id=t.trigger_event_id
+     LEFT JOIN task_routing_decisions d ON d.task_id=t.id
+     WHERE t.id=$1`,
+      [id],
+    )
+  ).rows[0]!;
+  const runs = await readRuns(connection, id, 1);
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -107,32 +145,26 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
     },
     executionUser: { id: row.execution_user_id, displayName: row.display_name },
     groupGrantId: row.group_grant_id,
+    runCount: runs[0]!.attempt,
+    olderRunsCursor:
+      runs[0]!.attempt > 1
+        ? encodeRunHistoryCursor({
+            v: 1,
+            conversationId: row.conversation_id,
+            taskId: row.id,
+            horizon: runs[0]!.attempt,
+            before: runs[0]!.attempt,
+          })
+        : null,
+    ...(row.routing_algorithm && row.routing_reason
+      ? { routing: { algorithm: row.routing_algorithm, reason: row.routing_reason } }
+      : {}),
     trigger: {
       messageId: row.message_id,
       eventId: row.trigger_event_id,
       sequence: Number(row.sequence),
     },
-    runs: runs.map((run) => ({
-      id: run.id,
-      attempt: run.attempt,
-      status: run.status,
-      createdAt: run.created_at,
-      startedAt: run.started_at,
-      finishedAt: run.finished_at,
-      provider: run.protocol ? { protocol: run.protocol, modelId: run.model_id! } : null,
-      usage:
-        run.input_tokens === null
-          ? null
-          : { inputTokens: Number(run.input_tokens), outputTokens: Number(run.output_tokens) },
-      error: run.error_code,
-      output: run.output_event_id
-        ? {
-            messageId: run.message_id!,
-            eventId: run.output_event_id,
-            sequence: Number(run.sequence),
-          }
-        : null,
-    })),
+    runs,
   };
 }
 export class TaskService {
@@ -149,9 +181,24 @@ export class TaskService {
       return result;
     } catch (error) {
       await connection.query('ROLLBACK');
-      if (error instanceof ConversationAccessError || error instanceof GroupBotAccessError)
+      if (
+        error instanceof ConversationAccessError ||
+        error instanceof GroupBotAccessError ||
+        error instanceof GroupAccessError
+      )
         throw new TaskAccessError();
       if (error instanceof ConversationConflictError) throw new TaskConflictError(error.code);
+      // Keep the established Task admission error contract while the reusable
+      // group selector expresses unavailable bindings in Bot domain terms.
+      if (error instanceof BotModelError) {
+        const code = {
+          'not-accessible': 'connection_not_found',
+          disabled: 'connection_disabled',
+          'capability-unavailable': 'model_capability_required',
+          'binding-changed': 'model_binding_changed',
+        }[error.reason];
+        throw new ProviderError(code);
+      }
       throw error;
     } finally {
       connection.release();
@@ -170,6 +217,56 @@ export class TaskService {
       ).rows[0];
       if (!row) throw new TaskAccessError();
       return readTask(connection, id);
+    });
+  }
+  runs(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    query: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId);
+    const read = messageRead(query);
+    if (read.limit > 50) throw new TaskInputError();
+    if (query && typeof query === 'object' && !('limit' in query)) read.limit = 20;
+    return this.transaction(async (connection) => {
+      await ConversationTransaction.lock(connection, access, this.now, 'inspect');
+      const latest = (
+        await connection.query<{ attempt: number }>(
+          'SELECT r.attempt FROM tasks t JOIN task_runs r ON r.task_id=t.id WHERE t.id=$1 AND t.workspace_id=$2 AND t.conversation_id=$3 ORDER BY r.attempt DESC LIMIT 1',
+          [id, access.workspaceId, access.conversationId],
+        )
+      ).rows[0];
+      if (!latest) throw new TaskAccessError();
+      const cursor = runHistoryCursor(read.cursor, access.conversationId, id, latest.attempt);
+      const rows = await readRuns(connection, id, read.limit + 1, cursor);
+      const runs = rows.slice(0, read.limit);
+      return {
+        conversationId: access.conversationId,
+        taskId: id,
+        runs,
+        nextCursor:
+          rows.length > read.limit
+            ? encodeRunHistoryCursor({ ...cursor, before: runs.at(-1)!.attempt })
+            : null,
+      };
+    });
+  }
+  routing(actorUserId: string, workspaceId: string, conversationId: string, taskId: string) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId);
+    return this.transaction(async (connection) => {
+      await ConversationTransaction.lock(connection, access, this.now, 'inspect');
+      const row = (
+        await connection.query<{ decision: RoutingDecision }>(
+          'SELECT decision FROM task_routing_decisions WHERE task_id=$1 AND workspace_id=$2 AND conversation_id=$3',
+          [id, access.workspaceId, access.conversationId],
+        )
+      ).rows[0];
+      if (!row) throw new TaskAccessError();
+      return structuredClone(row.decision);
     });
   }
   list(actorUserId: string, workspaceId: string, conversationId: string, query: unknown) {
@@ -226,41 +323,26 @@ export class TaskService {
       conversationId: conversationUuid(conversationId),
     });
     return this.transaction(async (connection) => {
-      const target = await admitTaskTarget(connection, access, groupGrantId, this.now);
+      const admitted = await admitTaskSubmission(
+        connection,
+        access,
+        { ...command, groupGrantId },
+        this.now,
+      );
+      if (admitted.priorTaskId) return readTask(connection, admitted.priorTaskId);
+      const target = admitted.target;
       const conversation = target.conversation;
-      const hash = createHash('sha256')
-        .update(JSON.stringify({ type: 'task.submit', body: command.body, grantId: groupGrantId }))
-        .digest('hex');
-      const prior = (
-        await connection.query<{ id: string }>(
-          'SELECT id FROM conversation_events WHERE conversation_id=$1 AND actor_user_id=$2 AND idempotency_key=$3',
-          [access.conversationId, access.actorUserId, command.idempotencyKey],
-        )
-      ).rows[0];
-      if (prior) {
-        const task = (
-          await connection.query<{ id: string; command_hash: string }>(
-            'SELECT id,command_hash FROM tasks WHERE trigger_event_id=$1',
-            [prior.id],
-          )
-        ).rows[0];
-        if (!task || task.command_hash !== hash) throw new TaskConflictError();
-        return readTask(connection, task.id);
-      }
+      const selectedGrantId = target.groupGrantId;
+      const hash = taskSubmissionHash(command.body, selectedGrantId);
       const bot = {
         id: target.botId,
         version_id: target.versionId,
         configuration: target.configuration,
       };
-      await admitUsableModel(
-        connection,
-        { actorUserId: access.actorUserId, scope: bot.configuration.modelBinding.scope },
-        {
-          connectionId: bot.configuration.modelBinding.connectionId,
-          expectedModelId: bot.configuration.modelBinding.modelId,
-        },
-      );
-      const trigger = await conversation.appendTaskTrigger({ ...command, groupGrantId });
+      const trigger = await conversation.appendTaskTrigger({
+        ...command,
+        groupGrantId: selectedGrantId,
+      });
       const id = randomUUID(),
         runId = randomUUID(),
         occurredAt = this.now();
@@ -276,13 +358,47 @@ export class TaskService {
           trigger.receipt.eventId,
           hash,
           occurredAt,
-          groupGrantId,
+          selectedGrantId,
         ],
       );
       await connection.query(
         "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,1,'queued',$3)",
         [runId, id, occurredAt],
       );
+      if (admitted.decision) {
+        await connection.query(
+          'INSERT INTO task_routing_decisions(task_id,workspace_id,conversation_id,group_id,request_hash,algorithm,reason,decision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)',
+          [
+            id,
+            access.workspaceId,
+            access.conversationId,
+            admitted.groupId,
+            admitted.requestHash,
+            admitted.decision.algorithm,
+            admitted.decision.reason,
+            JSON.stringify(admitted.decision),
+            occurredAt,
+          ],
+        );
+        await connection.query(
+          "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.routed',$2,$3,$4::jsonb)",
+          [
+            randomUUID(),
+            access.actorUserId,
+            occurredAt,
+            JSON.stringify({
+              workspaceId: access.workspaceId,
+              conversationId: access.conversationId,
+              taskId: id,
+              botId: bot.id,
+              botVersionId: bot.version_id,
+              grantId: selectedGrantId,
+              reason: admitted.decision.reason,
+              algorithm: admitted.decision.algorithm,
+            }),
+          ],
+        );
+      }
       await connection.query(
         "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.queued',$2,$3,$4::jsonb)",
         [
@@ -301,7 +417,118 @@ export class TaskService {
           }),
         ],
       );
+      await appendQueuedRunState(connection, runId, this.now);
       return readTask(connection, id);
+    });
+  }
+  retry(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
+    const value = input as Record<string, unknown>;
+    if (
+      Object.keys(value).some((key) => !['idempotencyKey', 'expectedRunId'].includes(key)) ||
+      typeof value.idempotencyKey !== 'string' ||
+      !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
+    )
+      throw new TaskInputError();
+    const access = taskAccess(actorUserId, workspaceId, conversationId);
+    const id = conversationUuid(taskId),
+      expectedRunId = conversationUuid(value.expectedRunId);
+    const key = value.idempotencyKey;
+    return this.transaction(async (connection) => {
+      const task = (
+        await connection.query<{
+          execution_user_id: string;
+          bot_version_id: string;
+          group_grant_id: string | null;
+        }>(
+          'SELECT execution_user_id,bot_version_id,group_grant_id FROM tasks WHERE id=$1 AND workspace_id=$2 AND conversation_id=$3',
+          [id, access.workspaceId, access.conversationId],
+        )
+      ).rows[0];
+      if (!task || task.execution_user_id !== access.actorUserId) throw new TaskAccessError();
+      const target = await admitTaskTarget(
+        connection,
+        access,
+        task.group_grant_id,
+        this.now,
+        task.bot_version_id,
+      );
+      const locked = (
+        await connection.query<{ status: TaskStatus }>(
+          'SELECT status FROM tasks WHERE id=$1 FOR UPDATE',
+          [id],
+        )
+      ).rows[0]!;
+      const current = (
+        await connection.query<{ id: string; attempt: number; status: TaskStatus }>(
+          'SELECT id,attempt,status FROM task_runs WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1 FOR UPDATE',
+          [id],
+        )
+      ).rows[0]!;
+      const prior = (
+        await connection.query<{ expected_run_id: string; run_id: string; attempt: number }>(
+          'SELECT c.expected_run_id,c.run_id,r.attempt FROM task_retry_commands c JOIN task_runs r ON r.id=c.run_id AND r.task_id=c.task_id WHERE c.task_id=$1 AND c.actor_user_id=$2 AND c.idempotency_key=$3',
+          [id, access.actorUserId, key],
+        )
+      ).rows[0];
+      if (prior && prior.expected_run_id !== expectedRunId) throw new TaskConflictError();
+      if (!prior) {
+        if (locked.status !== 'failed' || current.status !== 'failed')
+          throw new TaskConflictError('task_retry_state_conflict');
+        if (current.id !== expectedRunId) throw new TaskConflictError('task_retry_run_conflict');
+        if (current.attempt >= 2147483647) throw new TaskConflictError('task_attempt_exhausted');
+      }
+      const binding = target.configuration.modelBinding;
+      await admitUsableModel(
+        connection,
+        { actorUserId: access.actorUserId, scope: binding.scope },
+        { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+      );
+      if (prior)
+        return {
+          task: await readTask(connection, id),
+          receipt: { runId: prior.run_id, attempt: prior.attempt },
+        };
+      const runId = randomUUID(),
+        commandId = randomUUID(),
+        attempt = current.attempt + 1,
+        occurredAt = this.now();
+      await connection.query(
+        "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
+        [runId, id, attempt, occurredAt],
+      );
+      await connection.query(
+        'INSERT INTO task_retry_commands(id,task_id,actor_user_id,expected_run_id,run_id,idempotency_key,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+        [commandId, id, access.actorUserId, expectedRunId, runId, key, occurredAt],
+      );
+      await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [id]);
+      await appendQueuedRunState(connection, runId, this.now);
+      await connection.query(
+        "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.retried',$2,$3,$4::jsonb)",
+        [
+          randomUUID(),
+          access.actorUserId,
+          this.now(),
+          JSON.stringify({
+            workspaceId: access.workspaceId,
+            conversationId: access.conversationId,
+            taskId: id,
+            retryCommandId: commandId,
+            previousRunId: current.id,
+            runId,
+            attempt,
+            botId: target.botId,
+            botVersionId: target.versionId,
+          }),
+        ],
+      );
+      return { task: await readTask(connection, id), receipt: { runId, attempt } };
     });
   }
 }

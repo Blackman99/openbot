@@ -77,6 +77,26 @@ export function readTaskConversationFixture(conversationId, userId) {
   return metadata(thread);
 }
 
+export function readCurrentMessageFixture(conversationId, userId, messageId) {
+  if (!readTaskConversationFixture(conversationId, userId)) return undefined;
+  const thread = threads.find(({ id }) => id === conversationId);
+  const message = thread.messages.find(({ id }) => id === messageId);
+  const latest = message?.versions.at(-1);
+  if (!message || message.purged || latest.type === 'message.deleted' || !latest.body?.trim())
+    return undefined;
+  return structuredClone({
+    messageId: message.id,
+    creationSequence: message.creationSequence,
+    creationEventId: message.versions[0].id,
+    eventId: latest.id,
+    version: latest.version,
+    author: message.author,
+    createdAt: time,
+    updatedAt: time,
+    text: latest.body,
+  });
+}
+
 export function appendTaskMessageFixture(conversationId, user, body, bot) {
   const thread = threads.find(({ id }) => id === conversationId);
   if (!thread) throw new Error('Task conversation fixture is missing');

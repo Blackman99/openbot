@@ -2,6 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { ConversationAccess, MessageVersion } from './service.js';
 import type { GroupBotHistory, GroupBotClosureReason } from '../group-bots/service.js';
+import { reclaimConversationStream } from './stream-retention.js';
+import { readRunExecution } from '../tasks/execution-state.js';
+import { encodeConversationStreamEvent } from './stream-protocol.js';
+import type { TaskStatus } from '../tasks/service.js';
 
 interface Command {
   idempotencyKey: string;
@@ -27,6 +31,145 @@ interface StoredEvent {
   audit: object;
   botRunId?: string;
 }
+async function allocate(connection: SqlConnection, conversationId: string) {
+  const row = (
+    await connection.query<{ last_sequence: string | number }>(
+      'UPDATE conversations SET last_sequence=last_sequence+1 WHERE id=$1 RETURNING last_sequence',
+      [conversationId],
+    )
+  ).rows[0]!;
+  const sequence = Number(row.last_sequence);
+  await connection.query(
+    'INSERT INTO conversation_delivery_state(conversation_id,floor) VALUES($1,$2) ON CONFLICT(conversation_id) DO NOTHING',
+    [conversationId, sequence - 1],
+  );
+  return sequence;
+}
+// These transition-specific writers derive immutable identities and safe data
+// from the persisted Run. Caller owns workspace/group/Bot/conversation/Task/Run
+// locks and the status + audit transaction; no caller-defined event writer.
+async function appendRunState(
+  connection: SqlConnection,
+  runId: string,
+  status: TaskStatus,
+  now: () => Date,
+) {
+  const selected = await readRunExecution(connection, runId);
+  if (
+    !selected ||
+    selected.execution.runStatus !== status ||
+    selected.execution.taskStatus !== status
+  )
+    throw new Error('Run delivery transition does not match retained state');
+  if (
+    (
+      await connection.query(
+        'SELECT sequence FROM task_run_delivery_receipts WHERE run_id=$1 AND run_status=$2',
+        [runId, status],
+      )
+    ).rows.length
+  )
+    return;
+  const sequence = await allocate(connection, selected.conversationId),
+    occurredAt = now();
+  encodeConversationStreamEvent(selected, sequence, occurredAt, {
+    type: 'task.run.updated',
+    data: { execution: selected.execution },
+  });
+  const execution = JSON.stringify(selected.execution),
+    byteSize = 2048 + 2 * Buffer.byteLength(execution);
+  await connection.query(
+    "INSERT INTO conversation_delivery_events(conversation_id,sequence,occurred_at,event_type,run_id,run_status,execution,byte_size) VALUES($1,$2,$3,'task.run.updated',$4,$5,$6::jsonb,$7)",
+    [selected.conversationId, sequence, occurredAt, runId, status, execution, byteSize],
+  );
+  await connection.query(
+    'INSERT INTO task_run_delivery_receipts(run_id,run_status,conversation_id,sequence) VALUES($1,$2,$3,$4)',
+    [runId, status, selected.conversationId, sequence],
+  );
+  await reclaimConversationStream(connection, selected.conversationId, occurredAt);
+}
+export const appendQueuedRunState = (connection: SqlConnection, runId: string, now: () => Date) =>
+  appendRunState(connection, runId, 'queued', now);
+export const appendRunningRunState = (connection: SqlConnection, runId: string, now: () => Date) =>
+  appendRunState(connection, runId, 'running', now);
+export const appendCompletedRunState = (
+  connection: SqlConnection,
+  runId: string,
+  now: () => Date,
+) => appendRunState(connection, runId, 'completed', now);
+export const appendFailedRunState = (connection: SqlConnection, runId: string, now: () => Date) =>
+  appendRunState(connection, runId, 'failed', now);
+
+export async function appendAssistantDelta(
+  connection: SqlConnection,
+  command: { runId: string; claimToken: string; text: string },
+  now: () => Date,
+) {
+  const row = (
+    await connection.query<{
+      workspace_id: string;
+      conversation_id: string;
+      task_id: string;
+      attempt: number;
+      deadline_at: Date;
+    }>(
+      "SELECT t.workspace_id,t.conversation_id,r.task_id,r.attempt,r.deadline_at FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND r.claim_token=$2 AND r.status='running' AND t.status='running'",
+      [command.runId, command.claimToken],
+    )
+  ).rows[0];
+  if (!row || row.deadline_at.getTime() <= now().getTime()) return false;
+  await connection.query(
+    'INSERT INTO task_run_streams(run_id) VALUES($1) ON CONFLICT(run_id) DO NOTHING',
+    [command.runId],
+  );
+  const progress = (
+    await connection.query<{ delivered_bytes: number }>(
+      'SELECT delivered_bytes FROM task_run_streams WHERE run_id=$1',
+      [command.runId],
+    )
+  ).rows[0]!;
+  const startByte = progress.delivered_bytes,
+    endByte = startByte + Buffer.byteLength(command.text);
+  const sequence = await allocate(connection, row.conversation_id),
+    occurredAt = now();
+  encodeConversationStreamEvent(
+    { workspaceId: row.workspace_id, conversationId: row.conversation_id },
+    sequence,
+    occurredAt,
+    {
+      type: 'assistant.delta',
+      data: {
+        taskId: row.task_id,
+        runId: command.runId,
+        attempt: row.attempt,
+        startByte,
+        endByte,
+        text: command.text,
+      },
+    },
+  );
+  await connection.query(
+    "INSERT INTO conversation_delivery_events(conversation_id,sequence,occurred_at,event_type,run_id,delta_text,start_byte,end_byte,byte_size) VALUES($1,$2,$3,'assistant.delta',$4,$5,$6,$7,$8)",
+    [
+      row.conversation_id,
+      sequence,
+      occurredAt,
+      command.runId,
+      command.text,
+      startByte,
+      endByte,
+      2048 + 6 * Buffer.byteLength(command.text),
+    ],
+  );
+  await connection.query('UPDATE task_run_streams SET delivered_bytes=$2 WHERE run_id=$1', [
+    command.runId,
+    endByte,
+  ]);
+  await reclaimConversationStream(connection, row.conversation_id, occurredAt);
+  // Progress/retention may have waited after the initial claim check. The
+  // caller must roll back this whole transaction when the final guard fails.
+  return row.deadline_at.getTime() > now().getTime();
+}
 // Only the typed message/membership writers below can reach the allocator.
 // Each allocation always inserts its event and mandatory audit in the same TX.
 async function append(
@@ -36,13 +179,10 @@ async function append(
   now: () => Date,
   event: (receipt: { eventId: string; sequence: number }) => StoredEvent,
 ) {
-  const row = (
-    await connection.query<{ last_sequence: string | number }>(
-      'UPDATE conversations SET last_sequence=last_sequence+1 WHERE id=$1 RETURNING last_sequence',
-      [access.conversationId],
-    )
-  ).rows[0]!;
-  const receipt = { eventId: randomUUID(), sequence: Number(row.last_sequence) };
+  const receipt = {
+    eventId: randomUUID(),
+    sequence: await allocate(connection, access.conversationId),
+  };
   const occurredAt = now();
   const value = event(receipt);
   await connection.query(
@@ -79,6 +219,17 @@ async function append(
       }),
     ],
   );
+  await connection.query(
+    'INSERT INTO conversation_delivery_events(conversation_id,sequence,occurred_at,event_type,ledger_event_id,byte_size) VALUES($1,$2,$3,$4,$5,2048)',
+    [
+      access.conversationId,
+      receipt.sequence,
+      occurredAt,
+      value.messageId ? 'message.changed' : 'conversation.invalidated',
+      receipt.eventId,
+    ],
+  );
+  await reclaimConversationStream(connection, access.conversationId, occurredAt);
   return { ...receipt, occurredAt };
 }
 

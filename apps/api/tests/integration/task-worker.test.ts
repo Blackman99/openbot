@@ -57,7 +57,9 @@ describe('Task execution authority and terminal outcomes', () => {
     expect(await worker.runOnce()).toBe(true);
     expect(await f.read()).toMatchObject({
       status: 'completed',
-      runs: [{ output: { sequence: 3 } }],
+      // Trigger, queued, running and the unrelated human message precede output
+      // on the shared durable conversation sequence.
+      runs: [{ output: { sequence: 5 } }],
     });
   });
   it.each(['final-error', 'oversize', 'usage-limit', 'no-complete', 'no-text', 'action'] as const)(

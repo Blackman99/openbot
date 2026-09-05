@@ -48,3 +48,7 @@ pnpm_config_verify_deps_before_run=false pnpm --filter @openbot/api exec vitest 
 The preceding run already passed all five attachment PostgreSQL cases and the
 general Compose private upload/download/durable-purge acceptance. Those results
 do not replace the remaining real-S3 case.
+
+## Actual CI retry completed
+
+[Verify33960029570](VERIFY-33960029570.md), completed2026-09-05 at10:17:34 UTC, passed all12 jobs on the exact accepted local `e51fafe4` tree. Object-storage job101290513259 ran all seven real-S3 and seven local-store cases successfully; the unchanged large-file case passed at10:15:52.1138953 UTC in **7,713 ms**. The same run passed PostgreSQL attachment5/5 and deployed private attachment Compose/purge. This actual retry closes ATT-01-E1; it does not relabel the earlier local skips or default-budget failure.

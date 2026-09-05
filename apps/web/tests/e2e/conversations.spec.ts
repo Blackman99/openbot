@@ -107,7 +107,10 @@ test('retries a committed message once, edits with CAS, and keeps tombstone vers
   await page.reload();
   const graceMessage = page.getByRole('article', { name: 'Message by Grace' });
   await expect(graceMessage.getByText('Edit message', { exact: true })).toHaveCount(0);
-  await graceMessage.locator('summary').click();
+  await graceMessage
+    .locator('summary')
+    .filter({ hasText: /^Delete message$/u })
+    .click();
   const reason = graceMessage.getByLabel('Reason for deletion (required)');
   await expect(reason).toHaveAttribute('required', '');
   await reason.fill('Group moderation reason');

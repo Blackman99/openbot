@@ -2,7 +2,7 @@
 sequence: 27
 id: COL-10
 title: "Add bounded retries and explicit model fallback"
-status: blocked
+status: in-progress
 blocked_by:
   - COL-09
   - PROV-05

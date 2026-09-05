@@ -1,6 +1,6 @@
 # Public API domain handoff
 
-Preparatory decisions for API-02 and API-03; these endpoints are not implemented yet.
+API-02 is implemented and its actual service gate is closed by Verify33960029570. API-03 remains future work; the shared authority and dependency decisions below still apply.
 
 - API-02 archive consumes BOT-06 lifecycle behavior. API-03 default Lead consumes COL-06, and group concurrency consumes COL-13. The added prerequisites preserve all67 tickets and401 acceptance criteria and leave the graph acyclic. API-03 owns group archive because COL-01 explicitly excludes it.
 - External routes use `/v1` Bearer authentication, distinct from `/api/v1` session/BFF routes. Reuse the existing API-01 token syntax and explicit scopes. A token's bound workspace is authoritative; a request parameter cannot select another workspace.

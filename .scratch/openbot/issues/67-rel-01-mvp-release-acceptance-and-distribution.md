@@ -249,19 +249,34 @@ Actual Verify33958220385 on remote60afa3b3 completed2026-09-05 at09:34:38 UTC wi
 
 COL-04-E1 closed by [Verify33959031255](https://github.com/Blackman99/openbot/actions/runs/33959031255), completed on 2026-09-05 at 09:54:57 UTC on published `2dab3fc280654257ba5a516c207ab8e2ba929e6a`. The checkout tree matches accepted local `675fd53c0ac098abac05a1560ce339abd7ae9df1`. PostgreSQL job101287771356 executed all 26 Task cases successfully; job101287771360 passed separate-worker seed/running/reloaded stages; general Compose job101287771315 passed fresh/upgrade through0018 and exact grants. All eight native jobs and the six prior real-S3 cases passed. The newly added large attachment S3 timeout remains only ATT-01-E1. See [actual execution and tree evidence](../VERIFY-33959031255.md); this supersedes the earlier pending Task notes.
 
-## Open external gate — ATT-01-E1
+## Closed external gate — ATT-01-E1
 
 - [x] Execute all5 attachments-runtime.test.ts cases using actual PostgreSQL and the deployed restricted role, including scope/history/immutability, rollback, blocked cleanup eligibility and active staged-write fencing.
-- [ ] Keep the real private S3-compatible storage contract green with no automatic retry or assertion weakening.
+- [x] Keep the real private S3-compatible storage contract green with no automatic retry or assertion weakening.
 - [x] Execute fresh/upgrade Compose through0018 and infra/verify-attachments.mjs under the deployed runtime role/private volume: exact upload/message receipt, private read/download, denied cross-scope reads and acknowledged original/derived object purge. Preserve every prior native, worker, storage and outage check.
 
 Both source review axes and dedicated integration are CLEAN. Merge0bbaf856/tree4ec3bdd6 passed the full1,062 nonbrowser tests,36 ordinary browsers and one OIDC, formatting, zero-error/zero-warning types and builds. No local PostgreSQL or Docker was provisioned; external skips are not passes. This explicit gate permits dependent implementation when their other prerequisites are accepted.
 
-[Verify33959031255](../VERIFY-33959031255.md) passed PostgreSQL attachment job101287771344 (5/5 actual cases) and general Compose job101287771315, including the durable original/derived object purge marker at 09:54:43.3042123 UTC on 2026-09-05. Only the new real-S3 case `keeps attachment and avatar byte bounds independent on the real backend` remains open: object-storage job101287771358 reported a 5,000 ms timeout and 7,823 ms case duration; its other seven local and six real-S3 cases passed. Independently reviewed correction `2cf2ea5b117af4eb35a7e6312776f97177bc6827`, integrated as `86c77c6ce50478703ee32c5a0fb7a05dce24775e`, changes only that case's test budget to 30,000 ms. Actual CI must pass the unchanged assertions before ATT-01-E1 closes; the fix itself is not execution evidence.
+[Verify33959031255](../VERIFY-33959031255.md) passed PostgreSQL attachment job101287771344 (5/5 actual cases) and general Compose job101287771315, including the durable original/derived object purge marker at 09:54:43.3042123 UTC on 2026-09-05. At that point, only the new real-S3 case `keeps attachment and avatar byte bounds independent on the real backend` remained open: object-storage job101287771358 reported a 5,000 ms timeout and 7,823 ms case duration; its other seven local and six real-S3 cases passed. Independently reviewed correction `2cf2ea5b117af4eb35a7e6312776f97177bc6827`, integrated as `86c77c6ce50478703ee32c5a0fb7a05dce24775e`, changes only that case's test budget to 30,000 ms. A subsequent actual CI run was required to pass the unchanged assertions before ATT-01-E1 could close; the fix itself was not execution evidence.
 
-## Open external gate — API-02-E1
+ATT-01-E1 closed by [Verify33960029570](../VERIFY-33960029570.md) on 2026-09-05 at 10:17:34 UTC. Object-storage job101290513259 executed all seven real-S3 and seven local-store cases successfully; the unchanged large-file case passed in 7,713 ms. The same run passed all five native attachment cases and general Compose job101290513306, whose private publication/download/durable-purge marker appears at 10:17:19.1466713 UTC. The actual checkout and accepted local `e51fafe4` share tree `2bb6bd77ead1f71413f95ab60a02738fb915adba`; all 12 jobs passed. This subsequent execution supersedes the pending retry above.
 
-- [ ] Execute all 31 `public-bots-runtime.test.ts` cases with actual PostgreSQL and the deployed restricted role, proving scoped creator/workspace authority, same-transaction final admission, expiry and revocation after resource/provider/avatar/audit waits, no-op admission, immutable history and complete rollback.
-- [ ] Run the native file as its own serial command after identity, ACL, avatar, version, lifecycle and copy suites, with a required nonempty `TEST_BOT_DATABASE_URL`; missing-URL discovery skips cannot satisfy this gate.
+## Closed external gate — API-02-E1
+
+- [x] Execute all 31 `public-bots-runtime.test.ts` cases with actual PostgreSQL and the deployed restricted role, proving scoped creator/workspace authority, same-transaction final admission, expiry and revocation after resource/provider/avatar/audit waits, no-op admission, immutable history and complete rollback.
+- [x] Run the native file as its own serial command after identity, ACL, avatar, version, lifecycle and copy suites, with a required nonempty `TEST_BOT_DATABASE_URL`; missing-URL discovery skips cannot satisfy this gate.
 
 API-02 source `18ad24f06dd8a5afe2b795462975d186a0650487` passed both independent review axes. Accepted merge `bdaa32526383739243a227a7c5023a4c8b3e7ffd`, tree `b2a174630bef5616d6a8dc7140adf349d50f6fde`, passed the explicitly recorded composite gate: 1,075 nonbrowser tests, 37 ordinary browsers including the actual public API/Svelte round trip, one signed OIDC journey, formatting, types and final builds. Initial `pnpm verify` exited 1; the reviewed fixture-only reset correction passed the complete remaining browser/build gate. All 31 native cases were skipped locally, with zero executed. Verify33959031255 predates this ticket. See [integration evidence](../API-02-INTEGRATION.md) and [native coverage](../API-02-NATIVE-EVIDENCE.md).
+
+API-02-E1 closed by [Verify33960029570](../VERIFY-33960029570.md) on that same exact accepted tree. Postgres-bots job101290513512 executed the public suite as its own seventh serial Bot command, with the nonempty database guard. All 31 cases passed at 10:16:08.3154032 UTC. All eight PostgreSQL jobs passed 185 actual native cases in total, alongside full code verification, private S3 and both Compose jobs. The earlier local discovery skips remain excluded. This closes the implemented tickets' remaining external gates; REL-01 itself stays blocked by its unchanged full-release acceptance criteria.
+
+## Open external gates — accepted stream batch
+
+Accepted source `0ff6898eee671f04987fd5024a0bbc3c2d0afef4` passed both independent review axes and one complete local `pnpm verify` (1,453 nonbrowser, 53 ordinary browser, one OIDC, lint/types/builds). The following real-service gates remain open; prior Verify33960029570 is baseline evidence and is not a fresh run of this tree.
+
+- [ ] **COL-05-E1**: execute 40 dedicated stream PostgreSQL cases and real running/reloaded Compose delivery witnesses; record the actual job, checkout tree and result.
+- [ ] **COL-06-E1**: execute seven routing PostgreSQL cases within the actual Task suite and deployed migration 0021/default-routing privileges; record the actual job, checkout tree and result.
+- [ ] **COL-09-E1**: execute seven retry PostgreSQL cases within the actual Task suite and deployed migration 0022/immutable command privileges; record the actual job, checkout tree and result.
+- [ ] **MEM-01-E1**: execute 14 dedicated memory PostgreSQL cases and the real scoped-source-memory Compose flow; record the actual job, checkout tree and result.
+
+The combined workflow retains all 14 jobs and real migrations 0019 → 0020 → 0021 → 0022. Skipped tests, pg-mem, static review and shell/module syntax checks are not native/Compose passes.

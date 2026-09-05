@@ -7,8 +7,21 @@ import { ProviderError } from '../providers/url-policy.js';
 import { admitExecutionModel, admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { ModelInput } from '../providers/model-events.js';
 import { currentPage } from '../conversations/projection.js';
-import { appendBotResult } from '../conversations/append-event.js';
+import {
+  appendBotResult,
+  appendAssistantDelta,
+  appendRunningRunState,
+  appendCompletedRunState,
+  appendFailedRunState,
+} from '../conversations/append-event.js';
 import { admitTaskTarget } from './admission.js';
+import {
+  selectRunMemoryContribution,
+  persistRunMemoryReferences,
+  assertRunMemoryReferencesCurrent,
+  MemoryContextLimitError,
+  type RunMemoryContribution,
+} from '../memories/run-context.js';
 
 export type TaskFailure =
   | 'execution_forbidden'
@@ -24,6 +37,7 @@ export interface Usage {
 }
 type Candidate = {
   id: string;
+  attempt: number;
   task_id: string;
   workspace_id: string;
   conversation_id: string;
@@ -43,6 +57,12 @@ export interface TaskClaim {
   maxTotalTokens: number;
 }
 class ContextLimitError extends Error {}
+class PublicationDeadlineElapsed extends Error {}
+export class TaskPublicationError extends Error {
+  constructor(readonly code: TaskFailure) {
+    super(code);
+  }
+}
 function admissionFailure(error: unknown): TaskFailure | undefined {
   if (
     error instanceof ConversationAccessError ||
@@ -51,7 +71,8 @@ function admissionFailure(error: unknown): TaskFailure | undefined {
   )
     return 'execution_forbidden';
   if (error instanceof ProviderError) return 'model_unavailable';
-  if (error instanceof ContextLimitError) return 'context_limit';
+  if (error instanceof ContextLimitError || error instanceof MemoryContextLimitError)
+    return 'context_limit';
   return undefined;
 }
 export class TaskQueue {
@@ -76,7 +97,7 @@ export class TaskQueue {
   private async candidate(connection: SqlConnection, runId?: string) {
     return (
       await connection.query<Candidate>(
-        `SELECT r.id,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversation_events e ON e.id=t.trigger_event_id
+        `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversation_events e ON e.id=t.trigger_event_id
        WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id LIMIT 1`,
         runId ? [runId] : [],
       )
@@ -94,6 +115,32 @@ export class TaskQueue {
         [task.id, task.task_id],
       )
     ).rows[0];
+  }
+  // Structural locks never authorize content. The immutable persisted target
+  // provides the order even when the execution actor/grant is now forbidden.
+  // Failure-state publication must not acquire a conversation after Task/Run.
+  private async lockStructure(connection: SqlConnection, task: Candidate) {
+    const subject = (
+      await connection.query<{ group_id: string | null }>(
+        'SELECT group_id FROM conversations WHERE workspace_id=$1 AND id=$2',
+        [task.workspace_id, task.conversation_id],
+      )
+    ).rows[0];
+    if (!subject) throw new Error('Retained Task conversation missing');
+    await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [task.workspace_id]);
+    if (subject.group_id)
+      await connection.query('SELECT id FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [
+        task.workspace_id,
+        subject.group_id,
+      ]);
+    await connection.query('SELECT id FROM bots WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [
+      task.workspace_id,
+      task.bot_id,
+    ]);
+    await connection.query(
+      'SELECT id FROM conversations WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      [task.workspace_id, task.conversation_id],
+    );
   }
   private access(task: Candidate) {
     return {
@@ -115,7 +162,7 @@ export class TaskQueue {
           conversationId: task.conversation_id,
           taskId: task.task_id,
           runId: task.id,
-          attempt: 1,
+          attempt: task.attempt,
           ...metadata,
         }),
       ],
@@ -133,6 +180,7 @@ export class TaskQueue {
     );
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
+    await appendFailedRunState(connection, task.id, this.now);
   }
   async claimNext(): Promise<{ handled: boolean; claim?: TaskClaim }> {
     return this.transaction(async (connection) => {
@@ -140,6 +188,7 @@ export class TaskQueue {
       // shared order. Competing workers recheck this candidate after waiting.
       const task = await this.candidate(connection);
       if (!task) return { handled: false };
+      await this.lockStructure(connection, task);
       let target: Awaited<ReturnType<typeof admitTaskTarget>>;
       try {
         target = await admitTaskTarget(
@@ -160,13 +209,17 @@ export class TaskQueue {
       const run = await this.lockRun(connection, task);
       if (run?.status !== 'queued') return { handled: false };
       let provider: TaskClaim['provider'];
+      let memory: RunMemoryContribution;
       const messages: ModelInput['messages'] = [
         { role: 'system', content: target.configuration.instructions },
       ];
       try {
+        memory = await selectRunMemoryContribution(connection, task.id, this.now);
+        messages.push(...memory.messages);
         let after = target.lowerBound - 1,
-          bytes = Buffer.byteLength(target.configuration.instructions),
-          count = 0;
+          bytes = Buffer.byteLength(target.configuration.instructions) + memory.bytes,
+          count = memory.itemCount;
+        if (bytes > 1048576 || count > 1000) throw new ContextLimitError();
         while (true) {
           const page = await currentPage(
             connection,
@@ -226,12 +279,14 @@ export class TaskQueue {
       );
       if (!claimed.rows.length) return { handled: false };
       await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
+      await persistRunMemoryReferences(connection, memory, this.now);
       await this.audit(connection, task, 'task.running', {
         protocol: provider.protocol,
         modelId: provider.modelId,
         connectionId: provider.connectionId,
         connectionRevision: provider.revision,
       });
+      await appendRunningRunState(connection, task.id, this.now);
       return {
         handled: true,
         claim: {
@@ -246,13 +301,66 @@ export class TaskQueue {
       };
     });
   }
+  async publishDelta(claim: TaskClaim, text: string): Promise<void> {
+    await this.transaction(async (connection) => {
+      const task = await this.candidate(connection, claim.runId);
+      if (!task) throw new TaskPublicationError('worker_stopped');
+      await this.lockStructure(connection, task);
+      try {
+        const target = await admitTaskTarget(
+          connection,
+          this.access(task),
+          task.group_grant_id,
+          this.now,
+          task.bot_version_id,
+        );
+        const run = await this.lockRun(connection, task);
+        if (run?.status !== 'running' || run.claim_token !== claim.claimToken)
+          throw new TaskPublicationError('worker_stopped');
+        const binding = target.configuration.modelBinding;
+        await admitUsableModel(
+          connection,
+          { actorUserId: task.execution_user_id, scope: binding.scope },
+          { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+        );
+        await assertRunMemoryReferencesCurrent(connection, task.id, this.now);
+        if (
+          !(await appendAssistantDelta(
+            connection,
+            { runId: task.id, claimToken: claim.claimToken, text },
+            this.now,
+          ))
+        )
+          throw new TaskPublicationError('execution_timeout');
+      } catch (error) {
+        const code = admissionFailure(error);
+        if (code) throw new TaskPublicationError(code);
+        throw error;
+      }
+    });
+  }
   async finish(
+    claim: TaskClaim,
+    outcome: { body: string; usage: Usage | null } | { error: TaskFailure; usage: Usage | null },
+  ): Promise<boolean> {
+    try {
+      return await this.finishTransaction(claim, outcome);
+    } catch (error) {
+      if (!(error instanceof PublicationDeadlineElapsed)) throw error;
+      // The attempted output, audit, completed state and delivery sequence have
+      // all rolled back. Fail the same claim under fresh admission; this creates
+      // no retry, no new Run and no second provider request.
+      return this.finishTransaction(claim, { error: 'execution_timeout', usage: outcome.usage });
+    }
+  }
+  private finishTransaction(
     claim: TaskClaim,
     outcome: { body: string; usage: Usage | null } | { error: TaskFailure; usage: Usage | null },
   ) {
     return this.transaction(async (connection) => {
       const task = await this.candidate(connection, claim.runId);
       if (!task) return false;
+      await this.lockStructure(connection, task);
       let denied: TaskFailure | undefined;
       let target: Awaited<ReturnType<typeof admitTaskTarget>> | undefined;
       try {
@@ -277,6 +385,7 @@ export class TaskQueue {
             { actorUserId: task.execution_user_id, scope: binding.scope },
             { connectionId: binding.connectionId, expectedModelId: binding.modelId },
           );
+          await assertRunMemoryReferencesCurrent(connection, task.id, this.now);
         } catch (error) {
           denied = admissionFailure(error);
           if (!denied) throw error;
@@ -314,6 +423,9 @@ export class TaskQueue {
       );
       await connection.query("UPDATE tasks SET status='completed' WHERE id=$1", [task.task_id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
+      await appendCompletedRunState(connection, task.id, this.now);
+      if (!run.deadline_at || run.deadline_at.getTime() <= this.now().getTime())
+        throw new PublicationDeadlineElapsed();
       return true;
     });
   }

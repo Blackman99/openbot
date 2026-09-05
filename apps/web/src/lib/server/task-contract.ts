@@ -1,4 +1,9 @@
-import { isConversationUuid, type MessageReceipt } from './conversation-api.js';
+import { parseRoutingSummary, type RoutingSummary } from '../routing-contract.js';
+import {
+  isConversationUuid,
+  isConversationCursor,
+  type MessageReceipt,
+} from './conversation-api.js';
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
 export const taskErrorCodes = [
   'execution_forbidden',
@@ -33,7 +38,10 @@ export interface TaskView {
   bot: { id: string; name: string; versionId: string; versionNumber: number };
   executionUser: { id: string; displayName: string };
   groupGrantId: string | null;
+  routing?: RoutingSummary;
   trigger: MessageReceipt;
+  runCount: number;
+  olderRunsCursor: string | null;
   runs: TaskRun[];
 }
 export interface TaskPage {
@@ -80,17 +88,18 @@ function receipt(value: unknown): MessageReceipt | undefined {
       }
     : undefined;
 }
-function run(value: unknown, createdAt: string): TaskRun | undefined {
+export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | undefined {
   if (
     !taskKeys(
       value,
       'attempt,createdAt,error,finishedAt,id,output,provider,startedAt,status,usage',
     ) ||
     !isConversationUuid(value.id) ||
-    value.attempt !== 1 ||
+    !taskInteger(value.attempt) ||
+    value.attempt > 2147483647 ||
     !status(value.status) ||
     !date(value.createdAt) ||
-    value.createdAt < createdAt ||
+    (createdAt !== undefined && value.createdAt < createdAt) ||
     (value.startedAt !== null && (!date(value.startedAt) || value.startedAt < value.createdAt)) ||
     (value.finishedAt !== null &&
       (!date(value.finishedAt) || value.finishedAt < (value.startedAt ?? value.createdAt))) ||
@@ -158,7 +167,7 @@ function run(value: unknown, createdAt: string): TaskRun | undefined {
   if (value.startedAt === null && (provider !== null || usage !== null)) return undefined;
   return {
     id: value.id.toLowerCase(),
-    attempt: 1,
+    attempt: value.attempt,
     status: value.status,
     createdAt: value.createdAt,
     startedAt: value.startedAt,
@@ -171,10 +180,14 @@ function run(value: unknown, createdAt: string): TaskRun | undefined {
 }
 export function parseTask(value: unknown, conversationId: string): TaskView | undefined {
   if (
-    !taskKeys(
+    (!taskKeys(
       value,
-      'bot,conversationId,createdAt,executionUser,groupGrantId,id,runs,status,trigger',
-    ) ||
+      'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,trigger',
+    ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
+      )) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.conversationId) ||
     value.conversationId.toLowerCase() !== conversationId.toLowerCase() ||
@@ -189,16 +202,28 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     !isConversationUuid(value.executionUser.id) ||
     !taskText(value.executionUser.displayName, 200) ||
     (value.groupGrantId !== null && !isConversationUuid(value.groupGrantId)) ||
+    !taskInteger(value.runCount) ||
+    value.runCount > 2147483647 ||
+    (value.olderRunsCursor !== null && !isConversationCursor(value.olderRunsCursor)) ||
+    (value.runCount === 1
+      ? value.olderRunsCursor !== null
+      : !isConversationCursor(value.olderRunsCursor)) ||
     !Array.isArray(value.runs) ||
     value.runs.length !== 1
   )
     return undefined;
+  let routing: TaskView['routing'];
+  if ('routing' in value) {
+    routing = parseRoutingSummary(value.routing);
+    if (value.groupGrantId === null || routing === undefined) return undefined;
+  }
   const trigger = receipt(value.trigger),
-    attempt = run(value.runs[0], value.createdAt);
+    attempt = parseTaskRun(value.runs[0], value.createdAt);
   if (
     !trigger ||
     !attempt ||
     attempt.status !== value.status ||
+    attempt.attempt !== value.runCount ||
     (attempt.output !== null &&
       (attempt.output.sequence <= trigger.sequence ||
         attempt.output.messageId === trigger.messageId ||
@@ -221,6 +246,9 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
       displayName: value.executionUser.displayName,
     },
     groupGrantId: value.groupGrantId === null ? null : value.groupGrantId.toLowerCase(),
+    runCount: value.runCount,
+    olderRunsCursor: value.olderRunsCursor,
+    ...(routing === undefined ? {} : { routing }),
     trigger,
     runs: [attempt],
   };

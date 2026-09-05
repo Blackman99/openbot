@@ -2,7 +2,9 @@
 
 ## Status
 
-**Native execution remains open.** `TEST_BOT_DATABASE_URL` is absent in this environment. The new suite registers **31 cases; all 31 were skipped locally**. No PostgreSQL server, Docker service, database provisioning, executed native assertion, upstream provider call, browser result or deployed Compose result is claimed. A native red/green cycle could not be observed without the required database.
+**Native execution is complete.** [Verify33960029570](VERIFY-33960029570.md) executed all 31 cases in postgres-bots job101290513512 on 2026-09-05 at 10:16:08.3154032 UTC, after six successful serial Bot suites. The actual checkout tree exactly matches accepted local `e51fafe4`; all 12 jobs passed. API-02-E1 is closed.
+
+The following records the earlier local author checkpoint. `TEST_BOT_DATABASE_URL` was absent in that environment. The new suite registers **31 cases; all 31 were skipped locally**. No PostgreSQL server, Docker service, database provisioning, executed native assertion, upstream provider call, browser result or deployed Compose result is claimed. A native red/green cycle could not be observed without the required database.
 
 The suite was authored in isolated branch `ticket/api-02-native`, created from accepted BOT-06 merge `ae567149a1e741a830a244f751c379af50c9a523` and then fast-forwarded to API-02 core checkpoint `a7a6dd4` for the production route and transaction-admission interfaces. Its deliverable changes only `apps/api/tests/postgres/public-bots-runtime.test.ts` and this evidence note. The public contract and `PUBLIC-API-HANDOFF.md` define the admission requirements; independent Standards/Spec review and ticket acceptance remain with the parent/root workflow.
 
@@ -53,4 +55,4 @@ test -n "$TEST_BOT_DATABASE_URL"
 ./node_modules/.bin/vitest run tests/postgres/public-bots-runtime.test.ts
 ```
 
-This subtask does not edit CI or root files. Actual native execution with its source commit/tree, database/runtime privilege results and any failure fixes remain necessary before accepting native evidence or publishing API-02.
+The author subtask did not edit CI or root files. Its requested actual native execution is now recorded above and in [Verify33960029570](VERIFY-33960029570.md); the local skipped run remains unchanged in this history.

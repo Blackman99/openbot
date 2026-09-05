@@ -1,0 +1,783 @@
+import { execFile } from 'node:child_process';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import pg from 'pg';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { buildApp } from '../../src/app.js';
+import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
+import { LocalAuthService } from '../../src/auth/service.js';
+import { AttachmentService } from '../../src/attachments/service.js';
+import { BotAclService } from '../../src/bots/acl-service.js';
+import { PostgresBotAclRepository } from '../../src/bots/postgres-bot-acl-repository.js';
+import { PostgresBotRepository } from '../../src/bots/postgres-bot-repository.js';
+import { BotService } from '../../src/bots/service.js';
+import {
+  ConversationTransaction,
+  PostgresConversationRepository,
+} from '../../src/conversations/postgres-repository.js';
+import { ConversationService } from '../../src/conversations/service.js';
+import { migrateDatabase } from '../../src/database/migrations.js';
+import { PostgresGroupBotRepository } from '../../src/group-bots/postgres-repository.js';
+import { GroupBotService } from '../../src/group-bots/service.js';
+import { PostgresGroupRepository } from '../../src/groups/postgres-group-repository.js';
+import { GroupService } from '../../src/groups/service.js';
+import { MemoryService } from '../../src/memories/service.js';
+import { MemoryAccessError } from '../../src/memories/types.js';
+import { LocalObjectStore } from '../../src/objects/local-store.js';
+import { ProviderConnections } from '../../src/providers/connections.js';
+import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
+import { ProviderSecretBox } from '../../src/providers/secrets.js';
+import { ProviderUrlPolicy } from '../../src/providers/url-policy.js';
+import { TaskQueue, type TaskClaim } from '../../src/tasks/queue.js';
+import { TaskService } from '../../src/tasks/service.js';
+import { TaskWorker } from '../../src/tasks/worker.js';
+
+// Dedicated CI database: the provisioner rotates a fixed runtime role. Do not
+// share this service with another native job. SQL/locks/guards are all native;
+// only provider capability/transport is deterministic fixture data.
+const databaseUrl = process.env.TEST_MEMORY_DATABASE_URL;
+describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privileges', () => {
+  const admin = new pg.Pool({ connectionString: databaseUrl });
+  let runtime: pg.Pool;
+  const cleanup: Array<() => Promise<unknown>> = [];
+  const claims: TaskClaim[] = [];
+  const secrets = new ProviderSecretBox(randomBytes(32).toString('base64'));
+  beforeAll(async () => {
+    await migrateDatabase(admin);
+    const versions = (
+      await admin.query('SELECT version FROM openbot_schema_migrations ORDER BY version')
+    ).rows;
+    const attachmentIndex = versions.findIndex(
+      (row) => row.version === '0018_conversation_attachments',
+    );
+    expect(versions.slice(attachmentIndex, attachmentIndex + 3)).toEqual([
+      { version: '0018_conversation_attachments' },
+      { version: '0019_conversation_delivery' },
+      { version: '0020_group_source_memories' },
+    ]);
+    const url = new URL(databaseUrl!),
+      password = `ci-memory-${randomBytes(24).toString('hex')}`;
+    await promisify(execFile)(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL('../../../../infra/postgres/grant-runtime-privileges.mjs', import.meta.url),
+        ),
+      ],
+      {
+        env: {
+          ...process.env,
+          PGHOST: url.hostname,
+          PGPORT: url.port || '5432',
+          PGDATABASE: url.pathname.slice(1),
+          PGUSER: decodeURIComponent(url.username),
+          PGPASSWORD: decodeURIComponent(url.password),
+          OPENBOT_DATABASE_PASSWORD: password,
+        },
+      },
+    );
+    url.username = 'openbot_runtime';
+    url.password = password;
+    runtime = new pg.Pool({ connectionString: url.toString(), statement_timeout: 15000 });
+  });
+  afterEach(async () => {
+    // Retained data is never truncated or rewritten for fixture cleanup.
+    for (const claim of claims.splice(0))
+      await new TaskQueue(runtime).finish(claim, { error: 'worker_stopped', usage: null });
+    while (
+      runtime &&
+      (await new TaskWorker(runtime, {
+        secrets,
+        createAdapter: () => ({
+          generate: async () => ({
+            events: [
+              { type: 'text', text: 'Fixture cleanup.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          }),
+        }),
+      }).runOnce())
+    ) {
+      /* drain queued fixture work through its real transitions */
+    }
+    for (const close of cleanup.splice(0).reverse()) await close();
+  });
+  afterAll(async () => {
+    await runtime?.end();
+    await admin.end();
+  });
+  async function fixture() {
+    const workspaceId = randomUUID(),
+      ownerId = randomUUID(),
+      memberId = randomUUID(),
+      grantorId = randomUUID(),
+      outsiderId = randomUUID();
+    for (const id of [ownerId, memberId, grantorId, outsiderId])
+      await runtime.query(
+        'INSERT INTO users(id,email,normalized_email,display_name,created_at) VALUES($1,$2,$2,$3,NOW())',
+        [id, `${id}@example.com`, 'Memory member'],
+      );
+    await runtime.query('INSERT INTO workspaces(id,name,created_at) VALUES($1,$2,NOW())', [
+      workspaceId,
+      'Native memory workspace',
+    ]);
+    for (const id of [ownerId, memberId, grantorId, outsiderId])
+      await runtime.query(
+        'INSERT INTO workspace_memberships(workspace_id,user_id,role,created_at) VALUES($1,$2,$3,NOW())',
+        [workspaceId, id, id === ownerId ? 'owner' : 'member'],
+      );
+    const groups = new GroupService(new PostgresGroupRepository(runtime));
+    const group = await groups.create(ownerId, workspaceId, { name: 'Native source group' });
+    await groups.addMember(ownerId, workspaceId, group.id, { userId: memberId, role: 'member' });
+    await groups.addMember(ownerId, workspaceId, group.id, { userId: grantorId, role: 'admin' });
+    const conversations = new ConversationService(new PostgresConversationRepository(runtime));
+    const conversation = await conversations.open(ownerId, workspaceId, {
+      subject: { kind: 'group', id: group.id },
+    });
+    const source = await conversations.append(ownerId, workspaceId, conversation.id, {
+      body: 'Native cobalt evidence.',
+      idempotencyKey: 'source',
+    });
+    const access = { actorUserId: memberId, workspaceId, groupId: group.id };
+    const command = {
+      messageId: source.messageId,
+      expectedSourceEventId: source.eventId,
+      idempotencyKey: 'save',
+      confidence: 0.5,
+    };
+    const memories = new MemoryService(runtime);
+    const app = buildApp({
+      auth: new LocalAuthService(new PostgresAuthRepository(runtime)),
+      memories,
+      readiness: { check: async () => ({ database: 'ready', migrations: 'current' }) },
+    });
+    cleanup.push(() => app.close());
+    async function headers(userId = memberId) {
+      const token = randomBytes(32).toString('base64url'),
+        now = new Date();
+      await new PostgresAuthRepository(runtime).createSession({
+        userId,
+        tokenDigest: createHash('sha256').update(token).digest('hex'),
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 3600000),
+        auditId: randomUUID(),
+      });
+      return { cookie: `openbot_session=${token}`, origin: 'http://localhost:3000' };
+    }
+    return {
+      workspaceId,
+      ownerId,
+      memberId,
+      grantorId,
+      outsiderId,
+      groups,
+      group,
+      conversations,
+      conversation,
+      source,
+      access,
+      command,
+      memories,
+      app,
+      headers,
+      path: `/api/v1/workspaces/${workspaceId}/groups/${group.id}/memories`,
+    };
+  }
+  type Fixture = Awaited<ReturnType<typeof fixture>>;
+  async function execution(f: Fixture, history: 'all' | 'future-only' = 'all') {
+    const providers = new ProviderConnections(
+      new PostgresProviderRepository(runtime),
+      secrets,
+      new ProviderUrlPolicy({ hosts: ['models.example'], schemes: ['https'], privateCidrs: [] }),
+      {
+        run: async () => ({
+          testedAt: new Date().toISOString(),
+          text: { ok: true, code: 'passed', raw: 'OK' },
+          action: { ok: false, code: 'provider_action_unsupported', raw: 'Unsupported' },
+        }),
+      },
+    );
+    const model = await providers.inWorkspace(f.workspaceId).save(f.ownerId, {
+      protocol: 'openai-chat',
+      name: 'Memory model',
+      baseUrl: 'https://models.example/v1',
+      modelId: 'memory-model',
+      apiKey: 'native-memory-fixture',
+      headers: {},
+    });
+    const bot = await new BotService(new PostgresBotRepository(runtime)).create(
+      f.ownerId,
+      f.workspaceId,
+      {
+        name: 'Memory Bot',
+        roleDescription: 'Researcher',
+        instructions: 'Use current saved evidence.',
+        modelBinding: {
+          scope: { kind: 'workspace', id: f.workspaceId },
+          connectionId: model.id,
+          modelId: model.modelId,
+        },
+      },
+    );
+    const acl = new BotAclService(new PostgresBotAclRepository(runtime));
+    await acl.grant(f.ownerId, f.workspaceId, bot.id, { userId: f.grantorId, role: 'user' });
+    const grants = new GroupBotService(new PostgresGroupBotRepository(runtime));
+    const grant = await grants.invite(f.grantorId, f.workspaceId, f.group.id, {
+      botId: bot.id,
+      idempotencyKey: 'invite',
+      history: { mode: history },
+    });
+    const tasks = new TaskService(runtime);
+    const task = await tasks.submit(f.memberId, f.workspaceId, f.conversation.id, {
+      body: 'Use the saved evidence.',
+      idempotencyKey: 'run',
+      groupGrantId: grant.id,
+    });
+    return { bot, acl, grants, grant, tasks, task, runId: task.runs[0]!.id };
+  }
+  async function counts(f: Fixture) {
+    return (
+      await admin.query(
+        `SELECT (SELECT COUNT(*)::int FROM group_memories WHERE group_id=$1) AS memories,(SELECT COUNT(*)::int FROM memory_versions v JOIN group_memories m ON m.id=v.memory_id WHERE m.group_id=$1) AS versions,(SELECT COUNT(*)::int FROM audit_events WHERE event_type='memory.created' AND metadata->>'groupId'=$1::text) AS audits`,
+        [f.group.id],
+      )
+    ).rows[0];
+  }
+  async function rawVersion(
+    f: Fixture,
+    sourceEventId = f.source.eventId,
+    creationEventId = f.source.eventId,
+  ) {
+    const connection = await runtime.connect(),
+      id = randomUUID();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        'INSERT INTO group_memories(id,workspace_id,group_id,conversation_id,creator_user_id,created_at,idempotency_key,command_hash) VALUES($1,$2,$3,$4,$5,NOW(),$6,$7)',
+        [id, f.workspaceId, f.group.id, f.conversation.id, f.memberId, id, '0'.repeat(64)],
+      );
+      await connection.query(
+        'INSERT INTO memory_versions(id,memory_id,version,source_message_id,source_event_id,source_creation_event_id,source_creation_sequence,confidence) VALUES($1,$2,1,$3,$4,$5,$6,0.5)',
+        [randomUUID(), id, f.source.messageId, sourceEventId, creationEventId, f.source.sequence],
+      );
+    } finally {
+      await connection.query('ROLLBACK');
+      connection.release();
+    }
+  }
+  async function duringWorkspaceWait<T>(
+    f: Fixture,
+    action: (pool: pg.Pool) => Promise<T>,
+    change: (connection: pg.PoolClient) => Promise<unknown>,
+  ) {
+    const holder = await runtime.connect(),
+      name = `memory-${randomUUID()}`,
+      observed = new pg.Pool({
+        connectionString: runtime.options.connectionString,
+        application_name: name,
+        max: 1,
+        statement_timeout: 15000,
+      });
+    let pending: Promise<PromiseSettledResult<T>[]> | undefined;
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+      const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      pending = Promise.allSettled([action(observed)]);
+      await vi.waitFor(
+        async () => {
+          expect(
+            (
+              await admin.query(
+                `WITH RECURSIVE chain(pid) AS (SELECT pid FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' UNION SELECT unnest(pg_blocking_pids(chain.pid)) FROM chain) SELECT pid FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND EXISTS (SELECT 1 FROM chain WHERE pid=$2)`,
+                [name, pid],
+              )
+            ).rows,
+          ).toHaveLength(1);
+        },
+        { timeout: 5000, interval: 20 },
+      );
+      await change(holder);
+      await holder.query('COMMIT');
+      return (await pending)[0]!;
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+      await pending;
+      await observed.end();
+    }
+  }
+  it('serializes concurrent same-key saves and reconstructs one immutable server-provenance version after restart', async () => {
+    const f = await fixture();
+    const receipts = await Promise.all(
+      Array.from({ length: 4 }, () => f.memories.create(f.access, f.command)),
+    );
+    expect(receipts.filter((r) => !r.replayed)).toHaveLength(1);
+    expect(receipts.every((r) => r.memory.id === receipts[0]!.memory.id)).toBe(true);
+    expect(await counts(f)).toEqual({ memories: 1, versions: 1, audits: 1 });
+    expect(await new MemoryService(runtime).get(f.access, receipts[0]!.memory.id)).toEqual(
+      receipts[0]!.memory,
+    );
+    expect(receipts[0]!.memory).toMatchObject({
+      version: 1,
+      confidence: 0.5,
+      confidenceSource: 'human',
+      creator: { id: f.memberId },
+      source: {
+        eventId: f.source.eventId,
+        creationEventId: f.source.eventId,
+        creationSequence: f.source.sequence,
+      },
+    });
+    expect(
+      JSON.stringify(
+        (
+          await admin.query('SELECT * FROM memory_versions WHERE memory_id=$1', [
+            receipts[0]!.memory.id,
+          ])
+        ).rows,
+      ),
+    ).not.toContain('cobalt');
+  });
+  it('commits content-free REST denial audits and rolls back creation/version/audit together when auditing fails', async () => {
+    const f = await fixture(),
+      outsider = await f.headers(f.outsiderId),
+      member = await f.headers();
+    const denied = await f.app.inject({
+      method: 'POST',
+      url: `${f.path}/search`,
+      headers: outsider,
+      payload: { query: 'private-query-cobalt' },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(
+      (
+        await admin.query(
+          "SELECT metadata FROM audit_events WHERE event_type='memory.access_denied' AND actor_user_id=$1",
+          [f.outsiderId],
+        )
+      ).rows,
+    ).toEqual([
+      { metadata: { operation: 'search', workspaceId: f.workspaceId, groupId: f.group.id } },
+    ]);
+    await admin.query('REVOKE INSERT ON audit_events FROM openbot_runtime');
+    try {
+      expect(
+        (await f.app.inject({ method: 'POST', url: f.path, headers: member, payload: f.command }))
+          .statusCode,
+      ).toBe(503);
+      expect(
+        (
+          await f.app.inject({
+            method: 'POST',
+            url: `${f.path}/search`,
+            headers: outsider,
+            payload: { query: 'never-log' },
+          })
+        ).statusCode,
+      ).toBe(503);
+    } finally {
+      await admin.query('GRANT INSERT ON audit_events TO openbot_runtime');
+    }
+    expect(await counts(f)).toEqual({ memories: 0, versions: 0, audits: 0 });
+    expect(
+      (await f.app.inject({ method: 'POST', url: f.path, headers: member, payload: f.command }))
+        .statusCode,
+    ).toBe(201);
+  });
+  it('limits runtime privileges and rejects scope or source provenance forgery and retained-row mutation', async () => {
+    const f = await fixture(),
+      saved = (await f.memories.create(f.access, f.command)).memory,
+      other = await fixture();
+    for (const table of ['group_memories', 'memory_versions', 'run_memory_references']) {
+      for (const privilege of [
+        'SELECT',
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'TRUNCATE',
+        'REFERENCES',
+        'TRIGGER',
+      ])
+        expect(
+          (
+            await admin.query('SELECT has_table_privilege($1,$2,$3) AS allowed', [
+              'openbot_runtime',
+              table,
+              privilege,
+            ])
+          ).rows[0].allowed,
+        ).toBe(['SELECT', 'INSERT'].includes(privilege));
+      for (const statement of [`DELETE FROM ${table}`, `TRUNCATE ${table} CASCADE`])
+        await expect(admin.query(statement)).rejects.toMatchObject({ code: '55000' });
+    }
+    for (const fn of [
+      'protect_group_memory()',
+      'protect_memory_version()',
+      'protect_run_memory_reference()',
+    ])
+      expect(
+        (
+          await admin.query('SELECT has_function_privilege($1,$2,$3) AS allowed', [
+            'openbot_runtime',
+            fn,
+            'EXECUTE',
+          ])
+        ).rows[0].allowed,
+      ).toBe(false);
+    await expect(
+      admin.query('UPDATE memory_versions SET confidence=0.9 WHERE id=$1', [saved.versionId]),
+    ).rejects.toMatchObject({ code: '55000' });
+    await expect(
+      runtime.query(
+        'INSERT INTO group_memories(id,workspace_id,group_id,conversation_id,creator_user_id,created_at,idempotency_key,command_hash) VALUES($1,$2,$3,$4,$5,NOW(),$6,$7)',
+        [
+          randomUUID(),
+          f.workspaceId,
+          other.group.id,
+          f.conversation.id,
+          f.memberId,
+          randomUUID(),
+          '0'.repeat(64),
+        ],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(rawVersion(f, other.source.eventId)).rejects.toMatchObject({ code: '23514' });
+    await f.conversations.edit(f.ownerId, f.workspaceId, f.conversation.id, f.source.messageId, {
+      expectedVersion: 1,
+      idempotencyKey: 'edit',
+      body: 'Current source differs.',
+    });
+    await expect(rawVersion(f)).rejects.toMatchObject({ code: '23514' });
+    expect(await counts(f)).toEqual({ memories: 1, versions: 1, audits: 1 });
+  });
+  it('matches percent, underscore and backslash literally with native PostgreSQL ILIKE semantics', async () => {
+    const f = await fixture(),
+      saved = [];
+    for (const body of ['marker literal%_value\\path', 'marker literalXXvalueZpath']) {
+      const source = await f.conversations.append(f.ownerId, f.workspaceId, f.conversation.id, {
+        body,
+        idempotencyKey: randomUUID(),
+      });
+      saved.push(
+        (
+          await f.memories.create(f.access, {
+            ...f.command,
+            messageId: source.messageId,
+            expectedSourceEventId: source.eventId,
+            idempotencyKey: randomUUID(),
+          })
+        ).memory,
+      );
+    }
+    for (const query of ['%_', '\\path', 'LITERAL%_'])
+      expect((await f.memories.list(f.access, { query }, true)).memories.map((m) => m.id)).toEqual([
+        saved[0]!.id,
+      ]);
+  });
+  it('re-admits current membership after an observed lock wait before saving', async () => {
+    const f = await fixture();
+    const result = await duringWorkspaceWait(
+      f,
+      (pool) => new MemoryService(pool).create(f.access, f.command),
+      (connection) =>
+        connection.query('DELETE FROM group_memberships WHERE group_id=$1 AND user_id=$2', [
+          f.group.id,
+          f.memberId,
+        ]),
+    );
+    expect(result).toMatchObject({ status: 'rejected', reason: expect.any(MemoryAccessError) });
+    expect(await counts(f)).toEqual({ memories: 0, versions: 0, audits: 0 });
+    expect(
+      (
+        await admin.query(
+          "SELECT id FROM audit_events WHERE event_type='memory.access_denied' AND actor_user_id=$1",
+          [f.memberId],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+  it('rejects an old source reference after an observed edit lock wait, including its source author', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory;
+    const result = await duringWorkspaceWait(
+      f,
+      (pool) => new MemoryService(pool).get({ ...f.access, actorUserId: f.ownerId }, memory.id),
+      async (connection) =>
+        (
+          await ConversationTransaction.lock(
+            connection,
+            {
+              actorUserId: f.ownerId,
+              workspaceId: f.workspaceId,
+              conversationId: f.conversation.id,
+            },
+            () => new Date(),
+            'inspect',
+          )
+        ).edit(f.source.messageId, {
+          idempotencyKey: 'concurrent-edit',
+          expectedVersion: 1,
+          body: 'Current replacement source',
+        }),
+    );
+    expect(result).toMatchObject({ status: 'rejected', reason: expect.any(MemoryAccessError) });
+    expect((await f.memories.list(f.access, {})).memories).toEqual([]);
+  });
+  it('records exactly claimed source IDs, rejects forged Run provenance, and rolls back failed terminal publication', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory,
+      e = await execution(f),
+      other = await fixture(),
+      otherMemory = (await other.memories.create(other.access, other.command)).memory;
+    await expect(
+      runtime.query(
+        'INSERT INTO run_memory_references(run_id,memory_version_id,source_event_id,selected_at) VALUES($1,$2,$3,NOW())',
+        [e.runId, memory.versionId, f.source.eventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    const queue = new TaskQueue(runtime),
+      claim = (await queue.claimNext()).claim!;
+    claims.push(claim);
+    expect(claim.runId).toBe(e.runId);
+    expect(
+      JSON.parse(
+        claim.messages.find((m) => m.content.startsWith('{"kind":"group_memories"'))!.content,
+      ),
+    ).toMatchObject({
+      memories: [{ versionId: memory.versionId, source: { eventId: f.source.eventId } }],
+    });
+    await expect(
+      runtime.query(
+        'INSERT INTO run_memory_references(run_id,memory_version_id,source_event_id,selected_at) VALUES($1,$2,$3,NOW())',
+        [e.runId, otherMemory.versionId, other.source.eventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    const refs = (
+      await admin.query('SELECT * FROM run_memory_references WHERE run_id=$1', [e.runId])
+    ).rows;
+    expect(refs).toHaveLength(1);
+    expect(JSON.stringify(refs)).not.toContain('cobalt');
+    await admin.query('REVOKE INSERT ON audit_events FROM openbot_runtime');
+    try {
+      await expect(
+        queue.finish(claim, { body: 'Failed audit answer', usage: null }),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await admin.query('GRANT INSERT ON audit_events TO openbot_runtime');
+    }
+    expect(
+      (await admin.query('SELECT status,output_event_id FROM task_runs WHERE id=$1', [e.runId]))
+        .rows,
+    ).toEqual([{ status: 'running', output_event_id: null }]);
+    expect(
+      (
+        await admin.query(
+          "SELECT id FROM conversation_events WHERE conversation_id=$1 AND event_type='bot.message.created'",
+          [f.conversation.id],
+        )
+      ).rows,
+    ).toEqual([]);
+    expect(await queue.finish(claim, { body: 'Authorized memory answer', usage: null })).toBe(true);
+    expect(
+      (await admin.query('SELECT * FROM run_memory_references WHERE run_id=$1', [e.runId])).rows,
+    ).toEqual(refs);
+  });
+  it.each([
+    'source-edit',
+    'source-tombstone',
+    'execution-human',
+    'grantor-use',
+    'closed-exact-grant',
+  ] as const)(
+    'stops later deltas and final output after %s changes during provider work',
+    async (change) => {
+      const f = await fixture();
+      await f.memories.create(f.access, f.command);
+      const e = await execution(f);
+      const worker = new TaskWorker(runtime, {
+        secrets,
+        createAdapter: () => ({
+          generate: async (_input, _signal, onEvent) => {
+            await onEvent?.({ type: 'text', text: 'Legitimate earlier delta.' });
+            if (change === 'source-edit')
+              await f.conversations.edit(
+                f.ownerId,
+                f.workspaceId,
+                f.conversation.id,
+                f.source.messageId,
+                { expectedVersion: 1, idempotencyKey: 'edit', body: 'Revised source' },
+              );
+            if (change === 'source-tombstone')
+              await f.conversations.tombstone(
+                f.ownerId,
+                f.workspaceId,
+                f.conversation.id,
+                f.source.messageId,
+                { expectedVersion: 1, idempotencyKey: 'delete' },
+              );
+            if (change === 'execution-human')
+              await f.groups.removeMember(f.ownerId, f.workspaceId, f.group.id, f.memberId);
+            if (change === 'grantor-use')
+              await e.acl.revoke(f.ownerId, f.workspaceId, e.bot.id, f.grantorId);
+            if (change === 'closed-exact-grant') {
+              await e.grants.remove(f.ownerId, f.workspaceId, f.group.id, e.grant.id, {
+                idempotencyKey: 'remove',
+              });
+              await e.grants.invite(f.ownerId, f.workspaceId, f.group.id, {
+                botId: e.bot.id,
+                idempotencyKey: 'replacement',
+                history: { mode: 'all' },
+              });
+            }
+            await onEvent?.({ type: 'text', text: 'stale'.repeat(1000) });
+            return {
+              events: [
+                { type: 'text', text: 'Must not publish' },
+                { type: 'complete', stopReason: 'stop' },
+              ],
+              raw: '',
+            };
+          },
+        }),
+      });
+      expect(await worker.runOnce()).toBe(true);
+      expect(
+        (
+          await admin.query('SELECT status,error_code,output_event_id FROM task_runs WHERE id=$1', [
+            e.runId,
+          ])
+        ).rows,
+      ).toEqual([{ status: 'failed', error_code: 'execution_forbidden', output_event_id: null }]);
+      expect(
+        (
+          await admin.query(
+            "SELECT delta_text FROM conversation_delivery_events WHERE run_id=$1 AND event_type='assistant.delta' ORDER BY sequence",
+            [e.runId],
+          )
+        ).rows,
+      ).toEqual([{ delta_text: 'Legitimate earlier delta.' }]);
+      expect(
+        (await admin.query('SELECT run_id FROM run_memory_references WHERE run_id=$1', [e.runId]))
+          .rows,
+      ).toHaveLength(1);
+    },
+  );
+  it('excludes the original source below an exact grant lower bound despite a later edit and saved revision', async () => {
+    const f = await fixture(),
+      e = await execution(f, 'future-only');
+    const edit = await f.conversations.edit(
+      f.ownerId,
+      f.workspaceId,
+      f.conversation.id,
+      f.source.messageId,
+      { expectedVersion: 1, idempotencyKey: 'late-edit', body: 'Still originally excluded.' },
+    );
+    await f.memories.create(f.access, { ...f.command, expectedSourceEventId: edit.eventId });
+    const claim = (await new TaskQueue(runtime).claimNext()).claim!;
+    claims.push(claim);
+    expect(claim.messages.some((m) => m.content.includes('Still originally excluded.'))).toBe(
+      false,
+    );
+    expect(
+      (await admin.query('SELECT run_id FROM run_memory_references WHERE run_id=$1', [e.runId]))
+        .rows,
+    ).toEqual([]);
+    expect(
+      (await f.memories.list({ ...f.access, grantId: e.grant.id }, { query: 'excluded' }, true))
+        .memories,
+    ).toEqual([]);
+  });
+  it('excludes a pending purge immediately and leaves no copied memory body after original and derivative cleanup', async () => {
+    const f = await fixture(),
+      directory = await mkdtemp(join(tmpdir(), 'openbot-native-memory-'));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const store = new LocalObjectStore(directory, { maxObjectBytes: 10485760 }),
+      attachments = new AttachmentService(runtime, store),
+      bytes = Buffer.from('Private memory source attachment');
+    const attachmentAccess = {
+      actorUserId: f.ownerId,
+      workspaceId: f.workspaceId,
+      conversationId: f.conversation.id,
+    };
+    const command = {
+      body: 'Attachment memory source to purge.',
+      filename: 'source.txt',
+      mediaType: 'text/plain',
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      idempotencyKey: 'upload',
+    };
+    const source = await attachments.upload(attachmentAccess, command, bytes);
+    await attachments.registerDerived(
+      attachmentAccess,
+      source.messageId,
+      { ...command, filename: 'derived.txt' },
+      bytes,
+    );
+    const memory = (
+      await f.memories.create(f.access, {
+        ...f.command,
+        messageId: source.messageId,
+        expectedSourceEventId: source.eventId,
+      })
+    ).memory;
+    const e = await execution(f),
+      queue = new TaskQueue(runtime),
+      claim = (await queue.claimNext()).claim!;
+    claims.push(claim);
+    await attachments.purge(attachmentAccess, source.messageId);
+    await expect(f.memories.get(f.access, memory.id)).rejects.toThrow(MemoryAccessError);
+    expect(
+      (await admin.query('SELECT body FROM conversation_events WHERE id=$1', [source.eventId]))
+        .rows[0].body,
+    ).toBe(command.body);
+    await attachments.cleanup(100);
+    expect(
+      (
+        await admin.query(
+          'SELECT state FROM message_purges WHERE conversation_id=$1 AND message_id=$2',
+          [f.conversation.id, source.messageId],
+        )
+      ).rows,
+    ).toEqual([{ state: 'complete' }]);
+    expect(
+      (await readdir(directory, { recursive: true, withFileTypes: true })).filter((entry) =>
+        entry.isFile(),
+      ),
+    ).toEqual([]);
+    expect(
+      (
+        await admin.query(
+          'SELECT body,command_hash FROM conversation_events WHERE conversation_id=$1 AND message_id=$2',
+          [f.conversation.id, source.messageId],
+        )
+      ).rows.every((row) => row.body === null && row.command_hash === null),
+    ).toBe(true);
+    expect((await f.memories.list(f.access, {})).memories).toEqual([]);
+    await expect(
+      f.memories.create(f.access, {
+        ...f.command,
+        messageId: source.messageId,
+        expectedSourceEventId: source.eventId,
+      }),
+    ).rejects.toThrow(MemoryAccessError);
+    expect(await queue.finish(claim, { body: 'Stale result', usage: null })).toBe(true);
+    expect(
+      (await admin.query('SELECT error_code,output_event_id FROM task_runs WHERE id=$1', [e.runId]))
+        .rows,
+    ).toEqual([{ error_code: 'execution_forbidden', output_event_id: null }]);
+    expect(
+      (
+        await admin.query('SELECT source_event_id FROM run_memory_references WHERE run_id=$1', [
+          e.runId,
+        ])
+      ).rows,
+    ).toEqual([{ source_event_id: source.eventId }]);
+  });
+});

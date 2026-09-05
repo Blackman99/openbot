@@ -2,6 +2,7 @@ import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import ListPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/tasks/+page.svelte';
 import DetailPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/tasks/[taskId]/+page.svelte';
+import RunsPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/tasks/[taskId]/runs/+page.svelte';
 import { task, conversation, workspace, user } from '../fixtures/tasks.js';
 import { grant } from '../fixtures/group-bots.js';
 import type { TaskView } from '../../src/lib/server/task-api.js';
@@ -37,6 +38,107 @@ const completed: TaskView = {
   ],
 };
 describe('Task pages', () => {
+  it('renders saved earlier attempt evidence and bounded navigation alongside the current answer', () => {
+    const current: TaskView = {
+      ...completed,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      runs: [{ ...completed.runs[0]!, attempt: 2 }],
+    };
+    const failed = {
+      ...completed.runs[0]!,
+      id: task.bot.id,
+      attempt: 1,
+      status: 'failed' as const,
+      output: null,
+      error: 'provider_failed' as const,
+    };
+    const html = render(RunsPage, {
+      props: {
+        data: {
+          ...base,
+          task: current,
+          canRetry: false,
+          idempotencyKey: 'unused',
+          runs: [failed],
+          nextCursor: 'next_attempt_page',
+          cursor: 'older_attempt',
+          limit: 20,
+        },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    for (const text of [
+      'Attempt history',
+      'Current attempt 2 of 2',
+      'Attempt 1',
+      'The model request failed.',
+      'actual-model',
+      'Input tokens: 12',
+      'Output tokens: 0',
+      'next_attempt_page',
+      'Older attempts',
+      'Created',
+      failed.createdAt,
+      failed.finishedAt!,
+    ])
+      expect(html).toContain(text);
+    expect(html).toContain(
+      `?messageId=${completed.runs[0]!.output!.messageId}#message-${completed.runs[0]!.output!.messageId}`,
+    );
+    expect(html).not.toContain('<form');
+  });
+  it('shows an explicit retry and all earlier attempts while retaining the original Task prompt', () => {
+    const failed: TaskView = {
+      ...task,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      status: 'failed',
+      runs: [
+        {
+          ...task.runs[0]!,
+          attempt: 2,
+          status: 'failed',
+          finishedAt: '2026-09-05T00:00:01.000Z',
+          error: 'execution_forbidden',
+        },
+      ],
+    };
+    const html = render(DetailPage, {
+      props: {
+        data: { ...base, task: failed, canRetry: true, idempotencyKey: 'new-retry-command' },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Current attempt 2 of 2');
+    expect(html).toContain('View earlier attempts');
+    expect(html).toContain('/runs?cursor=older_attempt');
+    expect(html).toContain('Retry failed task');
+    expect(html).toContain(`name="expectedRunId" value="${failed.runs[0]!.id}"`);
+    expect(html).toContain('new-retry-command');
+    expect(html).not.toContain('<textarea');
+  });
+
+  it('keeps the unchanged retry confirmation available after a refreshed Task has already completed', () => {
+    const html = render(DetailPage, {
+      props: {
+        data: { ...base, task: completed, canRetry: false, idempotencyKey: 'unused-new-key' },
+        params: { ...params, taskId: task.id },
+        form: {
+          values: { idempotencyKey: 'retained-key', expectedRunId: task.runs[0]!.id },
+          uncertain: true,
+          conflict: false,
+          error: 'Check the original retry.',
+        },
+      },
+    }).body;
+    expect(html).toContain('Confirm unchanged retry');
+    expect(html).toContain('retained-key');
+    expect(html).not.toContain('unused-new-key');
+    expect(html).toContain(`name="expectedRunId" value="${task.runs[0]!.id}"`);
+  });
   it('shows a queued task, an explicit group Bot selector and durable page navigation', () => {
     const html = render(ListPage, { props: { data, form: null, params } }).body;
     for (const text of [
@@ -45,7 +147,7 @@ describe('Task pages', () => {
       'Configuration version 3',
       'Attempt 1',
       'Run task',
-      'Choose a Bot',
+      'Automatic · default or local match',
       'fresh-task-command',
       'Refresh tasks',
       'next-task-page',
@@ -57,7 +159,7 @@ describe('Task pages', () => {
   it('shows actual model and usage on a completed saved attempt, including zero reported output tokens', () => {
     const html = render(DetailPage, {
       props: {
-        data: { ...base, task: completed },
+        data: { ...base, task: completed, canRetry: false, idempotencyKey: 'unused-key' },
         params: { ...params, taskId: task.id },
         form: null,
       },
