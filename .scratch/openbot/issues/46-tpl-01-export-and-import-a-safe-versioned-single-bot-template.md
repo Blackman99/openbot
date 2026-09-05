@@ -2,7 +2,7 @@
 sequence: 46
 id: TPL-01
 title: "Export and import a safe versioned single-Bot template"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-03
   - BOT-04

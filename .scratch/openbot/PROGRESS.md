@@ -2,11 +2,11 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 remains complete. MEM-02 remains in progress on `feat/openbot-collaboration-system` / draft PR #1: native PostgreSQL promotion evidence is green; Compose preview/confirm still needs a distinct AC6 actor so the MEM-01 search-denial observer is not polluted by promotion-preview audits. Ticket 38 ACs stay unchecked until Compose Verify is green. KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** MEM-02 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `78afd6a`). Ticket 38 ACs are checked against native promotion guards, dest-Bot cross-group claim isolation, BFF/UI preview/confirm, and Compose preview/confirm/other-Bot smoke (Verify [33979196352](https://github.com/Blackman99/openbot/actions/runs/33979196352), 16/16). Next: MEM-03, then TPL-01; KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty of 67 tickets are implemented and independently reviewed: 29 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. MEM-02 and KNW-01 remain in progress; the other blocked tickets remain blocked by their actual implementation dependencies.
+Thirty-one of 67 tickets are implemented and independently reviewed: 30 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. MEM-03 and TPL-01 are ready-for-agent; KNW-01 remains in progress; the other blocked tickets remain blocked by their actual implementation dependencies.
 
-COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer; MEM-03 follows real MEM-02 private storage. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
+COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
 Continue all remaining tickets; do not end at this checkpoint. Publication remains limited to `feat/openbot-collaboration-system` and unified draft PR1. Main remains `ecc586a8d3b528728af2308e247c4c3c4fb75ffa`; the separate CI automation stays paused.
 
