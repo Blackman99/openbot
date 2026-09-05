@@ -3,10 +3,93 @@
 // migrateDatabase reapplies these CREATE OR REPLACE bodies whenever 0023 is in
 // the requested target so already-applied databases pick up automatic-attempt
 // recognition. Human task_retry_commands receipts and immutability stay required.
+// Runtime still cannot SELECT audit_events; helpers are SECURITY DEFINER.
 
 export const COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION = '0023_task_tree_cancellation';
 
+export const COL10_AUTOMATIC_ATTEMPT_HELPERS = [
+  `CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt(target uuid, run_id uuid, actor uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM audit_events a
+    JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+    JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+    WHERE a.event_type='task.queued'
+      AND a.actor_user_id=actor
+      AND a.metadata->>'taskId'=target::text
+      AND a.metadata->>'runId'=run_id::text
+      AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+      AND previous.status='failed'
+      AND previous.attempt::bigint+1=next_run.attempt
+  )
+$$`,
+  `CREATE OR REPLACE FUNCTION task_queued_audit_metadata(run_id uuid)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT a.metadata
+  FROM audit_events a
+  WHERE a.event_type='task.queued' AND a.metadata->>'runId'=run_id::text
+  ORDER BY a.occurred_at DESC
+  LIMIT 1
+$$`,
+  `CREATE OR REPLACE FUNCTION task_queued_audit_metadata_for_task(target uuid)
+RETURNS SETOF jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT a.metadata
+  FROM audit_events a
+  WHERE a.event_type='task.queued' AND a.metadata->>'taskId'=target::text
+$$`,
+  `CREATE OR REPLACE FUNCTION task_run_has_listed_continuation_binding(target uuid, run_id uuid, scope_kind text, scope_id uuid, connection_id uuid, model_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM tasks t
+    JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+    JOIN audit_events a ON a.event_type='task.queued'
+      AND a.metadata->>'runId'=run_id::text
+      AND a.metadata->>'taskId'=t.id::text
+      AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+    WHERE t.id=target
+      AND a.metadata->'binding'->'scope'->>'kind'=scope_kind
+      AND a.metadata->'binding'->'scope'->>'id'=scope_id::text
+      AND a.metadata->'binding'->>'connectionId'=connection_id::text
+      AND a.metadata->'binding'->>'modelId'=model_id
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements(COALESCE(v.configuration->'fallbackBindings','[]'::jsonb)) fb
+        WHERE fb->'scope'->>'kind'=scope_kind
+          AND fb->'scope'->>'id'=scope_id::text
+          AND fb->>'connectionId'=connection_id::text
+          AND fb->>'modelId'=model_id
+      )
+  )
+$$`,
+  'REVOKE ALL ON FUNCTION task_has_automatic_continuation_receipt(uuid,uuid,uuid) FROM PUBLIC',
+  'REVOKE ALL ON FUNCTION task_queued_audit_metadata(uuid) FROM PUBLIC',
+  'REVOKE ALL ON FUNCTION task_queued_audit_metadata_for_task(uuid) FROM PUBLIC',
+  'REVOKE ALL ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) FROM PUBLIC',
+] as const;
+
 export const COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS = [
+  ...COL10_AUTOMATIC_ATTEMPT_HELPERS,
   `CREATE OR REPLACE FUNCTION protect_task() RETURNS TRIGGER LANGUAGE plpgsql AS $$
     DECLARE latest task_runs%ROWTYPE;
     BEGIN
@@ -25,14 +108,8 @@ export const COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS = [
           SELECT 1 FROM task_retry_commands c JOIN task_runs previous ON previous.id=c.expected_run_id AND previous.task_id=c.task_id
           WHERE c.task_id=NEW.id AND c.actor_user_id=NEW.execution_user_id AND c.run_id=latest.id
           AND latest.status='queued' AND previous.status='failed' AND previous.attempt::bigint+1=latest.attempt
-        ) AND NOT EXISTS (
-          SELECT 1 FROM audit_events a
-          JOIN task_runs previous ON previous.task_id=NEW.id AND previous.id::text=a.metadata->>'sourceRunId'
-          WHERE a.event_type='task.queued' AND a.actor_user_id=NEW.execution_user_id
-          AND a.metadata->>'taskId'=NEW.id::text AND a.metadata->>'runId'=latest.id::text
-          AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
-          AND latest.status='queued' AND previous.status='failed'
-          AND previous.attempt::bigint+1=latest.attempt
+        ) AND NOT (
+          latest.status='queued' AND task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)
         ) THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task retry requires a new Run and its immutable receipt';
         END IF;
@@ -111,25 +188,8 @@ export const COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS = [
               AND v.configuration->'modelBinding'->>'connectionId'=NEW.connection_id::text
               AND v.configuration->'modelBinding'->>'modelId'=NEW.model_id
             )
-            OR (
-              EXISTS (
-                SELECT 1 FROM audit_events a
-                WHERE a.event_type='task.queued' AND a.metadata->>'runId'=NEW.id::text
-                  AND a.metadata->>'taskId'=t.id::text
-                  AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
-                  AND a.metadata->'binding'->'scope'->>'kind'=NEW.provider_scope_kind
-                  AND a.metadata->'binding'->'scope'->>'id'=NEW.provider_scope_id::text
-                  AND a.metadata->'binding'->>'connectionId'=NEW.connection_id::text
-                  AND a.metadata->'binding'->>'modelId'=NEW.model_id
-              )
-              AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements(COALESCE(v.configuration->'fallbackBindings','[]'::jsonb)) fb
-                WHERE fb->'scope'->>'kind'=NEW.provider_scope_kind
-                  AND fb->'scope'->>'id'=NEW.provider_scope_id::text
-                  AND fb->>'connectionId'=NEW.connection_id::text
-                  AND fb->>'modelId'=NEW.model_id
-              )
-            )
+            OR task_run_has_listed_continuation_binding(
+              NEW.task_id, NEW.id, NEW.provider_scope_kind, NEW.provider_scope_id, NEW.connection_id, NEW.model_id)
           )) THEN
           RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Run must retain its admitted model binding';
         END IF;
@@ -151,14 +211,7 @@ export const COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS = [
       IF parent.id IS NULL OR latest.id IS NULL OR parent.status<>latest.status
         OR (latest.attempt>1 AND NOT EXISTS (SELECT 1 FROM task_retry_commands c
           WHERE c.task_id=target AND c.run_id=latest.id AND c.actor_user_id=parent.execution_user_id)
-          AND NOT EXISTS (
-            SELECT 1 FROM audit_events a
-            JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
-            WHERE a.event_type='task.queued' AND a.actor_user_id=parent.execution_user_id
-            AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=latest.id::text
-            AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
-            AND previous.status='failed' AND previous.attempt::bigint+1=latest.attempt
-          )) THEN
+          AND NOT task_has_automatic_continuation_receipt(target, latest.id, parent.execution_user_id)) THEN
         RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task, current Run and retry receipt must commit together';
       END IF;
       RETURN NULL;

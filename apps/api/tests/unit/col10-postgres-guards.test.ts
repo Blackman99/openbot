@@ -15,8 +15,14 @@ describe('COL-10 automatic-attempt PostgreSQL overlay', () => {
     expect(sql).not.toContain('INSERT INTO openbot_schema_migrations');
   });
 
-  it('recognizes typed task.queued continuation receipts and listed fallback bindings', () => {
-    expect(sql).toContain("origin' IN ('provider_retry','model_fallback')");
+  it('reads continuation receipts through SECURITY DEFINER helpers, not runtime table SELECT', () => {
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt');
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION task_queued_audit_metadata');
+    expect(sql).toContain('SECURITY DEFINER');
+    expect(sql).toContain(
+      'task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)',
+    );
+    expect(sql).toContain('task_run_has_listed_continuation_binding(');
     expect(sql).toContain('fallbackBindings');
     expect(sql).toContain('Task retry requires a new Run and its immutable receipt');
     expect(sql).toContain('Run must retain its admitted model binding');

@@ -238,7 +238,58 @@ try {
     GRANT EXECUTE ON FUNCTION purge_conversation_message(UUID,UUID,UUID) TO openbot_runtime;
     GRANT SELECT, INSERT ON avatar_objects, bot_avatar_references TO openbot_runtime;
     GRANT UPDATE (state, lease_until, cleanup_after, attempts, cleanup_token) ON avatar_objects TO openbot_runtime;
-    GRANT SELECT, INSERT ON audit_events TO openbot_runtime;
+    CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt(target uuid, run_id uuid, actor uuid)
+    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM audit_events a
+        JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+        JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+        WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+          AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+          AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+          AND previous.status='failed' AND previous.attempt::bigint+1=next_run.attempt
+      )
+    $$;
+    CREATE OR REPLACE FUNCTION task_queued_audit_metadata(run_id uuid)
+    RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT a.metadata FROM audit_events a
+      WHERE a.event_type='task.queued' AND a.metadata->>'runId'=run_id::text
+      ORDER BY a.occurred_at DESC LIMIT 1
+    $$;
+    CREATE OR REPLACE FUNCTION task_queued_audit_metadata_for_task(target uuid)
+    RETURNS SETOF jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT a.metadata FROM audit_events a
+      WHERE a.event_type='task.queued' AND a.metadata->>'taskId'=target::text
+    $$;
+    CREATE OR REPLACE FUNCTION task_run_has_listed_continuation_binding(target uuid, run_id uuid, scope_kind text, scope_id uuid, connection_id uuid, model_id text)
+    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM tasks t
+        JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+        JOIN audit_events a ON a.event_type='task.queued'
+          AND a.metadata->>'runId'=run_id::text AND a.metadata->>'taskId'=t.id::text
+          AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+        WHERE t.id=target
+          AND a.metadata->'binding'->'scope'->>'kind'=scope_kind
+          AND a.metadata->'binding'->'scope'->>'id'=scope_id::text
+          AND a.metadata->'binding'->>'connectionId'=connection_id::text
+          AND a.metadata->'binding'->>'modelId'=model_id
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(COALESCE(v.configuration->'fallbackBindings','[]'::jsonb)) fb
+            WHERE fb->'scope'->>'kind'=scope_kind AND fb->'scope'->>'id'=scope_id::text
+              AND fb->>'connectionId'=connection_id::text AND fb->>'modelId'=model_id
+          )
+      )
+    $$;
+    REVOKE ALL ON FUNCTION task_has_automatic_continuation_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_queued_audit_metadata(uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_queued_audit_metadata_for_task(uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) FROM PUBLIC, openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_has_automatic_continuation_receipt(uuid,uuid,uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_queued_audit_metadata_for_task(uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) TO openbot_runtime;
+    GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT ON api_tokens TO openbot_runtime;
     GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;
     GRANT SELECT, INSERT, UPDATE, DELETE ON personal_model_connections TO openbot_runtime;

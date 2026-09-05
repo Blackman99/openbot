@@ -1943,7 +1943,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       ).toHaveLength(1);
       const queued = (
         await runtime.query<{ metadata: Record<string, unknown> }>(
-          "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+          'SELECT task_queued_audit_metadata($1::uuid) AS metadata',
           [runs[1]!.id],
         )
       ).rows[0]!.metadata;
@@ -2012,7 +2012,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       expect(runs).toHaveLength(2);
       const queued = (
         await runtime.query<{ metadata: Record<string, unknown> }>(
-          "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+          'SELECT task_queued_audit_metadata($1::uuid) AS metadata',
           [runs[1]!.id],
         )
       ).rows[0]!.metadata;

@@ -2,6 +2,7 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { BotBinding } from '../bots/service.js';
 import type { ProviderProtocol } from '../providers/model-events.js';
 import { providerStorage } from '../providers/postgres-provider-scope.js';
+import { readQueuedAuditMetadata } from './queued-audit.js';
 
 export const CONTINUATION_REASONS = [
   'provider_rate_limited',
@@ -97,13 +98,7 @@ export async function loadRunContinuation(
   connection: SqlConnection,
   run: { id: string; protocol: ProviderProtocol | null; modelId: string | null },
 ): Promise<RunContinuation | undefined> {
-  const row = (
-    await connection.query<{ metadata: unknown }>(
-      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1 ORDER BY occurred_at DESC LIMIT 1",
-      [run.id],
-    )
-  ).rows[0];
-  const metadata = asRecord(row?.metadata);
+  const metadata = await readQueuedAuditMetadata(connection, run.id);
   if (!isContinuationOrigin(metadata?.origin) || !isContinuationReason(metadata?.reason))
     return undefined;
   if (typeof metadata.previousRunId !== 'string' || typeof metadata.notBefore !== 'string')
@@ -122,17 +117,4 @@ export async function loadRunContinuation(
     dueAt,
     admitted,
   };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value === 'string') {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return undefined;
-    }
-  }
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }

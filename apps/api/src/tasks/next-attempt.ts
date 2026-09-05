@@ -5,6 +5,7 @@ import { appendQueuedRunState } from '../conversations/append-event.js';
 import type { ProviderProtocol } from '../providers/model-events.js';
 import { lockTaskAncestry } from './tree.js';
 import { readSafeModelSnapshot, safeModelSnapshot } from './continuation.js';
+import { readQueuedAuditMetadata, readQueuedAuditMetadataForTask } from './queued-audit.js';
 import { type AttemptOrigin, type ChainAttempt, type NextAttemptPlan } from './retry-schedule.js';
 
 const ORIGINS = new Set<AttemptOrigin>([
@@ -176,26 +177,13 @@ export async function writeNextAttempt(
 }
 
 async function queuedMetadata(connection: SqlConnection, runId: string) {
-  const row = (
-    await connection.query<{ metadata: unknown }>(
-      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1 ORDER BY occurred_at DESC LIMIT 1",
-      [runId],
-    )
-  ).rows[0];
-  return asRecord(row?.metadata);
+  return readQueuedAuditMetadata(connection, runId);
 }
 
 async function queuedMetadataByRun(connection: SqlConnection, taskId: string) {
-  const rows = (
-    await connection.query<{ metadata: unknown }>(
-      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'taskId'=$1",
-      [taskId],
-    )
-  ).rows;
   const byRun = new Map<string, Record<string, unknown>>();
-  for (const row of rows) {
-    const metadata = asRecord(row.metadata);
-    if (typeof metadata?.runId === 'string') byRun.set(metadata.runId, metadata);
+  for (const metadata of await readQueuedAuditMetadataForTask(connection, taskId)) {
+    if (typeof metadata.runId === 'string') byRun.set(metadata.runId, metadata);
   }
   return byRun;
 }

@@ -204,7 +204,11 @@ describe('repository contract', () => {
     expect(grants).toContain('Failed to configure openbot_runtime role');
     expect(grants).toContain('Runtime database privilege provisioning failed');
     expect(grants).not.toContain('throw error');
-    expect(grants).toContain('GRANT SELECT, INSERT ON audit_events TO openbot_runtime');
+    expect(grants).toContain('GRANT INSERT ON audit_events TO openbot_runtime');
+    expect(grants).not.toContain('GRANT SELECT, INSERT ON audit_events TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime',
+    );
     expect(grants).toContain('GRANT SELECT, INSERT ON api_tokens TO openbot_runtime');
     expect(grants).toContain(
       'GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime',
