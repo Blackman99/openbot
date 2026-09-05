@@ -1458,7 +1458,10 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
             admitted.runId,
           ],
         ),
-      ).rejects.toMatchObject({ code: '23514' });
+      ).rejects.toMatchObject({
+        code: '55000',
+        message: 'only the current live Run can publish',
+      });
       expect(
         await new TaskQueue(runtime).finish(admitted, {
           body: 'Late success.',

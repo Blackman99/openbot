@@ -6,11 +6,53 @@ import { reclaimConversationStream } from '../../src/conversations/stream-retent
 import { taskFixture } from '../helpers/task-fixture.js';
 import { installTaskCancellationFixture } from '../helpers/task-cancellation-fixture.js';
 import { randomUUID } from 'node:crypto';
+import type { SqlPool } from '../../src/auth/postgres-auth-repository.js';
 
 describe('cancelled Run partial output', () => {
   const cleanup: Array<() => Promise<unknown>> = [];
   afterEach(async () => {
     for (const close of cleanup.splice(0).reverse()) await close();
+  });
+
+  it('reports expiry after progress storage without attempting a durable partial checkpoint', async () => {
+    let current = new Date();
+    const now = () => new Date(current);
+    const f = await taskFixture(cleanup, now);
+    const { claim } = await new TaskQueue(f.pool, now).claimNext();
+    if (!claim) throw new Error('Expected a running claim');
+    let checkpointAttempts = 0;
+    const pool: SqlPool = {
+      connect: async () => {
+        const connection = await f.pool.connect();
+        return {
+          query: async (statement, parameters) => {
+            // This boundary substitute models the actual PostgreSQL failure:
+            // the progress write resumes only after the persisted deadline.
+            if (statement.includes('task_run_partial_outputs')) {
+              checkpointAttempts++;
+              throw Object.assign(
+                new Error('Run partial requires its exact contiguous live delta and progress'),
+                {
+                  code: '23514',
+                },
+              );
+            }
+            const result = await connection.query(statement, parameters);
+            if (statement.startsWith('UPDATE task_run_streams SET delivered_bytes'))
+              current = new Date(claim.deadlineAt.getTime() + 1);
+            return result;
+          },
+          release: () => connection.release(),
+        };
+      },
+    };
+    await expect(
+      new TaskQueue(pool, now).publishDelta(claim, 'Expired after waiting.'),
+    ).rejects.toMatchObject({
+      code: 'execution_timeout',
+    });
+    expect(checkpointAttempts).toBe(0);
+    expect((await f.pool.query('SELECT run_id FROM task_run_partial_outputs')).rows).toEqual([]);
   });
 
   it('retains the committed UTF-8 prefix after cancellation, service reconstruction and feed expiry', async () => {

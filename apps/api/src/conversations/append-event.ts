@@ -173,6 +173,9 @@ export async function appendAssistantDelta(
     command.runId,
     endByte,
   ]);
+  // A progress write may resume after the deadline. Return the typed expiry
+  // before attempting the checkpoint; the caller rolls back the whole delta.
+  if (row.deadline_at.getTime() <= now().getTime()) return false;
   await checkpointTaskPartialOutput(connection, { ...command, startByte, endByte }, occurredAt);
   await reclaimConversationStream(connection, row.conversation_id, occurredAt);
   // Progress/retention may have waited after the initial claim check. The

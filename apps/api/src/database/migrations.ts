@@ -285,6 +285,9 @@ const MIGRATIONS = [
   {
     version: '0023_task_tree_cancellation',
     postgresBeforeStatements: TASK_CANCELLATION_POSTGRES_PREFLIGHT,
+    // The retained current-Run constraint must validate the legacy root
+    // backfill immediately, before its following ALTER TABLE statements.
+    postgresImmediateConstraints: ['tasks_current_run_required'],
     statements: TASK_CANCELLATION_SCHEMA_STATEMENTS,
     postgresStatements: TASK_CANCELLATION_POSTGRES_GUARDS,
   },
@@ -345,9 +348,17 @@ export async function migrateDatabase(
         for (const statement of migration.postgresBeforeStatements)
           await connection.query(statement);
       }
+      const immediateConstraints =
+        installPostgresGuards && 'postgresImmediateConstraints' in migration
+          ? migration.postgresImmediateConstraints.map((name) => `"${name}"`).join(',')
+          : undefined;
+      if (immediateConstraints)
+        await connection.query(`SET CONSTRAINTS ${immediateConstraints} IMMEDIATE`);
       for (const statement of migration.statements) {
         await connection.query(statement);
       }
+      if (immediateConstraints)
+        await connection.query(`SET CONSTRAINTS ${immediateConstraints} DEFERRED`);
       if (installPostgresGuards) {
         for (const statement of migration.postgresStatements) {
           await connection.query(statement);
