@@ -298,6 +298,9 @@ try {
     'bot_private_memories',
     'memory_promotion_confirmations',
     'run_private_memory_references',
+    'run_source_manifests',
+    'run_source_manifest_items',
+    'memory_extraction_jobs',
   ]) {
     const privileges = (
       await pool.query(

@@ -2,7 +2,7 @@
 sequence: 39
 id: MEM-03
 title: "Extract and review candidate memories from completed runs"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - MEM-01
   - COL-04

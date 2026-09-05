@@ -58,6 +58,7 @@ describe('database migrations', () => {
       '0022_failed_task_retries',
       '0023_task_tree_cancellation',
       '0024_bot_private_memories',
+      '0025_memory_extraction_jobs',
     ]);
 
     const database: DatabaseClient = {
@@ -112,6 +113,7 @@ describe('database migrations', () => {
       'groups',
       'instance_claims',
       'local_credentials',
+      'memory_extraction_jobs',
       'memory_promotion_confirmations',
       'memory_promotion_intents',
       'memory_versions',
@@ -122,6 +124,8 @@ describe('database migrations', () => {
       'personal_model_connections',
       'run_memory_references',
       'run_private_memory_references',
+      'run_source_manifest_items',
+      'run_source_manifests',
       'sessions',
       'task_cancel_commands',
       'task_retry_commands',
@@ -149,7 +153,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0024_bot_private_memories' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0025_memory_extraction_jobs' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

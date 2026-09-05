@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** MEM-02 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `78afd6a`). Ticket 38 ACs are checked against native promotion guards, dest-Bot cross-group claim isolation, BFF/UI preview/confirm, and Compose preview/confirm/other-Bot smoke (Verify [33979196352](https://github.com/Blackman99/openbot/actions/runs/33979196352), 16/16). Next: MEM-03, then TPL-01; KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** MEM-02 is complete. MEM-03 is in progress on `feat/openbot-collaboration-system` / draft PR #1: migration 0025 persists a body-free Run source manifest at claim and one queued extraction job in the successful completion transaction. Ticket 39 ACs stay unchecked. TPL-01 is ready-for-agent; KNW-01 remains in progress. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty-one of 67 tickets are implemented and independently reviewed: 30 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. MEM-03 and TPL-01 are ready-for-agent; KNW-01 remains in progress; the other blocked tickets remain blocked by their actual implementation dependencies.
+Thirty-one of 67 tickets are implemented and independently reviewed: 30 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. MEM-03 and KNW-01 remain in progress; TPL-01 is ready-for-agent; the other blocked tickets remain blocked by their actual implementation dependencies.
 
 COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

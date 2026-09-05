@@ -32,6 +32,10 @@ import {
   MemoryContextLimitError,
   type RunMemoryContribution,
 } from '../memories/run-context.js';
+import {
+  enqueueMemoryExtractionJob,
+  persistRunSourceManifest,
+} from '../memories/extraction-jobs.js';
 
 export type TaskFailure =
   | 'execution_forbidden'
@@ -249,6 +253,12 @@ export class TaskQueue {
       if (run?.status !== 'queued') return { handled: false };
       let provider: TaskClaim['provider'];
       let memory: RunMemoryContribution;
+      const selectedMessages: Array<{
+        id: string;
+        creationSequence: number;
+        versionEventId: string;
+        role: 'user' | 'assistant';
+      }> = [];
       const messages: ModelInput['messages'] = [
         { role: 'system', content: target.configuration.instructions },
       ];
@@ -275,8 +285,15 @@ export class TaskQueue {
             if (!message.deleted && message.body) {
               bytes += Buffer.byteLength(message.body);
               if (bytes > 1048576) throw new ContextLimitError();
+              const role = 'kind' in message.author ? 'assistant' : 'user';
+              selectedMessages.push({
+                id: message.id,
+                creationSequence: message.creationSequence,
+                versionEventId: message.versionEventId,
+                role,
+              });
               messages.push({
-                role: 'kind' in message.author ? 'assistant' : 'user',
+                role,
                 content: message.body,
               });
             }
@@ -319,6 +336,15 @@ export class TaskQueue {
       if (!claimed.rows.length) return { handled: false };
       await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
       await persistRunMemoryReferences(connection, memory, this.now);
+      await persistRunSourceManifest(connection, {
+        runId: task.id,
+        workspaceId: task.workspace_id,
+        conversationId: task.conversation_id,
+        botVersionId: task.bot_version_id,
+        memory,
+        messages: selectedMessages,
+        now: this.now(),
+      });
       const scheduled = await loadRunContinuation(connection, {
         id: task.id,
         protocol: provider.protocol,
@@ -484,6 +510,19 @@ export class TaskQueue {
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
       await appendCompletedRunState(connection, task.id, this.now);
+      const digest = (
+        await connection.query<{ digest: string }>(
+          'SELECT digest FROM run_source_manifests WHERE run_id=$1',
+          [task.id],
+        )
+      ).rows[0]?.digest;
+      if (!digest) throw new Error('completed Run is missing its source manifest');
+      await enqueueMemoryExtractionJob(connection, {
+        runId: task.id,
+        outputEventId: output.eventId,
+        digest,
+        now: this.now(),
+      });
       if (!run.deadline_at || run.deadline_at.getTime() <= this.now().getTime())
         throw new PublicationDeadlineElapsed();
       return true;
