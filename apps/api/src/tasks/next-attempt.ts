@@ -172,8 +172,23 @@ export async function writeNextAttempt(
     ],
   );
   await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [input.taskId]);
-  await appendQueuedRunState(connection, runId, () => input.now);
+  await appendQueuedDelivery(connection, runId, input.now);
   return { scheduled: true, runId };
+}
+
+async function appendQueuedDelivery(connection: SqlConnection, runId: string, now: Date) {
+  try {
+    await connection.query('SAVEPOINT col10_queued_delivery');
+  } catch {
+    await appendQueuedRunState(connection, runId, () => now);
+    return;
+  }
+  try {
+    await appendQueuedRunState(connection, runId, () => now);
+    await connection.query('RELEASE SAVEPOINT col10_queued_delivery');
+  } catch {
+    await connection.query('ROLLBACK TO SAVEPOINT col10_queued_delivery');
+  }
 }
 
 async function queuedMetadata(connection: SqlConnection, runId: string) {
