@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974041027](https://github.com/Blackman99/openbot/actions/runs/33974041027) on `aa6a27f` failed the Playwright `code` job: `getByText('fallback-model · openai-chat')` matched both the waiting transition sentence and the Planned model line. The browser assertion now uses one exact transition sentence plus the exact Planned model line. Native automatic retry/fallback and unique next-attempt lock contention remain witnessed. Compose restart-before-due is not added: the 1s `notBefore` window is shorter than a reliable Compose worker restart. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974306687](https://github.com/Blackman99/openbot/actions/runs/33974306687) on `4037e56` passed the Playwright `code` job after the exact fallback locators, then failed `postgres-bots` on `denies queued version after real token revocation commits ahead of resource admission`: `waitForBlocked` saw no `pg_blocking_pids` row for 5s. The public-Bot observer now also matches the granted/ungranted `pg_locks` pair so an advisory wait inside the `api_token.used` trigger is visible. Native automatic retry/fallback and unique next-attempt lock contention remain witnessed. Compose restart-before-due is not added. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 

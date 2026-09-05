@@ -307,8 +307,35 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
     let pid = 0;
     await vi.waitFor(
       async () => {
+        // pg_blocking_pids can omit an advisory holder while the waiter is
+        // inside the AFTER INSERT trigger. pg_locks is the same pair.
         const result = await admin.query<{ pid: number }>(
-          "SELECT pid FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND $2=ANY(pg_blocking_pids(pid))",
+          `SELECT a.pid
+           FROM pg_stat_activity a
+           WHERE a.application_name=$1
+             AND a.wait_event_type='Lock'
+             AND (
+               $2=ANY(pg_blocking_pids(a.pid))
+               OR EXISTS (
+                 SELECT 1
+                 FROM pg_locks waiter
+                 JOIN pg_locks holder
+                   ON holder.locktype=waiter.locktype
+                  AND holder.database IS NOT DISTINCT FROM waiter.database
+                  AND holder.relation IS NOT DISTINCT FROM waiter.relation
+                  AND holder.page IS NOT DISTINCT FROM waiter.page
+                  AND holder.tuple IS NOT DISTINCT FROM waiter.tuple
+                  AND holder.virtualxid IS NOT DISTINCT FROM waiter.virtualxid
+                  AND holder.transactionid IS NOT DISTINCT FROM waiter.transactionid
+                  AND holder.classid IS NOT DISTINCT FROM waiter.classid
+                  AND holder.objid IS NOT DISTINCT FROM waiter.objid
+                  AND holder.objsubid IS NOT DISTINCT FROM waiter.objsubid
+                  AND holder.granted
+                  AND NOT waiter.granted
+                  AND holder.pid=$2
+                  AND waiter.pid=a.pid
+               )
+             )`,
           [name, blockerPid],
         );
         expect(result.rows).toHaveLength(1);
