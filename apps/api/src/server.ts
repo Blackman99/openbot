@@ -8,6 +8,7 @@ try {
   const app = buildProductionApp({
     database: config.database,
     objectStorage: config.objectStorage,
+    attachmentMaxBytes: config.attachmentMaxBytes,
     ...(config.oidc ? { oidc: config.oidc } : {}),
     databaseConnectionTimeoutMs: config.databaseConnectionTimeoutMs,
     databaseQueryTimeoutMs: config.databaseQueryTimeoutMs,

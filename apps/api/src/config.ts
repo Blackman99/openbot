@@ -16,6 +16,7 @@ export type DatabaseConnectionOptions =
 
 export interface ApiConfig {
   objectStorage: ObjectStorageConfig;
+  attachmentMaxBytes: number;
   oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
@@ -135,6 +136,7 @@ export function readApiConfig(environment: Environment): ApiConfig {
     ...(oidc ? { oidc } : {}),
     database: readDatabaseConfig(environment),
     objectStorage: readObjectStorageConfig(environment),
+    attachmentMaxBytes: readInteger(environment, 'ATTACHMENT_MAX_BYTES', 10485760, 67108864),
     databaseConnectionTimeoutMs: readInteger(
       environment,
       'DATABASE_CONNECTION_TIMEOUT_MS',

@@ -18,6 +18,7 @@ describe('Task Web client and actual HTTP/domain contract', () => {
   afterEach(async () => {
     for (const close of cleanup.splice(0).reverse()) await close();
   });
+  // The completed path seeds 30 messages and checks the worker through real HTTP services.
   it.each(['completed', 'failed'] as const)(
     'submits and reloads a %s attempt through the strict BFF, including retained archived history',
     async (outcome) => {
@@ -214,5 +215,6 @@ describe('Task Web client and actual HTTP/domain contract', () => {
         /never-return-provider-secret|private provider|Instructions visible|sealed|claimToken/u,
       );
     },
+    15_000,
   );
 });

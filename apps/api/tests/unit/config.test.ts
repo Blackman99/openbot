@@ -14,6 +14,7 @@ describe('readApiConfig', () => {
         WEB_ORIGIN: 'http://localhost:4173',
       }),
     ).toEqual({
+      attachmentMaxBytes: 10485760,
       database: {
         connectionString: 'postgresql://openbot:openbot@localhost:5432/openbot',
       },

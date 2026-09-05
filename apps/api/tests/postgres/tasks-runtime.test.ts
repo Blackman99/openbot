@@ -445,6 +445,18 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         b = observedPool();
       const actions: Promise<Awaited<ReturnType<typeof submit>>>[] = [];
       try {
+        const before = await snapshot(f);
+        expect(before.audits).toEqual([
+          expect.objectContaining({
+            event_type: 'conversation.created',
+            actor_user_id: f.actorId,
+            metadata: {
+              workspaceId: f.workspaceId,
+              conversationId: f.conversationId,
+              subject: { kind: 'direct-bot', id: f.bot.id },
+            },
+          }),
+        ]);
         await holder.query('BEGIN');
         await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
         const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
@@ -463,7 +475,37 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         expect(saved.events).toHaveLength(1);
         expect(saved.tasks).toHaveLength(1);
         expect(saved.runs).toHaveLength(1);
-        expect(saved.audits).toHaveLength(2);
+        expect(saved.audits).toHaveLength(before.audits.length + 2);
+        expect(saved.audits).toEqual(
+          expect.arrayContaining([
+            ...before.audits,
+            expect.objectContaining({
+              event_type: 'conversation.message_created',
+              actor_user_id: f.actorId,
+              metadata: {
+                workspaceId: f.workspaceId,
+                conversationId: f.conversationId,
+                messageId: first!.trigger.messageId,
+                eventId: first!.trigger.eventId,
+                sequence: first!.trigger.sequence,
+              },
+            }),
+            expect.objectContaining({
+              event_type: 'task.queued',
+              actor_user_id: f.actorId,
+              metadata: {
+                workspaceId: f.workspaceId,
+                conversationId: f.conversationId,
+                taskId: first!.id,
+                runId: first!.runs[0]!.id,
+                botId: f.bot.id,
+                botVersionId: f.bot.currentVersion!.id,
+                triggerEventId: first!.trigger.eventId,
+                attempt: 1,
+              },
+            }),
+          ]),
+        );
         expect(saved.conversation.last_sequence).toBe(1);
         const rebuilt = observedPool();
         try {

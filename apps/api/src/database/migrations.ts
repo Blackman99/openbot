@@ -1,3 +1,4 @@
+import { ATTACHMENT_SCHEMA_STATEMENTS, ATTACHMENT_POSTGRES_GUARDS } from '../attachments/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
 import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
@@ -243,6 +244,11 @@ const MIGRATIONS = [
     version: '0017_single_bot_tasks',
     statements: TASK_SCHEMA_STATEMENTS,
     postgresStatements: TASK_POSTGRES_GUARDS,
+  },
+  {
+    version: '0018_conversation_attachments',
+    statements: ATTACHMENT_SCHEMA_STATEMENTS,
+    postgresStatements: ATTACHMENT_POSTGRES_GUARDS,
   },
 ] as const;
 

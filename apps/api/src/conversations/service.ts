@@ -50,6 +50,7 @@ export interface MessageReceipt {
   sequence: number;
 }
 export interface MessageProjection {
+  attachment?: import('../attachments/types.js').AttachmentMetadata;
   id: string;
   creationSequence: number;
   versionEventId: string;

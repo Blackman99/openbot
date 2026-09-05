@@ -2,7 +2,7 @@
 sequence: 22
 id: COL-05
 title: "Stream authorized conversation events over SSE"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-03
   - COL-04

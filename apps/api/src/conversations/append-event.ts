@@ -13,6 +13,7 @@ interface MessageEvent extends Command {
   type: MessageVersion['type'];
   body: string | null;
   reason: string | null;
+  attachmentId?: string;
 }
 interface StoredEvent {
   type: string;
@@ -167,7 +168,7 @@ export async function appendMessageEvent(
   const receipt = await append(connection, access, command, now, (receipt) => ({
     ...command,
     membershipId: null,
-    data: {},
+    data: command.attachmentId ? { attachmentId: command.attachmentId } : {},
     auditType: `conversation.${command.type.replace('.', '_')}`,
     audit: { messageId: command.messageId, ...receipt },
   }));

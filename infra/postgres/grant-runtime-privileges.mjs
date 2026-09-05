@@ -204,6 +204,10 @@ try {
     GRANT SELECT, INSERT, DELETE ON oidc_identities, oidc_transactions TO openbot_runtime;
     GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;
     GRANT DELETE ON group_memberships TO openbot_runtime;
+    GRANT SELECT, INSERT ON attachment_objects, message_purges TO openbot_runtime;
+    GRANT UPDATE (state, message_id, filename, media_type, bytes, sha256, lease_until, cleanup_after, attempts, cleanup_token) ON attachment_objects TO openbot_runtime;
+    GRANT UPDATE (state, completed_at) ON message_purges TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION purge_conversation_message(UUID,UUID,UUID) TO openbot_runtime;
     GRANT SELECT, INSERT ON avatar_objects, bot_avatar_references TO openbot_runtime;
     GRANT UPDATE (state, lease_until, cleanup_after, attempts, cleanup_token) ON avatar_objects TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;

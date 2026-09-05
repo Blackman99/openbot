@@ -1,4 +1,5 @@
 import { isBotLifecycleState, type BotLifecycleState } from './bot-api.js';
+import { parseAttachment } from './attachment-contract.js';
 import { SESSION_COOKIE_NAME } from './auth-api.js';
 export interface ConversationSubject {
   kind: 'group' | 'direct-bot';
@@ -32,6 +33,7 @@ export type MessageAuthor =
   | { id: string; displayName: string }
   | { kind: 'bot'; id: string; displayName: string; versionId: string; versionNumber: number };
 export interface MessageProjection {
+  attachment?: NonNullable<ReturnType<typeof parseAttachment>>;
   id: string;
   creationSequence: number;
   versionEventId: string;
@@ -164,7 +166,8 @@ function projection(value: unknown): MessageProjection | undefined {
   if (
     !keys(
       value,
-      'author,body,canAudit,canDelete,canEdit,createdAt,creationSequence,deleted,id,reason,sequence,updatedAt,version,versionEventId',
+      (value && typeof value === 'object' && 'attachment' in value ? 'attachment,' : '') +
+        'author,body,canAudit,canDelete,canEdit,createdAt,creationSequence,deleted,id,reason,sequence,updatedAt,version,versionEventId',
     ) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.versionEventId) ||
@@ -186,10 +189,13 @@ function projection(value: unknown): MessageProjection | undefined {
       : !text(value.body, 32000) || value.reason !== null
   )
     return undefined;
+  const attachment = value.attachment === undefined ? undefined : parseAttachment(value.attachment);
+  if (value.attachment !== undefined && (!attachment || value.deleted)) return undefined;
   const author = messageAuthor(value.author);
   if (!author || ('kind' in author && (value.canEdit || value.canDelete || value.canAudit)))
     return undefined;
   return {
+    ...(attachment ? { attachment } : {}),
     id: value.id.toLowerCase(),
     creationSequence: value.creationSequence,
     versionEventId: value.versionEventId.toLowerCase(),

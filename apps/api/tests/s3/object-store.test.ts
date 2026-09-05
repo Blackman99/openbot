@@ -33,6 +33,21 @@ describe.skipIf(!endpoint)('private real S3-compatible service acceptance', () =
       },
     };
   });
+  it('keeps attachment and avatar byte bounds independent on the real backend', async () => {
+    const store = new S3ObjectStore(config(), { maxObjectBytes: 10485760 });
+    const avatar = new S3ObjectStore(config());
+    const key = createObjectKey(randomUUID()),
+      bytes = Buffer.alloc(3 * 1024 * 1024, 65);
+    try {
+      await store.save(key, bytes);
+      expect(await store.read(key, bytes.length)).toEqual(bytes);
+      await expect(avatar.read(key, bytes.length)).rejects.toThrow();
+    } finally {
+      await store.delete(key);
+      store.destroy();
+      avatar.destroy();
+    }
+  });
   it('denies unsigned direct object reads', async () => {
     const configured = config();
     const store = new S3ObjectStore(configured);

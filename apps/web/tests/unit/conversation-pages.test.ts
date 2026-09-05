@@ -16,6 +16,7 @@ const base = { user, workspace, workspaces: [workspace] };
 const data = {
   ...base,
   ...page,
+  attachmentMaximum: 10485760,
   cursor: null,
   limit: 30,
   commands: {

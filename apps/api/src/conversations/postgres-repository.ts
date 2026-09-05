@@ -1,3 +1,8 @@
+import {
+  attachmentCommandHash,
+  type AttachmentCommand,
+  type AttachmentRow,
+} from '../attachments/types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { GroupAccessError, type GroupRole } from '../groups/service.js';
@@ -149,6 +154,156 @@ export class ConversationTransaction {
       now,
       permission,
     );
+  }
+  async attachmentReplay(command: AttachmentCommand) {
+    if (this.permission !== 'use') throw new ConversationAccessError();
+    const prior = (
+      await this.connection.query<{
+        id: string;
+        message_id: string;
+        sequence: number | string;
+        command_hash: string;
+      }>(
+        'SELECT id,message_id,sequence,command_hash FROM conversation_events WHERE conversation_id=$1 AND actor_user_id=$2 AND idempotency_key=$3',
+        [this.access.conversationId, this.access.actorUserId, command.idempotencyKey],
+      )
+    ).rows[0];
+    if (!prior) return undefined;
+    if (prior.command_hash !== attachmentCommandHash(command))
+      throw new ConversationConflictError('idempotency_conflict');
+    return { messageId: prior.message_id, eventId: prior.id, sequence: Number(prior.sequence) };
+  }
+  async appendAttachment(command: AttachmentCommand, objectId: string) {
+    const prior = await this.attachmentReplay(command);
+    if (prior) return prior;
+    const row = (
+      await this.connection.query<AttachmentRow>(
+        'SELECT * FROM attachment_objects WHERE workspace_id=$1 AND conversation_id=$2 AND id=$3 AND actor_user_id=$4 FOR UPDATE',
+        [
+          this.access.workspaceId,
+          this.access.conversationId,
+          conversationUuid(objectId),
+          this.access.actorUserId,
+        ],
+      )
+    ).rows[0];
+    if (
+      !row ||
+      row.state !== 'staged' ||
+      row.lease_until <= this.now() ||
+      row.filename !== command.filename ||
+      row.media_type !== command.mediaType ||
+      row.bytes !== command.bytes ||
+      row.sha256 !== command.sha256
+    )
+      throw new ConversationAccessError();
+    const messageId = randomUUID();
+    const receipt = await appendMessageEvent(
+      this.connection,
+      this.access,
+      {
+        messageId,
+        type: 'message.created',
+        body: command.body,
+        idempotencyKey: command.idempotencyKey,
+        hash: attachmentCommandHash(command),
+        version: 1,
+        reason: null,
+        attachmentId: row.id,
+      },
+      this.now,
+    );
+    await this.connection.query(
+      "UPDATE attachment_objects SET state='live',message_id=$2,cleanup_after=NULL WHERE id=$1",
+      [row.id, messageId],
+    );
+    return receipt;
+  }
+  async requestMessagePurge(messageId: string) {
+    if (this.permission !== 'use') throw new ConversationAccessError();
+    messageId = conversationUuid(messageId);
+    const chain = await readMessageEvents(this.connection, this.access.conversationId, messageId);
+    const original = chain[0],
+      current = chain.at(-1);
+    const author =
+      original?.event_type === 'message.created' &&
+      original.actor_user_id === this.access.actorUserId;
+    const moderator = this.groupRole === 'owner' || this.groupRole === 'admin';
+    if (!original || original.event_type !== 'message.created' || (!author && !moderator))
+      throw new ConversationAccessError();
+    const attached = (
+      await this.connection.query(
+        'SELECT id FROM attachment_objects WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3 AND original_id IS NULL',
+        [this.access.workspaceId, this.access.conversationId, messageId],
+      )
+    ).rows[0];
+    if (!attached) throw new ConversationAccessError();
+    const prior = (
+      await this.connection.query<{ state: 'purging' | 'complete' }>(
+        'SELECT state FROM message_purges WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3',
+        [this.access.workspaceId, this.access.conversationId, messageId],
+      )
+    ).rows[0];
+    if (prior) return prior;
+    if (current!.event_type !== 'message.deleted')
+      await this.tombstone(messageId, {
+        idempotencyKey: 'purge-' + randomUUID(),
+        expectedVersion: current!.message_version,
+        reason: 'Message purged',
+      });
+    await this.connection.query(
+      "INSERT INTO message_purges(workspace_id,conversation_id,message_id,actor_user_id,state,requested_at) VALUES($1,$2,$3,$4,'purging',$5)",
+      [
+        this.access.workspaceId,
+        this.access.conversationId,
+        messageId,
+        this.access.actorUserId,
+        this.now(),
+      ],
+    );
+    await this.connection.query(
+      `UPDATE attachment_objects SET state='purging',
+        cleanup_after=CASE WHEN state='staged' THEN lease_until ELSE $4 END,
+        lease_until=CASE WHEN state='staged' THEN lease_until ELSE $4 END
+        WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3 AND state IN ('staged','live')`,
+      [this.access.workspaceId, this.access.conversationId, messageId, this.now()],
+    );
+    await this.connection.query(
+      'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
+      [
+        randomUUID(),
+        'conversation.message_purge_requested',
+        this.access.actorUserId,
+        this.now(),
+        JSON.stringify({
+          workspaceId: this.access.workspaceId,
+          conversationId: this.access.conversationId,
+          messageId,
+        }),
+      ],
+    );
+    return { state: 'purging' as const };
+  }
+  async messageEligibility(messageId: string) {
+    const chain = await readMessageEvents(
+      this.connection,
+      this.access.conversationId,
+      conversationUuid(messageId),
+    );
+    if (!chain[0] || chain.at(-1)!.event_type === 'message.deleted')
+      throw new ConversationAccessError();
+    return { creationSequence: Number(chain[0].sequence) };
+  }
+  async attachmentMetadata(messageId: string) {
+    await this.messageEligibility(messageId);
+    const row = (
+      await this.connection.query<AttachmentRow>(
+        "SELECT * FROM attachment_objects WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3 AND original_id IS NULL AND state='live'",
+        [this.access.workspaceId, this.access.conversationId, messageId],
+      )
+    ).rows[0];
+    if (!row) throw new ConversationAccessError();
+    return row;
   }
   append(command: MessageCommand) {
     return this.write({ ...command });
@@ -325,6 +480,13 @@ export class ConversationTransaction {
         this.groupRole !== 'admin')
     )
       throw new ConversationAccessError();
+    const purge = (
+      await this.connection.query(
+        'SELECT state FROM message_purges WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3',
+        [this.access.workspaceId, this.access.conversationId, messageId],
+      )
+    ).rows[0];
+    if (purge) throw new ConversationAccessError();
     return chain.map(messageVersion);
   }
 }

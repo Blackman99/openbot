@@ -2,7 +2,7 @@
 sequence: 23
 id: COL-06
 title: "Add deterministic group turn routing"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-02
   - COL-04

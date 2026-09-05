@@ -51,6 +51,7 @@ describe('database migrations', () => {
       '0015_group_bot_grants',
       '0016_bot_lifecycle',
       '0017_single_bot_tasks',
+      '0018_conversation_attachments',
     ]);
 
     const database: DatabaseClient = {
@@ -86,6 +87,7 @@ describe('database migrations', () => {
     `)) as { rows: Array<{ table_name: string }> };
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
       'api_tokens',
+      'attachment_objects',
       'audit_events',
       'avatar_objects',
       'bot_acl',
@@ -99,6 +101,7 @@ describe('database migrations', () => {
       'groups',
       'instance_claims',
       'local_credentials',
+      'message_purges',
       'oidc_identities',
       'oidc_transactions',
       'openbot_schema_migrations',
@@ -123,7 +126,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0017_single_bot_tasks' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0018_conversation_attachments' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

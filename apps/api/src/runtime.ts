@@ -1,4 +1,6 @@
 import { BotCopyService } from './bots/copy-service.js';
+import { AttachmentService } from './attachments/service.js';
+import { attachmentLimit } from './attachments/types.js';
 import { BotVersionService } from './bots/version-service.js';
 import { TaskService } from './tasks/service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
@@ -52,6 +54,7 @@ const { Pool } = pg;
 
 export interface ProductionAppOptions {
   objectStorage?: ObjectStorageConfig;
+  attachmentMaxBytes?: number;
   oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
@@ -82,6 +85,12 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const objectStore = createObjectStore(
     options.objectStorage ?? { backend: 'local', rootDirectory: '/var/lib/openbot/objects' },
   );
+  const attachmentMaxBytes = attachmentLimit(options.attachmentMaxBytes);
+  const attachmentStore = createObjectStore(
+    options.objectStorage ?? { backend: 'local', rootDirectory: '/var/lib/openbot/objects' },
+    { maxObjectBytes: attachmentMaxBytes },
+  );
+  const attachments = new AttachmentService(pool, attachmentStore, attachmentMaxBytes);
   const avatars = new BotAvatarService(pool, objectStore);
   const auth = new LocalAuthService(new PostgresAuthRepository(pool));
   const providerOptions = options.providers;
@@ -107,6 +116,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     avatars,
+    attachments,
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     tasks: new TaskService(pool),
     botVersions: new BotVersionService(pool, avatars),
@@ -143,7 +153,12 @@ export function buildProductionApp(options: ProductionAppOptions) {
     app.log.error('Idle PostgreSQL connection failed');
   });
   let stopCleanup: (() => Promise<void>) | undefined;
+  let stopAttachmentCleanup: (() => Promise<void>) | undefined;
   app.addHook('onReady', async () => {
+    stopAttachmentCleanup = startAvatarCleanup(
+      () => attachments.cleanup(5),
+      () => app.log.error('Attachment object cleanup failed'),
+    );
     stopCleanup = startAvatarCleanup(
       () => avatars.cleanup(5),
       () => app.log.error('Avatar object cleanup failed'),
@@ -151,6 +166,8 @@ export function buildProductionApp(options: ProductionAppOptions) {
   });
   app.addHook('onClose', async () => {
     await stopCleanup?.();
+    await stopAttachmentCleanup?.();
+    if (attachmentStore instanceof S3ObjectStore) attachmentStore.destroy();
     if (objectStore instanceof S3ObjectStore) objectStore.destroy();
     await pool.end();
   });

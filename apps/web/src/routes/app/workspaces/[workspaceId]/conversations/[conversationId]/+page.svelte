@@ -38,6 +38,7 @@
     <a href={`${base}?limit=${data.limit}`}>Refresh messages</a>
     {#if data.nextCursor}<a href={`${base}?cursor=${encodeURIComponent(data.nextCursor)}&limit=${data.limit}`}>Next page</a>{/if}
   </nav>
+  {#if form && 'message' in form && form.message}<p role="status">{form.message}</p>{/if}
   {#if transportError || form?.error}<p role="alert">{transportError || form?.error}</p>{/if}
   {#each data.messages as message (message.id)}
     <article id={`message-${message.id}`} aria-label={`Message by ${message.author.displayName}`}>
@@ -45,6 +46,8 @@
       {#if 'kind' in message.author}<p>Bot · configuration version {message.author.versionNumber}</p>{/if}
       <p>Version {message.version} · <time datetime={message.createdAt}>{message.createdAt}</time></p>
       {#if message.deleted}<p><strong>Deleted message</strong> · {message.reason}</p>{:else}<pre>{message.body}</pre>{/if}
+      {#if message.attachment}<p><a href={`${base}/messages/${message.id}/attachment`}>Download {message.attachment.filename}</a> · {message.attachment.bytes.toLocaleString()} bytes</p>{/if}
+      {#if message.canAudit && message.attachment}<details><summary>Permanently purge message and files</summary><p>This permanently deletes message content, its attachment, and registered derived files. Cleanup retries if storage is temporarily unavailable.</p><form method="POST" action={actionUrl('purge')} use:enhance={submit}><input type="hidden" name="messageId" value={message.id}/><button>Permanently purge</button></form></details>{/if}
       {#if message.canAudit}<a href={`${base}/messages/${message.id}/versions`}>View versions</a>{/if}
       {#if message.canEdit}
         <details open={matches('edit', message.id)}>
@@ -78,10 +81,11 @@
   {#if data.canWrite}
     <section aria-labelledby="write-heading">
       <h2 id="write-heading">Add a message</h2>
-      <form method="POST" action={actionUrl('append')} use:enhance={submit}>
+      <form method="POST" action={actionUrl('append')} enctype="multipart/form-data" use:enhance={submit}>
         <input type="hidden" name="idempotencyKey" value={value('append', '', 'idempotencyKey', data.commands.append)} />
         <label for="new-message">Message</label>
         <textarea id="new-message" name="body" rows="5" maxlength="32000" required value={value('append', '', 'body', '')}></textarea>
+        <label for="message-attachment">Attachment (optional)</label><input id="message-attachment" name="attachment" type="file" accept=".txt,.md,.csv,.png,.jpg,.jpeg,.pdf,.docx,.xlsx"/><p>Text, Markdown, CSV, PNG, JPEG, PDF, DOCX or XLSX, up to {(data.attachmentMaximum / 1048576).toLocaleString()} MiB. Files stay in this conversation.</p>
         <button disabled={blocked('append')}>Send message</button>
       </form>
     </section>

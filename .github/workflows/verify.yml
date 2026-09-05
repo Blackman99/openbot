@@ -320,6 +320,36 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/tasks-runtime.test.ts
 
+  postgres-attachments:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_attachments_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_attachments_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_ATTACHMENT_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_attachments_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/attachments-runtime.test.ts
+
   compose:
     needs: code
     runs-on: ubuntu-latest
@@ -359,7 +389,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -1084,6 +1114,8 @@ jobs:
           group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
           group_request PATCH "$c_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
           test "$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")" = "$audit_count"
+      - name: Verify attachments with the restricted runtime role and private volume
+        run: docker compose exec -T api node --input-type=module < infra/verify-attachments.mjs
       - name: Verify scoped API tokens with the restricted runtime role
         run: docker compose exec -T api node --input-type=module < infra/verify-api-tokens.mjs
       - name: Verify the real unavailable state after database outage

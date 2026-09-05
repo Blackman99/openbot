@@ -1,3 +1,4 @@
+import { uploadAttachment, attachmentMaximum } from './attachment-page.js';
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import { createAuthApiClient } from './auth-api.js';
@@ -58,6 +59,7 @@ export async function loadConversationPage(
   return {
     ...page,
     ...result.value,
+    attachmentMaximum: attachmentMaximum(),
     cursor: query.cursor ?? null,
     limit: query.limit ?? 30,
     commands: { append, messages },
@@ -96,7 +98,7 @@ function actionFailure(
     status === 'forbidden'
       ? 'You no longer have permission for this conversation or message.'
       : status === 'invalid'
-        ? 'Use a nonblank message of up to 32,000 characters and valid command fields. A moderation reason is required when deleting another person’s message.'
+        ? 'Choose an allowed attachment within the configured limit and use a nonblank message of up to 32,000 characters and valid command fields. A moderation reason is required when deleting another person’s message.'
         : status === 'version-conflict'
           ? 'This message changed. Your draft is preserved. Refresh messages to load its latest version before editing again.'
           : status === 'idempotency-conflict'
@@ -120,18 +122,29 @@ export async function conversationAction(
     action === 'open'
       ? ['kind', 'subjectId']
       : action === 'append'
-        ? ['idempotencyKey', 'body']
+        ? ['idempotencyKey', 'body', 'attachment']
         : action === 'edit'
           ? ['idempotencyKey', 'messageId', 'expectedVersion', 'body']
           : ['idempotencyKey', 'messageId', 'expectedVersion', 'reason'];
   const values: Record<string, string> = {};
   let invalid = false;
+  let attachment: File | undefined;
   try {
     const form = await context.request.formData();
     for (const [key, value] of form) {
+      if (
+        action === 'append' &&
+        key === 'attachment' &&
+        value instanceof File &&
+        form.getAll(key).length === 1
+      ) {
+        if (value.name || value.size) attachment = value;
+        continue;
+      }
       if (!allowed.includes(key) || typeof value !== 'string' || form.getAll(key).length !== 1)
         invalid = true;
-      if (allowed.includes(key) && typeof value === 'string') values[key] = value;
+      if (allowed.includes(key) && typeof value === 'string')
+        values[key] = key === 'body' ? value.replace(/\r\n/gu, '\n') : value;
     }
   } catch {
     invalid = true;
@@ -168,22 +181,24 @@ export async function conversationAction(
   )
     return actionFailure('invalid', context, action, values);
   const result =
-    action === 'append'
-      ? await client.append(session, workspaceId, conversationId, {
-          idempotencyKey: values.idempotencyKey,
-          body: values.body,
-        })
-      : action === 'edit'
-        ? await client.edit(session, workspaceId, conversationId, values.messageId, {
+    action === 'append' && attachment
+      ? await uploadAttachment(context, workspaceId, conversationId, values, attachment)
+      : action === 'append'
+        ? await client.append(session, workspaceId, conversationId, {
             idempotencyKey: values.idempotencyKey,
-            expectedVersion: Number(values.expectedVersion),
             body: values.body,
           })
-        : await client.tombstone(session, workspaceId, conversationId, values.messageId, {
-            idempotencyKey: values.idempotencyKey,
-            expectedVersion: Number(values.expectedVersion),
-            ...(values.reason?.trim() ? { reason: values.reason } : {}),
-          });
+        : action === 'edit'
+          ? await client.edit(session, workspaceId, conversationId, values.messageId, {
+              idempotencyKey: values.idempotencyKey,
+              expectedVersion: Number(values.expectedVersion),
+              body: values.body,
+            })
+          : await client.tombstone(session, workspaceId, conversationId, values.messageId, {
+              idempotencyKey: values.idempotencyKey,
+              expectedVersion: Number(values.expectedVersion),
+              ...(values.reason?.trim() ? { reason: values.reason } : {}),
+            });
   if (result.status !== 'available') return actionFailure(result.status, context, action, values);
   const params = new URLSearchParams();
   if (action !== 'append' && query.cursor) params.set('cursor', query.cursor);

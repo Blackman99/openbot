@@ -2,7 +2,7 @@
 sequence: 26
 id: COL-09
 title: "Retry failed Tasks with immutable attempts"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-04
 labels:

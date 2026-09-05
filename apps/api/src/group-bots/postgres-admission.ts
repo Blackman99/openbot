@@ -1,3 +1,5 @@
+import { readMessageEvents } from '../conversations/projection.js';
+import type { AttachmentRow } from '../attachments/types.js';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
@@ -75,6 +77,24 @@ export class GroupBotTransaction {
         throw new GroupBotAccessError();
       throw error;
     }
+  }
+  async attachmentMetadata(messageId: string) {
+    messageId = groupBotUuid(messageId);
+    const chain = await readMessageEvents(this.connection, this.grant.conversationId, messageId);
+    if (
+      !chain[0] ||
+      Number(chain[0].sequence) < this.grant.lowerBound ||
+      chain.at(-1)!.event_type === 'message.deleted'
+    )
+      throw new GroupBotAccessError();
+    const row = (
+      await this.connection.query<AttachmentRow>(
+        "SELECT * FROM attachment_objects WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3 AND original_id IS NULL AND state='live'",
+        [this.access.workspaceId, this.grant.conversationId, messageId],
+      )
+    ).rows[0];
+    if (!row) throw new GroupBotAccessError();
+    return row;
   }
   async context(read: MessageRead): Promise<GroupBotContext> {
     read = { ...read };

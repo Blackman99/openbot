@@ -1,5 +1,5 @@
 // Browser-only UI seam. API/native tests separately prove ledger persistence and locking.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const workspaceId = 'ae661304-a1bc-4767-9a87-c47de763f749';
 const groupId = 'ec661304-a1bc-4767-9a87-c47de763f749';
@@ -203,6 +203,105 @@ export function handleConversationFixture(request, response, context) {
     });
     return true;
   }
+  const attachmentPath =
+    /^\/conversations\/([^/]+)\/(attachments|messages\/([^/]+)\/(attachment\/content|purge))$/u.exec(
+      path.slice(base.length),
+    );
+  if (attachmentPath) {
+    const [, conversationId, , messageId, action] = attachmentPath;
+    const thread = threads.find((item) => item.id === conversationId);
+    if (
+      !thread ||
+      (thread.subject.kind === 'direct-bot' ? thread.creatorId !== user.id : revoked.has(user.id))
+    ) {
+      fail(403, 'conversation_forbidden');
+      return true;
+    }
+    if (action === 'attachment/content') {
+      const message = thread.messages.find((item) => item.id === messageId);
+      if (!message?.attachment || message.versions.at(-1).type === 'message.deleted') {
+        fail(403, 'conversation_forbidden');
+        return true;
+      }
+      response.writeHead(200, {
+        'cache-control': 'private, no-store',
+        'x-content-type-options': 'nosniff',
+        'content-type': message.attachment.mediaType,
+        'content-length': String(message.bytes.length),
+        'content-disposition': `attachment; filename="${message.attachment.filename}"; filename*=UTF-8''${encodeURIComponent(message.attachment.filename)}`,
+      });
+      response.end(message.bytes);
+      return true;
+    }
+    if (action === 'purge') {
+      const message = thread.messages.find((item) => item.id === messageId);
+      if (!message || (message.author.id !== user.id && user.id !== ada.id)) {
+        fail(403, 'conversation_forbidden');
+        return true;
+      }
+      if (!message.purged) append(thread, user, 'message.deleted', null, 'Message purged', message);
+      message.purged = true;
+      delete message.attachment;
+      delete message.bytes;
+      for (const version of message.versions) version.body = null;
+      sendJson(response, 200, { purge: { state: 'complete' } });
+      return true;
+    }
+    const chunks = [];
+    let size = 0;
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > 11 * 1024 * 1024) request.destroy();
+      else chunks.push(chunk);
+    });
+    request.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks),
+          length = body.readUInt32BE(0),
+          command = JSON.parse(body.subarray(4, 4 + length).toString()),
+          bytes = body.subarray(4 + length);
+        if (
+          command.bytes !== bytes.length ||
+          command.sha256 !== createHash('sha256').update(bytes).digest('hex')
+        ) {
+          fail(400, 'invalid_attachment');
+          return;
+        }
+        const fingerprint = JSON.stringify(command),
+          saved = thread.receipts.find(
+            (item) => item.actorId === user.id && item.key === command.idempotencyKey,
+          );
+        attempts.push({ actorId: user.id, conversationId, type: 'attachment', command });
+        if (saved) {
+          if (saved.fingerprint !== fingerprint) fail(409, 'idempotency_conflict');
+          else sendJson(response, 200, { receipt: saved.receipt });
+          return;
+        }
+        const receipt = append(thread, user, 'message.created', command.body, null),
+          message = thread.messages.at(-1);
+        message.attachment = {
+          id: randomUUID(),
+          filename: command.filename,
+          mediaType: command.mediaType,
+          bytes: command.bytes,
+        };
+        message.bytes = bytes;
+        thread.receipts.push({
+          actorId: user.id,
+          key: command.idempotencyKey,
+          fingerprint,
+          receipt,
+        });
+        if (failAfterCommit) {
+          failAfterCommit = false;
+          fail(503, 'attachment_unavailable');
+        } else sendJson(response, 200, { receipt });
+      } catch {
+        fail(400, 'invalid_attachment');
+      }
+    });
+    return true;
+  }
   const match =
     /^\/conversations(?:\/([^/]+)(?:\/messages(?:\/([^/]+)(?:\/(tombstone|versions))?)?)?)?$/u.exec(
       path.slice(base.length),
@@ -254,7 +353,7 @@ export function handleConversationFixture(request, response, context) {
     (item.author.id === user.id || (thread.subject.kind === 'group' && user.id === ada.id));
   if (request.method === 'GET') {
     if (suffix === 'versions') {
-      if (!message || !canAudit(message)) fail(403, 'conversation_forbidden');
+      if (!message || message.purged || !canAudit(message)) fail(403, 'conversation_forbidden');
       else sendJson(response, 200, { versions: message.versions });
       return true;
     }
@@ -284,6 +383,7 @@ export function handleConversationFixture(request, response, context) {
       const latest = item.versions.at(-1);
       const deleted = latest.type === 'message.deleted';
       return {
+        ...(item.attachment && !deleted ? { attachment: item.attachment } : {}),
         id: item.id,
         creationSequence: item.creationSequence,
         versionEventId: latest.id,
@@ -297,7 +397,7 @@ export function handleConversationFixture(request, response, context) {
         updatedAt: time,
         canEdit: !deleted && item.author.kind !== 'bot' && item.author.id === user.id,
         canDelete: !deleted && canAudit(item),
-        canAudit: canAudit(item),
+        canAudit: !item.purged && canAudit(item),
       };
     });
     const nextCursor =

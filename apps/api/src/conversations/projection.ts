@@ -1,3 +1,4 @@
+import { attachmentMetadata, type AttachmentRow } from '../attachments/types.js';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { ConversationAccessError, type MessageProjection, type MessageVersion } from './service.js';
 export type MessageEventRow = {
@@ -7,6 +8,7 @@ export type MessageEventRow = {
   message_version: number;
   event_type: MessageVersion['type'] | 'bot.message.created';
   event_data?: {
+    attachmentId?: string;
     bot?: { id: string; displayName: string; versionId: string; versionNumber: number };
   };
   actor_user_id: string;
@@ -53,10 +55,41 @@ export async function currentPage(
     )
   ).rows;
   const byMessage = new Map(latest.map((event) => [event.message_id, event]));
+  const messages = [];
+  for (const original of selected) {
+    const message = projectMessage(
+      original,
+      byMessage.get(original.message_id)!,
+      actorUserId,
+      moderator,
+    );
+    const purge = (
+      await connection.query(
+        'SELECT state FROM message_purges WHERE conversation_id=$1 AND message_id=$2',
+        [conversationId, original.message_id],
+      )
+    ).rows[0];
+    if (purge) {
+      message.body = null;
+      message.reason = 'Message purged';
+      message.deleted = true;
+      message.canEdit = false;
+      message.canDelete = false;
+      message.canAudit = false;
+    }
+    if (!message.deleted && original.event_data?.attachmentId) {
+      const row = (
+        await connection.query<AttachmentRow>(
+          "SELECT * FROM attachment_objects WHERE conversation_id=$1 AND message_id=$2 AND id=$3 AND state='live'",
+          [conversationId, original.message_id, original.event_data.attachmentId],
+        )
+      ).rows[0];
+      if (row) message.attachment = attachmentMetadata(row);
+    }
+    messages.push(message);
+  }
   return {
-    messages: selected.map((original) =>
-      projectMessage(original, byMessage.get(original.message_id)!, actorUserId, moderator),
-    ),
+    messages,
     hasMore: originals.length > limit,
   };
 }

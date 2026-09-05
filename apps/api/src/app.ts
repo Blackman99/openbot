@@ -1,5 +1,7 @@
 import { registerBotCopyRoutes } from './bots/copy-routes.js';
 import type { BotCopyService } from './bots/copy-service.js';
+import { registerAttachmentRoutes } from './attachments/routes.js';
+import type { AttachmentService } from './attachments/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
 import type { TaskService } from './tasks/service.js';
@@ -68,6 +70,7 @@ export interface BuildAppOptions {
   botAcl?: BotAclService;
   botLifecycle?: BotLifecycleService;
   avatars?: BotAvatarService;
+  attachments?: AttachmentService;
   conversations?: ConversationService;
   botVersions?: BotVersionService;
   botCopies?: BotCopyService;
@@ -166,6 +169,7 @@ export function buildApp({
   botAcl,
   botLifecycle,
   avatars,
+  attachments,
   conversations,
   botVersions,
   botCopies,
@@ -217,6 +221,7 @@ export function buildApp({
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
+    if (attachments) registerAttachmentRoutes(app, auth, attachments, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
     if (botAcl) registerBotAclRoutes(app, auth, botAcl, webOrigin);

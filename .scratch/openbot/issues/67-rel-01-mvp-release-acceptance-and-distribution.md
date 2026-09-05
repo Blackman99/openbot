@@ -240,7 +240,17 @@ Actual gate closed by [Verify33956965487](https://github.com/Blackman99/openbot/
 ## Open external gate — COL-04-E1
 
 - [ ] Execute all26 tasks-runtime.test.ts cases using the deployed restricted PostgreSQL role: immutable Task/Run/output guards, current actual-human and exact-grant admission, observed concurrent command/claim/finish barriers, audit rollback, retained provider identity/usage, response locator and expired/stale claim fencing.
-- [ ] Execute the separate compose-tasks job: keyless worker leaves durable queued work intact; configured worker runs with API/Web stopped; actual persisted running, completed and failed attempts and exactly one final Bot response survive API/worker restart.
-- [ ] Keep fresh/upgrade Compose through0017, exact Task/Run table/column/guard privileges, all prior Bot/conversation/auth/provider native cases and real S3 checks green.
+- [x] Execute the separate compose-tasks job: keyless worker leaves durable queued work intact; configured worker runs with API/Web stopped; actual persisted running, completed and failed attempts and exactly one final Bot response survive API/worker restart.
+- [x] Keep fresh/upgrade Compose through0017, exact Task/Run table/column/guard privileges, all prior Bot/conversation/auth/provider native cases and real S3 checks green.
 
 Both independent review axes are CLEAN at1f68e42; final3505791 adds only evidence. Dedicated merge4627c692/tree030bc879 passed the complete pnpm verify:1039 unit/integration,35 ordinary browsers and one signed OIDC, formatting, types and final builds. Its four shared integration files were independently reviewed;63 candidate and32 root changed files retain exact blobs. No native PostgreSQL or Docker service was started locally. This explicit release gate permits the recorded dependent implementation frontier while actual service CI remains required.
+
+Actual Verify33958220385 on remote60afa3b3 completed2026-09-05 at09:34:38 UTC with10 jobs successful and one native assertion failure. General Compose through0017 and separate worker seed/running/reloaded stages passed. Native Task25/26 passed; one assertion incorrectly counted the existing conversation.created audit. Independently reviewed test-only correction483ba992 is integrated asc653bab; production and duplicate/race assertions are unchanged. The actual26-case retry remains required.
+
+## Open external gate — ATT-01-E1
+
+- [ ] Execute all5 attachments-runtime.test.ts cases using actual PostgreSQL and the deployed restricted role, including scope/history/immutability, rollback, blocked cleanup eligibility and active staged-write fencing.
+- [ ] Keep the real private S3-compatible storage contract green with no automatic retry or assertion weakening.
+- [ ] Execute fresh/upgrade Compose through0018 and infra/verify-attachments.mjs under the deployed runtime role/private volume: exact upload/message receipt, private read/download, denied cross-scope reads and acknowledged original/derived object purge. Preserve every prior native, worker, storage and outage check.
+
+Both source review axes and dedicated integration are CLEAN. Merge0bbaf856/tree4ec3bdd6 passed the full1,062 nonbrowser tests,36 ordinary browsers and one OIDC, formatting, zero-error/zero-warning types and builds. No local PostgreSQL or Docker was provisioned; external skips are not passes. This explicit gate permits dependent implementation when their other prerequisites are accepted.
