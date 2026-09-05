@@ -13,7 +13,7 @@ interface QueryResult<Row extends Record<string, unknown>> {
   rows: Row[];
 }
 
-interface SqlConnection {
+export interface SqlConnection {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(
     statement: string,
     parameters?: unknown[],

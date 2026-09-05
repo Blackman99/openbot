@@ -160,12 +160,14 @@ try {
       local_credentials,
       workspaces,
       workspace_memberships,
+      workspace_invitations,
       instance_claims,
       sessions
     TO openbot_runtime;
     GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime;
     GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime;
     GRANT UPDATE (name, description) ON workspaces TO openbot_runtime;
+    GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT, UPDATE, DELETE ON personal_model_connections TO openbot_runtime;
   `);

@@ -125,7 +125,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -299,6 +299,15 @@ jobs:
             --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'))")"
           test "$workspace_update_privileges" = 't,t,f'
 
+          invitation_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'workspace_invitations', 'SELECT'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'INSERT'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'UPDATE'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'DELETE'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'TRUNCATE'))")"
+          test "$invitation_table_privileges" = 't,t,f,f,f'
+          invitation_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_invitations', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_invitations'")"
+          test "$invitation_update_privileges" = 'consumed_at:true,consumed_by_user_id:true,created_at:false,created_by_user_id:false,email:false,expires_at:false,id:false,revoked_at:true,role:false,token_digest:false,workspace_id:false'
+
           audit_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'audit_events', 'SELECT'), has_table_privilege('openbot_runtime', 'audit_events', 'INSERT'), has_table_privilege('openbot_runtime', 'audit_events', 'UPDATE'), has_table_privilege('openbot_runtime', 'audit_events', 'DELETE'), has_table_privilege('openbot_runtime', 'audit_events', 'TRUNCATE'))")"
@@ -426,6 +435,99 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'workspace.%' AND metadata::text ~ '(CI Workspace|private description|Updated Workspace)'")"
           test "$unsafe_workspace_audits" = '0'
+      - name: Verify one-time invitations with the restricted runtime role
+        run: |
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
+          invitation_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"email":"invitee@example.com","role":"member","expiresInDays":1}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")"
+          test "$invitation_code" = '201'
+          jq --exit-status '.token | test("^[A-Za-z0-9_-]{43}$")' /tmp/openbot-invitation.json >/dev/null
+          invitation_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation.json)"
+          invitation_token="$(jq --raw-output '.token' /tmp/openbot-invitation.json)"
+          invitation_digest="$(printf '%s' "$invitation_token" | sha256sum | cut --delimiter=' ' --fields=1)"
+          stored_digest="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT token_digest FROM workspace_invitations WHERE id = '$invitation_id'")"
+          test "$stored_digest" = "$invitation_digest"
+          test "$stored_digest" != "$invitation_token"
+
+          jq --null-input --arg token "$invitation_token" \
+            '{token:$token,email:"invitee@example.com",displayName:"CI Invitee",password:"ci-only-invitee-password"}' \
+            > /tmp/openbot-invitation-accept.json
+          accept_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-accepted.json --write-out '%{http_code}' \
+            --dump-header /tmp/openbot-invitation-accepted.headers \
+            --cookie-jar /tmp/openbot-invitee-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-invitation-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$accept_code" = '201'
+          test "$(jq --raw-output '.user.email' /tmp/openbot-invitation-accepted.json)" = 'invitee@example.com'
+          test "$(jq --raw-output '.workspace.id' /tmp/openbot-invitation-accepted.json)" = "$workspace_id"
+          grep --ignore-case --quiet 'httponly' /tmp/openbot-invitation-accepted.headers
+          grep --ignore-case --quiet 'samesite=lax' /tmp/openbot-invitation-accepted.headers
+          curl --fail --silent --show-error --cookie /tmp/openbot-invitee-cookies.txt \
+            http://localhost:3001/api/v1/workspaces > /tmp/openbot-invitee-workspaces.json
+          jq --exit-status --arg id "$workspace_id" \
+            'any(.workspaces[]; .id == $id and .role == "member")' /tmp/openbot-invitee-workspaces.json >/dev/null
+          test "$(curl --silent --show-error --output /tmp/openbot-invitation-member.json \
+            --write-out '%{http_code}' --cookie /tmp/openbot-invitee-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")" = '403'
+
+          replay_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-replay.json --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-invitation-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$replay_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-invitation-replay.json)" = 'invitation_unavailable'
+
+          revoke_create_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-to-revoke.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"email":"revoked@example.com","role":"administrator","expiresInDays":1}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")"
+          test "$revoke_create_code" = '201'
+          revoked_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation-to-revoke.json)"
+          test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations/$revoked_id")" = '204'
+          jq '{token:.token,email:"revoked@example.com",displayName:"Revoked",password:"ci-only-revoked-password"}' \
+            /tmp/openbot-invitation-to-revoke.json > /tmp/openbot-revoked-accept.json
+          revoked_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-revoked.json --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-revoked-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$revoked_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-invitation-revoked.json)" = 'invitation_unavailable'
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations" > /tmp/openbot-invitations.json
+          jq --exit-status '(.invitations | length) == 2 and all(.invitations[]; (has("token") | not) and (has("tokenDigest") | not) and (has("token_digest") | not))' \
+            /tmp/openbot-invitations.json >/dev/null
+
+          invitation_state="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', COUNT(*), COUNT(*) FILTER (WHERE consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL), COUNT(*) FILTER (WHERE revoked_at IS NOT NULL AND consumed_at IS NULL)) FROM workspace_invitations WHERE workspace_id = '$workspace_id'")"
+          test "$invitation_state" = '2,1,1'
+          revoked_accounts="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM users WHERE normalized_email = 'revoked@example.com'")"
+          test "$revoked_accounts" = '0'
+          invitation_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE event_type LIKE 'invitation.%'")"
+          test "$invitation_audits" = 'invitation.accepted,invitation.created,invitation.created,invitation.revoked'
+          unsafe_invitation_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'invitation.%' AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com|revoked@example.com)'")"
+          test "$unsafe_invitation_audits" = '0'
       - name: Verify the real unavailable state after database outage
         run: |
           docker compose stop postgres

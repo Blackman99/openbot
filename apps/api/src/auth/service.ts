@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
+import { passwordOperations } from './password-operations.js';
+export { AuthenticationBusyError } from './password-operations.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { InstanceAlreadyClaimedError, type AuthRepository } from './repository.js';
 
@@ -59,13 +61,6 @@ export class InvalidAuthInputError extends Error {
   }
 }
 
-export class AuthenticationBusyError extends Error {
-  constructor() {
-    super('Authentication is temporarily busy');
-    this.name = 'AuthenticationBusyError';
-  }
-}
-
 export interface LocalAuthDependencies {
   clock: () => Date;
   dummyPasswordHash: string;
@@ -77,11 +72,10 @@ export interface LocalAuthDependencies {
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_WORKSPACE_NAME = 'My Workspace';
-const MAX_CONCURRENT_PASSWORD_OPERATIONS = 2;
 const DEFAULT_DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=3,p=4$b3BlbmJvdC1kdW1teS1zYWx0LXYx$QGaw1b6sjOkg47oMglLM8HrPbHoq+oRYiEnm0e+w8x4';
 
-function normalizeSetupInput(input: SetupInput): SetupInput {
+export function normalizeSetupInput(input: SetupInput): SetupInput {
   const displayName = input.displayName.trim();
   const email = input.email.trim().toLowerCase();
   if (displayName.length < 1 || displayName.length > 100) {
@@ -102,7 +96,6 @@ function digestSessionToken(token: string): string {
 }
 
 export class LocalAuthService implements AuthService {
-  private activePasswordOperations = 0;
   private readonly dependencies: LocalAuthDependencies;
 
   constructor(
@@ -126,7 +119,7 @@ export class LocalAuthService implements AuthService {
       throw new InstanceAlreadyClaimedError();
     }
 
-    const passwordHash = await this.runPasswordOperation(() =>
+    const passwordHash = await passwordOperations.run(() =>
       this.dependencies.hashPassword(input.password),
     );
     const now = this.dependencies.clock();
@@ -174,7 +167,7 @@ export class LocalAuthService implements AuthService {
 
     const credential = await this.repository.findLocalCredential(email);
     const passwordHash = credential?.passwordHash ?? this.dependencies.dummyPasswordHash;
-    const valid = await this.runPasswordOperation(() =>
+    const valid = await passwordOperations.run(() =>
       this.dependencies.verifyPassword(passwordHash, input.password),
     );
     if (!credential || !valid) {
@@ -229,18 +222,5 @@ export class LocalAuthService implements AuthService {
       revokedAt: this.dependencies.clock(),
       tokenDigest: digestSessionToken(sessionToken),
     });
-  }
-
-  private async runPasswordOperation<Result>(operation: () => Promise<Result>): Promise<Result> {
-    if (this.activePasswordOperations >= MAX_CONCURRENT_PASSWORD_OPERATIONS) {
-      throw new AuthenticationBusyError();
-    }
-
-    this.activePasswordOperations += 1;
-    try {
-      return await operation();
-    } finally {
-      this.activePasswordOperations -= 1;
-    }
   }
 }

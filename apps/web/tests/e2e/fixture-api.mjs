@@ -6,7 +6,10 @@ let claimed = false;
 let owner;
 let password;
 let nextToken = 1;
-const sessions = new Set();
+const sessions = new Map();
+const users = new Map();
+const memberships = new Map();
+const invitations = new Map();
 const workspaces = new Map();
 const trustedOrigin = 'http://127.0.0.1:4173';
 
@@ -32,11 +35,14 @@ function resetAuth() {
   nextToken = 1;
   sessions.clear();
   workspaces.clear();
+  users.clear();
+  memberships.clear();
+  invitations.clear();
 }
 
-function createSession() {
+function createSession(user = owner) {
   const token = Buffer.alloc(32, nextToken++).toString('base64url');
-  sessions.add(token);
+  sessions.set(token, user);
   return token;
 }
 
@@ -45,11 +51,13 @@ function readSession(request) {
   return /(?:^|;\s*)openbot_session=([A-Za-z0-9_-]{43})(?:;|$)/u.exec(cookie)?.[1];
 }
 
-function identity() {
-  return {
-    user: owner,
-    workspace: { id: 'workspace-id', name: 'My Workspace' },
-  };
+function userWorkspaces(user) {
+  return [...workspaces.values()]
+    .filter((workspace) => memberships.get(workspace.id)?.has(user.id))
+    .map((workspace) => ({ ...workspace, role: memberships.get(workspace.id).get(user.id) }));
+}
+function identity(user = owner, workspace = userWorkspaces(user)[0]) {
+  return { user, workspace: { id: workspace.id, name: workspace.name } };
 }
 
 const server = createServer((request, response) => {
@@ -117,6 +125,8 @@ const server = createServer((request, response) => {
         id: 'user-id',
       };
       password = input.password;
+      users.set(owner.email, { user: owner, password });
+      memberships.set('workspace-id', new Map([[owner.id, 'owner']]));
       workspaces.set('workspace-id', {
         id: 'workspace-id',
         name: 'My Workspace',
@@ -137,12 +147,13 @@ const server = createServer((request, response) => {
       return;
     }
     readJson(request, (input) => {
-      if (!owner || input.email.toLowerCase() !== owner.email || input.password !== password) {
+      const account = users.get(input.email.toLowerCase());
+      if (!account || input.password !== account.password) {
         sendJson(response, 401, { error: { code: 'invalid_credentials' } });
         return;
       }
-      const token = createSession();
-      sendJson(response, 200, identity(), {
+      const token = createSession(account.user);
+      sendJson(response, 200, identity(account.user), {
         'set-cookie': `openbot_session=${token}; Path=/; Expires=Fri, 01 Feb 2030 00:00:00 GMT; HttpOnly; SameSite=Lax`,
       });
     });
@@ -155,7 +166,7 @@ const server = createServer((request, response) => {
       sendJson(response, 401, { error: { code: 'authentication_required' } });
       return;
     }
-    sendJson(response, 200, identity());
+    sendJson(response, 200, identity(sessions.get(token)));
     return;
   }
 
@@ -177,6 +188,130 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (request.method === 'POST' && request.url === '/api/v1/invitations/accept') {
+    if (request.headers.origin !== trustedOrigin) {
+      sendJson(response, 403, { error: { code: 'invalid_origin' } });
+      return;
+    }
+    readJson(request, (input) => {
+      const record = invitations.get(input.token);
+      const session = readSession(request);
+      let user = session ? sessions.get(session) : undefined;
+      const unavailable = () =>
+        sendJson(response, 409, { error: { code: 'invitation_unavailable' } });
+      if (session && !user) {
+        sendJson(response, 401, { error: { code: 'authentication_required' } });
+        return;
+      }
+      if (
+        !record ||
+        record.revokedAt ||
+        record.consumedAt ||
+        Date.parse(record.expiresAt) <= Date.now() ||
+        (user ? user.email : input.email?.toLowerCase()) !== record.email
+      ) {
+        unavailable();
+        return;
+      }
+      let newUser = false;
+      if (!user) {
+        if (users.has(input.email.toLowerCase())) {
+          unavailable();
+          return;
+        }
+        if (
+          !input.displayName ||
+          typeof input.password !== 'string' ||
+          input.password.length < 12
+        ) {
+          sendJson(response, 400, { error: { code: 'invalid_request' } });
+          return;
+        }
+        user = {
+          id: `user-${users.size + 1}`,
+          email: input.email.toLowerCase(),
+          displayName: input.displayName,
+        };
+        users.set(user.email, { user, password: input.password });
+        newUser = true;
+      }
+      if (memberships.get(record.workspaceId).has(user.id)) {
+        unavailable();
+        return;
+      }
+      memberships.get(record.workspaceId).set(user.id, record.role);
+      record.consumedAt = new Date().toISOString();
+      const headers = newUser
+        ? {
+            'set-cookie': `openbot_session=${createSession(user)}; Path=/; Expires=Fri, 01 Feb 2030 00:00:00 GMT; HttpOnly; SameSite=Lax`,
+          }
+        : {};
+      sendJson(
+        response,
+        newUser ? 201 : 200,
+        identity(user, workspaces.get(record.workspaceId)),
+        headers,
+      );
+    });
+    return;
+  }
+  const invitationRoute = /^\/api\/v1\/workspaces\/([^/]+)\/invitations(?:\/([^/]+))?$/u.exec(
+    request.url ?? '',
+  );
+  if (invitationRoute) {
+    const session = readSession(request);
+    const user = sessions.get(session);
+    if (!user) {
+      sendJson(response, 401, { error: { code: 'authentication_required' } });
+      return;
+    }
+    const [, workspaceId, invitationId] = invitationRoute;
+    const role = memberships.get(workspaceId)?.get(user.id);
+    if (!role || role === 'member') {
+      sendJson(response, 403, { error: { code: 'invitation_forbidden' } });
+      return;
+    }
+    if (request.method === 'GET') {
+      sendJson(response, 200, {
+        invitations: [...invitations.values()].filter((value) => value.workspaceId === workspaceId),
+      });
+      return;
+    }
+    if (request.headers.origin !== trustedOrigin) {
+      sendJson(response, 403, { error: { code: 'invalid_origin' } });
+      return;
+    }
+    if (request.method === 'POST') {
+      readJson(request, (input) => {
+        const token = Buffer.alloc(32, 100 + invitations.size).toString('base64url');
+        const invitation = {
+          id: `invitation-${invitations.size + 1}`,
+          workspaceId,
+          email: input.email.toLowerCase(),
+          role: input.role,
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + input.expiresInDays * 86400000).toISOString(),
+          revokedAt: null,
+          consumedAt: null,
+        };
+        invitations.set(token, invitation);
+        sendJson(response, 201, { invitation, token });
+      });
+      return;
+    }
+    if (request.method === 'DELETE') {
+      const record = [...invitations.values()].find(
+        (value) => value.id === invitationId && value.workspaceId === workspaceId,
+      );
+      if (!record || record.revokedAt || record.consumedAt) {
+        sendJson(response, 409, { error: { code: 'invitation_unavailable' } });
+        return;
+      }
+      record.revokedAt = new Date().toISOString();
+      response.writeHead(204).end();
+      return;
+    }
+  }
   if (request.url?.startsWith('/api/v1/workspaces')) {
     const token = readSession(request);
     if (!token || !sessions.has(token)) {
@@ -184,7 +319,7 @@ const server = createServer((request, response) => {
       return;
     }
     if (request.method === 'GET' && request.url === '/api/v1/workspaces') {
-      sendJson(response, 200, { workspaces: [...workspaces.values()] });
+      sendJson(response, 200, { workspaces: userWorkspaces(sessions.get(token)) });
       return;
     }
     if (request.headers.origin !== trustedOrigin) {
@@ -196,6 +331,7 @@ const server = createServer((request, response) => {
         const id = `workspace-${workspaces.size + 1}`;
         const workspace = { id, name, description, role: 'owner' };
         workspaces.set(id, workspace);
+        memberships.set(id, new Map([[sessions.get(token).id, 'owner']]));
         sendJson(response, 201, { workspace });
       });
       return;

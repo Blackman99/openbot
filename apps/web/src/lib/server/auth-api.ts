@@ -66,7 +66,7 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
   );
 }
 
-function parseIdentity(value: unknown): AuthIdentity | undefined {
+export function parseIdentity(value: unknown): AuthIdentity | undefined {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ['user', 'workspace']) ||
@@ -93,7 +93,7 @@ function parseIdentity(value: unknown): AuthIdentity | undefined {
   };
 }
 
-function parseSessionCookie(
+export function parseSessionCookie(
   header: string | null,
   expectedSecure: boolean,
 ): SessionCookie | undefined {
@@ -157,7 +157,7 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function parseRetryAfterSeconds(value: string | null): number | undefined {
+export function parseRetryAfterSeconds(value: string | null): number | undefined {
   if (!value || !/^(?:0|[1-9]\d{0,4})$/u.test(value)) {
     return undefined;
   }

@@ -4,7 +4,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 
 import { AuthenticationAttemptLimiter } from './auth/attempt-limiter.js';
 import { InstanceAlreadyClaimedError } from './auth/repository.js';
-import { readSessionToken } from './auth/session-cookie.js';
+import { readSessionToken, serializeSessionCookie } from './auth/session-cookie.js';
 import {
   AuthenticationBusyError,
   InvalidAuthInputError,
@@ -14,6 +14,8 @@ import {
   type SetupInput,
   type SignInInput,
 } from './auth/service.js';
+import { registerInvitationRoutes } from './invitations/routes.js';
+import type { InvitationService } from './invitations/service.js';
 import type { ReadinessProbe } from './readiness.js';
 import type { ProviderConnections } from './providers/connections.js';
 import { registerProviderRoutes } from './providers/routes.js';
@@ -23,6 +25,7 @@ import type { WorkspaceService } from './workspaces/service.js';
 export interface BuildAppOptions {
   auth?: AuthService;
   providers?: ProviderConnections;
+  invitations?: InvitationService;
   authenticationAttempts?: AuthenticationAttemptLimiter;
   logger?: boolean;
   readiness: ReadinessProbe;
@@ -38,21 +41,6 @@ const AUTHENTICATION_API_PATHS = new Set([
   '/api/v1/session',
   '/api/v1/setup',
 ]);
-
-function serializeSessionCookie(token: string, expiresAt: Date, secure: boolean): string {
-  const attributes = [
-    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
-    'Path=/',
-    `Expires=${expiresAt.toUTCString()}`,
-    'HttpOnly',
-    'SameSite=Lax',
-  ];
-  if (secure) {
-    attributes.push('Secure');
-  }
-
-  return attributes.join('; ');
-}
 
 function serializeExpiredSessionCookie(secure: boolean): string {
   const attributes = [
@@ -123,6 +111,7 @@ function sendAuthenticatedSession(
 export function buildApp({
   auth,
   providers,
+  invitations,
   authenticationAttempts = new AuthenticationAttemptLimiter(),
   logger = false,
   readiness,
@@ -158,6 +147,7 @@ export function buildApp({
 
   if (auth) {
     registerProviderRoutes(app, auth, providers, webOrigin);
+    if (invitations) registerInvitationRoutes(app, auth, invitations, webOrigin);
     if (workspaces) registerWorkspaceRoutes(app, auth, workspaces, webOrigin);
     const secureSessionCookie = new URL(webOrigin).protocol === 'https:';
     const hasTrustedOrigin = (origin: string | undefined): boolean => origin === webOrigin;

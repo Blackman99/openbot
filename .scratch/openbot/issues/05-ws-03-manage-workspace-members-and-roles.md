@@ -2,7 +2,7 @@
 sequence: 5
 id: WS-03
 title: "Manage workspace members and roles"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - WS-02
 labels:

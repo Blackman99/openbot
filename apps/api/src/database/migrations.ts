@@ -131,6 +131,28 @@ const MIGRATIONS = [
     statements: PERSONAL_MODEL_CONNECTION_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0005_workspace_invitations',
+    statements: [
+      `CREATE TABLE workspace_invitations (
+      id UUID PRIMARY KEY,
+      workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('administrator', 'member')),
+      token_digest CHAR(64) NOT NULL UNIQUE,
+      created_by_user_id UUID NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL CHECK (expires_at > created_at),
+      revoked_at TIMESTAMPTZ,
+      consumed_at TIMESTAMPTZ,
+      consumed_by_user_id UUID REFERENCES users(id),
+      CHECK ((consumed_at IS NULL AND consumed_by_user_id IS NULL) OR (consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL)),
+      CHECK (consumed_at IS NULL OR revoked_at IS NULL)
+    )`,
+      'CREATE INDEX workspace_invitations_workspace_idx ON workspace_invitations(workspace_id)',
+    ],
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

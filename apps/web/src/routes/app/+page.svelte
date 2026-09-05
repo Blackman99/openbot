@@ -50,6 +50,7 @@
   <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Workspace settings</h2>
     {#if data.workspace.role === 'owner' || data.workspace.role === 'administrator'}
+      <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/invitations`}>Manage invitations</a></p>
       <form method="POST" action="?/updateWorkspace">
         <label for="workspace-name">Workspace name</label>
         <input id="workspace-name" name="name" required maxlength="100" value={data.workspace.name} />

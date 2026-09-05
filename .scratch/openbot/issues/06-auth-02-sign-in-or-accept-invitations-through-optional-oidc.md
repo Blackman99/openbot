@@ -2,7 +2,7 @@
 sequence: 6
 id: AUTH-02
 title: "Sign in or accept invitations through optional OIDC"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - WS-02
 labels:

@@ -62,6 +62,13 @@ This evidence covers the first three tickets only. Each subsequently implemented
 - [ ] Execute `postgres-providers` with real migration and runtime privilege provisioning; prove encrypted persistence, owner isolation, stale-write rejection, audit-failure rollback, deletion, and forbidden runtime DDL/audit updates.
 - [ ] Keep `postgres-auth` and Compose green on the combined provider revision.
 
+## Open external gate — WS-02-E1
+
+- [ ] Execute the isolated-schema invitation PostgreSQL tests for concurrent consumption, revocation, duplicate-email signup and transaction rollback.
+- [ ] Execute the integrated Compose invitation creation, acceptance, replay, revocation, hash-only persistence and audit checks with the restricted runtime role; verify its exact column privileges.
+
+WS-02 is locally complete and independently reviewed. Integrated revision `62b0ab6` passed 186 unit/integration tests, 7 browser scenarios, formatting, types and both production builds. Its Compose smoke is implemented and its shell syntax checked, but actual PostgreSQL and Compose execution remain mandatory before release.
+
 ## Non-goals
 
 - HA or multi-region certification

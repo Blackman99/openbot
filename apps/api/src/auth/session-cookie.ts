@@ -12,3 +12,18 @@ export function readSessionToken(cookieHeader: string | undefined): string | und
     return undefined;
   }
 }
+
+export function serializeSessionCookie(token: string, expiresAt: Date, secure: boolean): string {
+  const attributes = [
+    `openbot_session=${encodeURIComponent(token)}`,
+    'Path=/',
+    `Expires=${expiresAt.toUTCString()}`,
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (secure) {
+    attributes.push('Secure');
+  }
+
+  return attributes.join('; ');
+}

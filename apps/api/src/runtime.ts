@@ -1,6 +1,8 @@
 import cors, { type FastifyCorsOptionsDelegate } from '@fastify/cors';
 import pg, { type PoolConfig } from 'pg';
 
+import { InvitationService } from './invitations/service.js';
+import { PostgresInvitationRepository } from './invitations/postgres-invitation-repository.js';
 import { buildApp } from './app.js';
 import { PostgresAuthRepository } from './auth/postgres-auth-repository.js';
 import { LocalAuthService } from './auth/service.js';
@@ -73,6 +75,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     ...(providers ? { providers } : {}),
+    invitations: new InvitationService(new PostgresInvitationRepository(pool)),
     workspaces: new WorkspaceService(new PostgresWorkspaceRepository(pool)),
     readiness,
     setupTokenDigest: options.setupTokenDigest,
