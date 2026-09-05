@@ -97,6 +97,7 @@ describe('Bot page boundaries', () => {
         enabled: true,
         basic: true,
         collaboration: false,
+        visionInput: false,
         available: true,
       },
       {
@@ -105,6 +106,7 @@ describe('Bot page boundaries', () => {
         enabled: true,
         basic: true,
         collaboration: false,
+        visionInput: false,
         available: true,
       },
     ]);
@@ -276,6 +278,7 @@ describe('Bot page boundaries', () => {
       available: false,
       basic: false,
       collaboration: false,
+      visionInput: false,
     });
     expect(page.models[1]).toMatchObject({ available: true, basic: true });
   });

@@ -22,7 +22,7 @@
   {/if}
   {#if version}
     <nav aria-label="Bot versions">
-      {#if data.bot.lifecycleState !== 'deleted'}<a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/copy`}>Copy configuration</a> ·{/if}
+      {#if data.bot.lifecycleState !== 'deleted'}<a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/copy`}>Copy configuration</a> · <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/template`}>Export template</a> ·{/if}
       <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/versions`}>Version history</a>
       {#if data.bot.accessRole === 'owner' || data.bot.accessRole === 'editor'}
         · <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/edit`}>Edit configuration</a>

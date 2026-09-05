@@ -15,7 +15,7 @@
 <main>
   <a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}`}>Back to {data.workspace.name}</a>
   <h1>Bots</h1>
-  <p><a href={`/app/workspaces/${data.workspace.id}/bots/deleted`}>Deleted Bots and recovery</a></p>
+  <p><a href={`/app/workspaces/${data.workspace.id}/bots/deleted`}>Deleted Bots and recovery</a> · <a href={`/app/workspaces/${data.workspace.id}/bots/import`}>Import Bot template</a></p>
   <p>Create a persistent identity with instructions, a model and saved task defaults.</p>
   {#if data.bots.length === 0}<p>No Bots available yet.</p>{/if}
   <ul aria-label="Bots">

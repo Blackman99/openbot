@@ -19,6 +19,7 @@ export interface BotModelChoice {
   enabled: boolean;
   basic: boolean;
   collaboration: boolean;
+  visionInput: boolean;
   available: boolean;
 }
 function readFailure(status: string, cookies: PageContext['cookies']): never {
@@ -73,6 +74,7 @@ export async function loadBotModelChoices(
         available: false,
         basic: false,
         collaboration: false,
+        visionInput: false,
       });
   if (shared.ok)
     for (const connection of shared.value.connections)
@@ -85,6 +87,7 @@ export async function loadBotModelChoices(
         available: false,
         basic: false,
         collaboration: false,
+        visionInput: false,
       });
   const models: BotModelChoice[] = [];
   const seen = new Set<string>();
@@ -119,6 +122,7 @@ export async function loadBotModelChoices(
       enabled: consistent ? choice.enabled && result.value.enabled : choice.enabled,
       basic: consistent && result.value.basic,
       collaboration: consistent && result.value.collaboration,
+      visionInput: consistent && result.value.enhanced.visionInput,
       available: consistent,
     });
     if (!consistent) modelsUnavailable = true;

@@ -1,6 +1,3 @@
-# TPL-01 — Safe single-Bot template preimplementation handoff
+# TPL-01 — Safe single-Bot template handoff
 
-Planning only (English). The previous Chinese full draft was removed for repository language policy; recover it from git history if needed.
-
-- Ticket: `issues/46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md`.
-- MEM-02 is complete. This ticket is ready-for-agent. No implementation claim from this stub.
+Ticket `issues/46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md` is in progress. Export/import uses `openbot.bot-template.v1` without connection IDs or secrets. Acceptance texts stay unchecked.

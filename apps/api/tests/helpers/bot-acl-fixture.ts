@@ -1,4 +1,5 @@
 import { BotCopyService } from '../../src/bots/copy-service.js';
+import { BotTemplateService } from '../../src/bots/template-service.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { SqlPool } from '../../src/auth/postgres-auth-repository.js';
@@ -85,11 +86,13 @@ export async function botAclFixture(
       };
     },
   };
+  const bots = new BotService(new PostgresBotRepository(pool));
   const app = buildApp({
     auth,
     botCopies: new BotCopyService(pool),
+    botTemplates: new BotTemplateService(pool, bots),
     providers,
-    bots: new BotService(new PostgresBotRepository(pool)),
+    bots,
     botAcl: new BotAclService(new PostgresBotAclRepository(aclPool, options.now)),
     botLifecycle: new BotLifecycleService(aclPool, options.now),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),

@@ -11,6 +11,7 @@ const model = {
   enabled: true,
   basic: true,
   collaboration: false,
+  visionInput: false,
   available: true,
 };
 describe('Bot identity pages', () => {
@@ -38,6 +39,8 @@ describe('Bot identity pages', () => {
     expect(html).toContain('Chat-only — unsuitable for reliable delegation');
     expect(html).toContain('Disabled model');
     expect(html).toContain(`/app/workspaces/${workspace.id}/models`);
+    expect(html).toContain(`/app/workspaces/${workspace.id}/bots/import`);
+    expect(html).toContain('Import Bot template');
     expect(render(AppPage, { props: { data: base } }).body).toContain(
       `/app/workspaces/${workspace.id}/bots`,
     );
@@ -55,6 +58,8 @@ describe('Bot identity pages', () => {
     expect(html).toContain('Cite sources.');
     expect(html).toContain('32768');
     expect(html).toContain('Chat-only — unsuitable for reliable delegation');
+    expect(html).toContain('Export template');
+    expect(html).toContain(`/app/workspaces/${workspace.id}/bots/${bot.id}/template`);
     expect(html).toContain('Upload avatar');
     expect(html).toContain('multipart/form-data');
     expect(html).toContain(`value="${bot.currentVersion.id}"`);

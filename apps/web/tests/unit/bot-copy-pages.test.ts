@@ -106,5 +106,6 @@ it('hides the copy action on deleted Bot identities while preserving protected v
     },
   }).body;
   expect(html).not.toContain('Copy configuration');
+  expect(html).not.toContain('Export template');
   expect(html).toContain('Version history');
 });

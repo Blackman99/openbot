@@ -1,4 +1,5 @@
 import { BotCopyService } from './bots/copy-service.js';
+import { BotTemplateService } from './bots/template-service.js';
 import { MemoryService } from './memories/service.js';
 import { AttachmentService } from './attachments/service.js';
 import { KnowledgeService } from './knowledge/service.js';
@@ -118,6 +119,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
       origin: trustedOrigin,
     });
   };
+  const bots = new BotService(new PostgresBotRepository(pool));
   const app = buildApp({
     auth,
     avatars,
@@ -130,7 +132,8 @@ export function buildProductionApp(options: ProductionAppOptions) {
     groupRouting: new GroupRoutingService(pool),
     botVersions: new BotVersionService(pool, avatars),
     botCopies: new BotCopyService(pool),
-    bots: new BotService(new PostgresBotRepository(pool)),
+    bots,
+    botTemplates: new BotTemplateService(pool, bots),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     botLifecycle: new BotLifecycleService(pool),
     groups: new GroupService(new PostgresGroupRepository(pool)),

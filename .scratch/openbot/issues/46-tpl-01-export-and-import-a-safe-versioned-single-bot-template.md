@@ -2,7 +2,7 @@
 sequence: 46
 id: TPL-01
 title: "Export and import a safe versioned single-Bot template"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - BOT-03
   - BOT-04
@@ -43,3 +43,7 @@ An authorized user can download a reviewable Bot template and import it as an in
 - Private memory export
 - Public template marketplace
 - Live synchronization with the source Bot
+
+## Discovered implementation dependencies
+
+Export uses schema `openbot.bot-template.v1` with identity, instructions, required capability, declared collaboration visibility, and budgets. Connection IDs, API keys, secret headers, avatar/object references, history, and private memory are omitted and rejected on import. Preview can diff a selected local Bot. Creation requires an explicit local model binding that satisfies the declared capability. Imported Bots are new private owner-only records with no source Bot or Workspace identifier. These notes do not change the original acceptance texts, which stay unchecked.
