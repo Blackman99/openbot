@@ -2,7 +2,7 @@
 sequence: 10
 id: PROV-04
 title: "Support Anthropic Messages-compatible models"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - PROV-01
 labels:

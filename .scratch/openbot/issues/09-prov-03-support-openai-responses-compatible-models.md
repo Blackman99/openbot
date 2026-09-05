@@ -2,7 +2,7 @@
 sequence: 9
 id: PROV-03
 title: "Support OpenAI Responses-compatible models"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - PROV-01
 labels:

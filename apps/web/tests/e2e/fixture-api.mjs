@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { handleProviderFixture, resetProviderFixture } from './provider-fixture.mjs';
 
 let scenario = 'ready';
 let claimed = false;
@@ -24,6 +25,7 @@ function readJson(request, callback) {
 }
 
 function resetAuth() {
+  resetProviderFixture();
   claimed = false;
   owner = undefined;
   password = undefined;
@@ -51,6 +53,15 @@ function identity() {
 }
 
 const server = createServer((request, response) => {
+  if (
+    handleProviderFixture(request, response, {
+      authenticated: sessions.has(readSession(request)),
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
   if (request.method === 'POST' && request.url === '/__scenario') {
     readJson(request, ({ scenario: requestedScenario }) => {
       scenario = requestedScenario === 'unavailable' ? 'unavailable' : 'ready';

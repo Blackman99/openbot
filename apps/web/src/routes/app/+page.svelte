@@ -29,6 +29,8 @@
     </form>
   </header>
 
+  <p><a href="/app/settings/models">Personal models</a></p>
+
   <nav aria-label="Workspaces">
     <h2>Your workspaces</h2>
     <ul>

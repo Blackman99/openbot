@@ -4,6 +4,12 @@ import pg, { type PoolConfig } from 'pg';
 import { buildApp } from './app.js';
 import { PostgresAuthRepository } from './auth/postgres-auth-repository.js';
 import { LocalAuthService } from './auth/service.js';
+import type { ProviderConfig } from './providers/config.js';
+import { ProviderConnections } from './providers/connections.js';
+import { OpenAiChatProbe } from './providers/openai-chat-probe.js';
+import { PostgresProviderRepository } from './providers/postgres-repository.js';
+import { ProviderSecretBox } from './providers/secrets.js';
+import { ProviderUrlPolicy } from './providers/url-policy.js';
 import { PostgresWorkspaceRepository } from './workspaces/postgres-workspace-repository.js';
 import { WorkspaceService } from './workspaces/service.js';
 import type { DatabaseConnectionOptions } from './config.js';
@@ -23,6 +29,7 @@ export interface ProductionAppOptions {
   logger?: boolean;
   setupTokenDigest: string;
   webOrigin: string;
+  providers?: ProviderConfig;
 }
 
 export function buildProductionApp(options: ProductionAppOptions) {
@@ -43,6 +50,17 @@ export function buildProductionApp(options: ProductionAppOptions) {
   };
   const readiness = new PostgresReadinessProbe(database, MIGRATION_VERSIONS);
   const auth = new LocalAuthService(new PostgresAuthRepository(pool));
+  const providerOptions = options.providers;
+  const policy = providerOptions ? new ProviderUrlPolicy(providerOptions.network) : undefined;
+  const providers =
+    providerOptions && policy
+      ? new ProviderConnections(
+          new PostgresProviderRepository(pool),
+          new ProviderSecretBox(providerOptions.encryptionKey),
+          policy,
+          new OpenAiChatProbe(policy),
+        )
+      : undefined;
   const corsOptions: FastifyCorsOptionsDelegate = (request, callback) => {
     const trustedOrigin = request.headers.origin === options.webOrigin;
     callback(null, {
@@ -54,6 +72,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   };
   const app = buildApp({
     auth,
+    ...(providers ? { providers } : {}),
     workspaces: new WorkspaceService(new PostgresWorkspaceRepository(pool)),
     readiness,
     setupTokenDigest: options.setupTokenDigest,

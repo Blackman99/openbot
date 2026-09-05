@@ -1,3 +1,5 @@
+import { PERSONAL_MODEL_CONNECTION_STATEMENTS } from '../providers/schema.js';
+
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
   release(): void;
@@ -122,6 +124,11 @@ const MIGRATIONS = [
       "ALTER TABLE workspaces ADD COLUMN description TEXT NOT NULL DEFAULT ''",
       'CREATE INDEX workspace_memberships_user_id_idx ON workspace_memberships(user_id)',
     ],
+    postgresStatements: [],
+  },
+  {
+    version: '0004_personal_model_connections',
+    statements: PERSONAL_MODEL_CONNECTION_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

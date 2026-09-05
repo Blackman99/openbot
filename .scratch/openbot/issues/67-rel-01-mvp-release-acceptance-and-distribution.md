@@ -57,6 +57,11 @@ A clean-instance acceptance suite proves the complete multi-user, multi-model co
 
 This evidence covers the first three tickets only. Each subsequently implemented ticket must retain any unexecuted external gate here, and the complete release acceptance criteria above must still pass against the final integrated revision.
 
+## Open external gate — PROV-01-E1
+
+- [ ] Execute `postgres-providers` with real migration and runtime privilege provisioning; prove encrypted persistence, owner isolation, stale-write rejection, audit-failure rollback, deletion, and forbidden runtime DDL/audit updates.
+- [ ] Keep `postgres-auth` and Compose green on the combined provider revision.
+
 ## Non-goals
 
 - HA or multi-region certification

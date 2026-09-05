@@ -15,11 +15,14 @@ import {
   type SignInInput,
 } from './auth/service.js';
 import type { ReadinessProbe } from './readiness.js';
+import type { ProviderConnections } from './providers/connections.js';
+import { registerProviderRoutes } from './providers/routes.js';
 import { registerWorkspaceRoutes } from './workspaces/routes.js';
 import type { WorkspaceService } from './workspaces/service.js';
 
 export interface BuildAppOptions {
   auth?: AuthService;
+  providers?: ProviderConnections;
   authenticationAttempts?: AuthenticationAttemptLimiter;
   logger?: boolean;
   readiness: ReadinessProbe;
@@ -119,6 +122,7 @@ function sendAuthenticatedSession(
 
 export function buildApp({
   auth,
+  providers,
   authenticationAttempts = new AuthenticationAttemptLimiter(),
   logger = false,
   readiness,
@@ -133,6 +137,7 @@ export function buildApp({
         : {
             redact: [
               'req.headers.cookie',
+              'req.headers.authorization',
               'req.headers["x-openbot-setup-token"]',
               'res.headers["set-cookie"]',
             ],
@@ -152,6 +157,7 @@ export function buildApp({
   });
 
   if (auth) {
+    registerProviderRoutes(app, auth, providers, webOrigin);
     if (workspaces) registerWorkspaceRoutes(app, auth, workspaces, webOrigin);
     const secureSessionCookie = new URL(webOrigin).protocol === 'https:';
     const hasTrustedOrigin = (origin: string | undefined): boolean => origin === webOrigin;

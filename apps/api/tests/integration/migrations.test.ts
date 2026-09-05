@@ -37,6 +37,7 @@ describe('database migrations', () => {
       '0001_bootstrap',
       '0002_local_owner_auth',
       '0003_workspace_settings',
+      '0004_personal_model_connections',
     ]);
 
     const database: DatabaseClient = {
@@ -75,6 +76,7 @@ describe('database migrations', () => {
       'instance_claims',
       'local_credentials',
       'openbot_schema_migrations',
+      'personal_model_connections',
       'sessions',
       'users',
       'workspace_memberships',
@@ -91,7 +93,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0003_workspace_settings' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0004_personal_model_connections' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -127,11 +129,7 @@ describe('database migrations', () => {
         statements.push(statement);
         return statement.startsWith('SELECT version FROM openbot_schema_migrations')
           ? {
-              rows: [
-                { version: '0001_bootstrap' },
-                { version: '0002_local_owner_auth' },
-                { version: '0003_workspace_settings' },
-              ],
+              rows: MIGRATION_VERSIONS.map((version) => ({ version })),
             }
           : { rows: [] };
       },

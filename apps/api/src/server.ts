@@ -1,8 +1,10 @@
 import { readApiConfig } from './config.js';
 import { buildProductionApp } from './runtime.js';
+import { readProviderConfig } from './providers/config.js';
 
 try {
   const config = readApiConfig(process.env);
+  const providers = readProviderConfig(process.env);
   const app = buildProductionApp({
     database: config.database,
     databaseConnectionTimeoutMs: config.databaseConnectionTimeoutMs,
@@ -10,6 +12,7 @@ try {
     logger: true,
     setupTokenDigest: config.setupTokenDigest,
     webOrigin: config.webOrigin,
+    ...(providers ? { providers } : {}),
   });
 
   const shutdown = async (): Promise<void> => {

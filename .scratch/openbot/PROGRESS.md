@@ -26,6 +26,7 @@ Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` pa
 ## Completed implementation
 
 - FND-01, AUTH-01, WS-01 are complete with all original external evidence closed.
+- PROV-01 implementation integrated as `af206cf`; local145 unit/integration +6 browser tests pass. Actual provider PostgreSQL/Compose gate `PROV-01-E1` remains pending in REL-01.
 - Latest published baseline: `ecc586a8d3b528728af2308e247c4c3c4fb75ffa`; equivalent local commit `2ebd76fbdf7df14e09f94168432f7e7dc1a327b4`, tree `376fc917ab281c6e38fe928603a146a32d87027b`.
 - [Verify33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) completed successfully on2026-09-05 at02:17 UTC:119 unit/integration tests,5 browser scenarios,2 real PostgreSQL tests, formatting/types/builds, and all fresh/upgrade/runtime-role/auth/workspace/outage Compose checks.
 - First-publication CI fixes install pnpm before cache initialization, wait for workspace navigation in browser tests, use authenticated TCP for password-rotation checks, and supply the jq identity filter for outage assertions.
@@ -33,11 +34,12 @@ Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` pa
 ## Active frontier
 
 - WS-02: one-time invitations for new and existing users; worktree `.worktrees/ws-02`, migration0005 reserved.
-- PROV-01: resume retained personal OpenAI Chat-compatible connection work in `.worktrees/prov-01`; migration0004 reserved (0003 is workspace settings).
+- PROV-03 and PROV-04 are now unblocked: implement explicit Responses and Anthropic protocols using the PROV-01 handoff seams. Coordinate shared transport/model events; integrate Responses before Anthropic shared glue.
+- PROV-01 is integrated; migration0004 is `personal_model_connections`.
 - AUTH-02 standards/library research is preparatory only until WS-02 merges.
 - Use a separate worktree and ticket branch for each implementation. Merge and verify one completed ticket at a time. Keep API/Web build commands serial within each worktree.
-- E2E ports4399/4173 are serialized by root; PROV-01 has the initial lease. Each real PostgreSQL suite must use its own disposable database.
-- GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch.
+- E2E ports4399/4173 are serialized by root; WS-02 owns the current lease. Each real PostgreSQL suite must use its own disposable database. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
+- GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch; unified draft PR: https://github.com/Blackman99/openbot/pull/1.
 
 ## Integration handoffs
 

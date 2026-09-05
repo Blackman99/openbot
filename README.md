@@ -3,7 +3,8 @@
 OpenBot is an AGPL-licensed, self-hosted multi-bot collaboration system. The current
 implementation includes the deployable foundation, local-owner authentication, and isolated
 workspaces with creation, switching, settings, and audit records: a SvelteKit web app, a Fastify
-API, PostgreSQL migrations, and a Docker Compose development stack.
+API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat-compatible
+model connections support credential-safe settings and live text/action compatibility probes.
 
 The approved implementation backlog lives in
 [`.scratch/openbot/issues/`](.scratch/openbot/issues/README.md).
@@ -49,6 +50,33 @@ schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
 Stop the stack with `docker compose down`. Add `--volumes` only when you intentionally want to
 remove local PostgreSQL data.
 
+## Personal model connections
+
+After signing in, select **Personal models** in the workspace, or open
+<http://localhost:3000/app/settings/models>. Before enabling connections, generate a key with
+`openssl rand -base64 32`, set `OPENBOT_PROVIDER_ENCRYPTION_KEY` in `.env`, and restart the API.
+Preserve that key across restarts and backups; changing it makes existing credentials unreadable.
+An empty key disables connections while the rest of the instance remains available.
+
+`OPENBOT_PROVIDER_ALLOWED_HOSTS` is a comma-separated list of exact endpoint hostnames and defaults
+to `api.openai.com`. Schemes default to HTTPS; opt into HTTP through
+`OPENBOT_PROVIDER_ALLOWED_SCHEMES` only for explicitly trusted local providers. A private address
+also requires its CIDR in `OPENBOT_PROVIDER_PRIVATE_CIDRS`. Every resolved address is checked
+before connecting, DNS answers are pinned for the request, and redirects are rejected. For a
+local provider, allow its hostname, scheme, and private CIDR explicitly.
+
+Create a connection with a name, base URL (for example `https://api.openai.com/v1`), model ID,
+optional API key, and optional custom headers as a JSON object. **Test and save** first probes a
+live text stream and a structured action, then stores timestamped, sanitized evidence. Failed
+text probes save a disabled connection; working text remains usable when structured actions are
+unsupported. Settings allow inspection, editing, retesting, disabling, and deletion. Blank secret
+fields on edit retain existing values; use **Clear saved API key** or `{}` headers to remove them.
+
+API keys and all custom header values use AES-256-GCM encryption with per-save random nonces and
+owner/connection binding. Reads expose only configured markers and header names. Personal
+connections are available exclusively to their owner. The authenticated API is rooted at
+`/api/v1/model-connections`; mutations require the configured web Origin and a session cookie.
+
 ## Local development
 
 Node.js 24 and pnpm 11 are required.
@@ -75,11 +103,18 @@ This runs formatting checks, strict TypeScript and Svelte checks, unit tests, HT
 tests, Playwright coverage for readiness and the local-owner session lifecycle, and production
 builds.
 
-CI additionally runs the real PostgreSQL authentication invariants. With a disposable PostgreSQL
+CI additionally runs the real PostgreSQL authentication and personal-provider invariants. With a disposable PostgreSQL
 database, the same test can be run manually:
 
 ```bash
 TEST_DATABASE_URL=postgresql://openbot:password@localhost:5432/openbot_test \
+  pnpm --filter @openbot/api run test:postgres
+```
+
+Provider persistence and runtime privilege checks use a separate disposable database:
+
+```bash
+TEST_PROVIDER_DATABASE_URL=postgresql://openbot:password@localhost:5432/openbot_providers_test \
   pnpm --filter @openbot/api run test:postgres
 ```
 
