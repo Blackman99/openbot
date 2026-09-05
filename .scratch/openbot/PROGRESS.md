@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** MEM-03 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `9f25a7c`). Ticket 39 ACs are checked against native extract-and-approve, review-inbox confirmation, and Verify [33984665506](https://github.com/Blackman99/openbot/actions/runs/33984665506) (all jobs green). Next: KNW-01; MEM-04 and TPL-01 are ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** MEM-03 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `9f25a7c`, Verify [33984665506](https://github.com/Blackman99/openbot/actions/runs/33984665506)). KNW-01 is in progress: 0028 persists empty scoped-knowledge tables, and `text-line-row-v1` previews TXT/Markdown/JSON/CSV/TSV/source chunks with file version and line or row locators without writing knowledge. Ticket 42 ACs stay unchecked. MEM-04 and TPL-01 are ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Thirty-two of 67 tickets are implemented and independently reviewed: 31 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. KNW-01 remains in progress; MEM-04 and TPL-01 are ready-for-agent; the other blocked tickets remain blocked by their actual implementation dependencies.
 

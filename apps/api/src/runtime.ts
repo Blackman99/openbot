@@ -1,6 +1,7 @@
 import { BotCopyService } from './bots/copy-service.js';
 import { MemoryService } from './memories/service.js';
 import { AttachmentService } from './attachments/service.js';
+import { KnowledgeService } from './knowledge/service.js';
 import { attachmentLimit } from './attachments/types.js';
 import { BotVersionService } from './bots/version-service.js';
 import { TaskService } from './tasks/service.js';
@@ -121,6 +122,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     auth,
     avatars,
     attachments,
+    knowledge: new KnowledgeService(attachments),
     memories: new MemoryService(pool),
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     conversationStreams: new ConversationStreamService(pool),

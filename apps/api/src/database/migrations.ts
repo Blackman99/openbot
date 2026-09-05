@@ -13,6 +13,7 @@ import {
   CANDIDATE_POSTGRES_GUARDS,
 } from '../memories/candidate-schema.js';
 import { REVIEW_SCHEMA_STATEMENTS, REVIEW_POSTGRES_GUARDS } from '../memories/review-schema.js';
+import { KNOWLEDGE_SCHEMA_STATEMENTS, KNOWLEDGE_POSTGRES_GUARDS } from '../knowledge/schema.js';
 import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
@@ -327,6 +328,11 @@ const MIGRATIONS = [
     version: '0027_memory_candidate_review',
     statements: REVIEW_SCHEMA_STATEMENTS,
     postgresStatements: REVIEW_POSTGRES_GUARDS,
+  },
+  {
+    version: '0028_scoped_knowledge',
+    statements: KNOWLEDGE_SCHEMA_STATEMENTS,
+    postgresStatements: KNOWLEDGE_POSTGRES_GUARDS,
   },
 ] as const;
 

@@ -157,6 +157,8 @@ describe('conversation-local attachments', () => {
       'x-content-type-options': 'nosniff',
       'content-disposition': 'attachment; filename="notes.txt"; filename*=UTF-8\'\'notes.txt',
     });
+    expect((await pool.query('SELECT id FROM knowledge_documents')).rows).toEqual([]);
+    expect((await pool.query('SELECT id FROM knowledge_chunks')).rows).toEqual([]);
   });
   it('purges original and registered derivatives, denies reads immediately, and retries unavailable storage after reconstruction', async () => {
     let unavailable = true,

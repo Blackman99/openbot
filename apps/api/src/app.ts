@@ -1,9 +1,11 @@
 import { registerBotCopyRoutes } from './bots/copy-routes.js';
 import type { BotCopyService } from './bots/copy-service.js';
 import { registerAttachmentRoutes } from './attachments/routes.js';
+import { registerKnowledgeRoutes } from './knowledge/routes.js';
 import { registerMemoryRoutes } from './memories/routes.js';
 import type { MemoryService } from './memories/service.js';
 import type { AttachmentService } from './attachments/service.js';
+import type { KnowledgeService } from './knowledge/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
 import type { TaskService } from './tasks/service.js';
@@ -81,6 +83,7 @@ export interface BuildAppOptions {
   botLifecycle?: BotLifecycleService;
   avatars?: BotAvatarService;
   attachments?: AttachmentService;
+  knowledge?: KnowledgeService;
   conversations?: ConversationService;
   botVersions?: BotVersionService;
   botCopies?: BotCopyService;
@@ -181,6 +184,7 @@ export function buildApp({
   botLifecycle,
   avatars,
   attachments,
+  knowledge,
   conversations,
   conversationStreams,
   botVersions,
@@ -239,6 +243,7 @@ export function buildApp({
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (attachments) registerAttachmentRoutes(app, auth, attachments, webOrigin);
+    if (knowledge) registerKnowledgeRoutes(app, auth, knowledge, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
     if (conversationStreams) registerConversationStreamRoutes(app, conversationStreams);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
