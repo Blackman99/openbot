@@ -1,4 +1,6 @@
 export const CONTEXT_BUDGET_BYTES = 1048576;
+// Documented RET-01 drop order. System rules are always kept complete; later
+// kinds are omitted rather than truncated when the shared byte budget is full.
 export const CONTEXT_PRIORITY = ['system', 'memory', 'knowledge', 'ledger'] as const;
 export type ContextKind = (typeof CONTEXT_PRIORITY)[number];
 
@@ -24,18 +26,18 @@ function itemBytes(item: ContextItem): number {
   return Buffer.byteLength(item.content);
 }
 
-function compareItems(left: ContextItem, right: ContextItem): number {
-  const leftRank = CONTEXT_PRIORITY.indexOf(left.kind);
-  const rightRank = CONTEXT_PRIORITY.indexOf(right.kind);
-  if (leftRank !== rightRank) return leftRank - rightRank;
-  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-}
-
 export function assembleRunContext(
   items: readonly ContextItem[],
   budgetBytes = CONTEXT_BUDGET_BYTES,
 ): AssembledContext {
-  const ordered = [...items].sort(compareItems);
+  const ordered = items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const kind =
+        CONTEXT_PRIORITY.indexOf(left.item.kind) - CONTEXT_PRIORITY.indexOf(right.item.kind);
+      return kind !== 0 ? kind : left.index - right.index;
+    })
+    .map(({ item }) => item);
   const selected: ContextItem[] = [];
   const dropped: ContextKind[] = [];
   let bytes = 0;

@@ -43,6 +43,11 @@ import {
   enqueueMemoryExtractionJob,
   persistRunSourceManifest,
 } from '../memories/extraction-jobs.js';
+import {
+  assembleRunContext,
+  CONTEXT_BUDGET_BYTES,
+  type ContextItem,
+} from '../retrieval/assemble.js';
 
 export type TaskFailure =
   | 'execution_forbidden'
@@ -75,6 +80,7 @@ type Candidate = {
   bot_id: string;
   bot_version_id: string;
   group_grant_id: string | null;
+  group_id: string | null;
   trigger_sequence: string | number;
 };
 export interface TaskClaim {
@@ -131,7 +137,7 @@ export class TaskQueue {
   private async candidate(connection: SqlConnection, runId?: string) {
     const rows = (
       await connection.query<Candidate>(
-        `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversation_events e ON e.id=t.trigger_event_id
+        `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,c.group_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN conversation_events e ON e.id=t.trigger_event_id
        WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id`,
         runId ? [runId] : [],
       )
@@ -265,24 +271,46 @@ export class TaskQueue {
       let provider: TaskClaim['provider'];
       let memory: RunMemoryContribution;
       let knowledge: RunKnowledgeContribution;
-      const selectedMessages: Array<{
+      let selectedMessages: Array<{
         id: string;
         creationSequence: number;
         versionEventId: string;
         role: 'user' | 'assistant';
       }> = [];
-      const messages: ModelInput['messages'] = [
+      let messages: ModelInput['messages'] = [
         { role: 'system', content: target.configuration.instructions },
       ];
       try {
         memory = await selectRunMemoryContribution(connection, task.id, this.now);
         knowledge = await selectRunKnowledgeContribution(connection, task.id, this.now);
-        messages.push(...memory.messages, ...knowledge.messages);
+        const items: ContextItem[] = [
+          {
+            kind: 'system',
+            id: 'system',
+            role: 'system',
+            content: target.configuration.instructions,
+          },
+        ];
+        for (const [index, message] of memory.messages.entries())
+          items.push({
+            kind: 'memory',
+            id: `memory-${index}`,
+            role: 'user',
+            content: message.content,
+            ...memoryItemProvenance(message.content, memory, task),
+          });
+        if (knowledge.messages[0])
+          items.push({
+            kind: 'knowledge',
+            id: 'knowledge',
+            role: 'user',
+            content: knowledge.messages[0].content,
+            ...knowledgeItemProvenance(knowledge, task),
+          });
+        const ledger: typeof selectedMessages = [];
         let after = target.lowerBound - 1,
-          bytes =
-            Buffer.byteLength(target.configuration.instructions) + memory.bytes + knowledge.bytes,
-          count = memory.itemCount + knowledge.itemCount;
-        if (bytes > 1048576 || count > 1000) throw new ContextLimitError();
+          scanned = memory.itemCount + knowledge.itemCount;
+        if (scanned > 1000) throw new ContextLimitError();
         while (true) {
           const page = await currentPage(
             connection,
@@ -294,27 +322,46 @@ export class TaskQueue {
             false,
           );
           for (const message of page.messages) {
-            count++;
-            if (count > 1000) throw new ContextLimitError();
+            scanned++;
+            if (scanned > 1000) throw new ContextLimitError();
             if (!message.deleted && message.body) {
-              bytes += Buffer.byteLength(message.body);
-              if (bytes > 1048576) throw new ContextLimitError();
               const role = 'kind' in message.author ? 'assistant' : 'user';
-              selectedMessages.push({
+              ledger.push({
                 id: message.id,
                 creationSequence: message.creationSequence,
                 versionEventId: message.versionEventId,
                 role,
               });
-              messages.push({
+              items.push({
+                kind: 'ledger',
+                id: message.id,
                 role,
                 content: message.body,
+                sourceId: message.versionEventId,
+                version: message.version,
+                locator: `sequence:${message.creationSequence}`,
               });
             }
           }
           if (!page.hasMore) break;
           after = page.messages.at(-1)!.creationSequence;
         }
+        const assembled = assembleRunContext(items);
+        if (assembled.bytes > CONTEXT_BUDGET_BYTES) throw new ContextLimitError();
+        const kept = new Set(assembled.items.map((item) => item.id));
+        const keptKinds = new Set(assembled.items.map((item) => item.kind));
+        messages = [...assembled.messages];
+        selectedMessages = ledger.filter((message) => kept.has(message.id));
+        memory = keptMemoryContribution(memory, assembled.items);
+        knowledge = keptKinds.has('knowledge')
+          ? knowledge
+          : {
+              ...knowledge,
+              messages: Object.freeze([]),
+              references: Object.freeze([]),
+              itemCount: 0,
+              bytes: 0,
+            };
         const binding = await this.selectedBinding(connection, task.id, target.configuration);
         provider = await admitExecutionModel(
           connection,
@@ -608,6 +655,123 @@ export class TaskQueue {
       now: this.now(),
     };
   }
+}
+
+type MemoryKind = RunMemoryContribution['references'][number]['kind'];
+
+function memoryMessageKind(content: string): MemoryKind | undefined {
+  try {
+    const kind = (JSON.parse(content) as { kind?: string }).kind;
+    if (kind === 'group_memories') return 'group';
+    if (kind === 'bot_private_memories') return 'bot-private';
+    if (kind === 'approved_facts') return 'approved-fact';
+  } catch {
+    return undefined;
+  }
+}
+
+function memoryItemProvenance(
+  content: string,
+  contribution: RunMemoryContribution,
+  task: Candidate,
+): Pick<ContextItem, 'sourceId' | 'scope' | 'version' | 'locator'> {
+  const kind = memoryMessageKind(content);
+  const reference = contribution.references.find((item) => item.kind === kind);
+  let version: number | undefined;
+  try {
+    const first = (JSON.parse(content) as { memories?: Array<{ version?: number }> }).memories?.[0];
+    if (typeof first?.version === 'number') version = first.version;
+  } catch {
+    version = undefined;
+  }
+  if (reference?.kind === 'group')
+    return {
+      sourceId: reference.sourceEventId,
+      locator: reference.sourceEventId,
+      ...(task.group_id ? { scope: `group:${task.group_id}` } : {}),
+      ...(version !== undefined ? { version } : {}),
+    };
+  if (reference?.kind === 'bot-private')
+    return {
+      sourceId: reference.sourceEventId,
+      locator: reference.sourceEventId,
+      scope: `bot:${task.bot_id}`,
+      ...(version !== undefined ? { version } : {}),
+    };
+  if (reference?.kind === 'approved-fact')
+    return {
+      sourceId: reference.factId,
+      locator: reference.versionId,
+      scope: `fact:${reference.factId}`,
+      ...(version !== undefined ? { version } : {}),
+    };
+  return version !== undefined ? { version } : {};
+}
+
+function knowledgeItemProvenance(
+  contribution: RunKnowledgeContribution,
+  task: Candidate,
+): Pick<ContextItem, 'sourceId' | 'scope' | 'version' | 'locator'> {
+  const reference = contribution.references[0];
+  if (!reference) return {};
+  let version: number | undefined;
+  let locator = reference.chunkId;
+  try {
+    const chunk = (
+      JSON.parse(contribution.messages[0]!.content) as {
+        chunks?: Array<{
+          fileVersion?: number;
+          locator?: { kind?: string; start?: number; end?: number };
+        }>;
+      }
+    ).chunks?.[0];
+    if (typeof chunk?.fileVersion === 'number') version = chunk.fileVersion;
+    if (
+      chunk?.locator?.kind &&
+      chunk.locator.start !== undefined &&
+      chunk.locator.end !== undefined
+    )
+      locator = `${chunk.locator.kind}:${chunk.locator.start}-${chunk.locator.end}`;
+  } catch {
+    locator = reference.chunkId;
+  }
+  return {
+    sourceId: reference.documentId,
+    locator,
+    scope: `bot:${task.bot_id}`,
+    ...(version !== undefined ? { version } : {}),
+  };
+}
+
+function keptMemoryContribution(
+  contribution: RunMemoryContribution,
+  items: readonly ContextItem[],
+): RunMemoryContribution {
+  const kept = items.filter((item) => item.kind === 'memory');
+  if (!kept.length)
+    return {
+      ...contribution,
+      messages: Object.freeze([]),
+      references: Object.freeze([]),
+      itemCount: 0,
+      bytes: 0,
+    };
+  if (kept.length === contribution.messages.length) return contribution;
+  const contents = new Set(kept.map((item) => item.content));
+  const messages = contribution.messages.filter((message) => contents.has(message.content));
+  const kinds = new Set(
+    messages
+      .map((message) => memoryMessageKind(message.content))
+      .filter((kind) => kind !== undefined),
+  );
+  const references = contribution.references.filter((reference) => kinds.has(reference.kind));
+  return {
+    ...contribution,
+    messages: Object.freeze(messages),
+    references: Object.freeze(references),
+    itemCount: references.length,
+    bytes: messages.reduce((total, message) => total + Buffer.byteLength(message.content), 0),
+  };
 }
 
 function runBinding(run: LockedRun, fallback: BotBinding): BotBinding {

@@ -4,6 +4,7 @@ import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { selectRunMemoryContribution } from '../../src/memories/run-context.js';
 import { memoryFixture } from '../helpers/memory-fixture.js';
+import type { ModelInput } from '../../src/providers/model-events.js';
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -77,7 +78,32 @@ describe('memory contribution limits at the provider boundary', () => {
     } finally {
       connection.release();
     }
-    await noProviderCall(f, task);
+    let sent: ModelInput['messages'] = [];
+    const worker = new TaskWorker(f.pool, {
+      secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+      createAdapter: () => ({
+        generate: async (input) => {
+          sent = input.messages;
+          return {
+            events: [
+              { type: 'text', text: 'Kept the remembered evidence.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          };
+        },
+      }),
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(sent[0]).toEqual({
+      role: 'system',
+      content: 'Instructions visible only with a direct Bot grant.',
+    });
+    expect(sent.some((message) => message.content.includes('group_memories'))).toBe(true);
+    expect(sent.filter((message) => message.content.startsWith('Evidence '))).toEqual([]);
+    expect(
+      await task.tasks.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.task.id),
+    ).toMatchObject({ status: 'completed' });
   }, 15000);
   it('fails a claim with more than 100 eligible saved memories without recording a truncated sent manifest', async () => {
     const f = await memoryFixture(cleanup);

@@ -9,7 +9,7 @@ const system = {
 };
 
 describe('RET-01 context assembler', () => {
-  it('filters nothing after admission and keeps a deterministic kind-then-id order', () => {
+  it('filters nothing after admission and keeps a deterministic kind-then-collection order', () => {
     const ledger = {
       kind: 'ledger' as const,
       id: 'm-2',
@@ -47,21 +47,21 @@ describe('RET-01 context assembler', () => {
       locator: 'lines:1-2',
     };
     const first = assembleRunContext([ledger, knowledge, memoryB, system, memoryA]);
-    const second = assembleRunContext([memoryA, system, ledger, memoryB, knowledge]);
+    const second = assembleRunContext([ledger, knowledge, memoryB, system, memoryA]);
     expect(CONTEXT_PRIORITY).toEqual(['system', 'memory', 'knowledge', 'ledger']);
     expect(first.items.map((item) => item.id)).toEqual([
       'system-1',
-      'mem-a',
       'mem-b',
+      'mem-a',
       'knw-1',
       'm-2',
     ]);
     expect(second.items.map((item) => item.id)).toEqual(first.items.map((item) => item.id));
     expect(first.items[1]).toMatchObject({
-      sourceId: 'src-a',
+      sourceId: 'src-b',
       scope: 'group:1',
-      version: 2,
-      locator: 'event:a',
+      version: 1,
+      locator: 'event:b',
     });
   });
 

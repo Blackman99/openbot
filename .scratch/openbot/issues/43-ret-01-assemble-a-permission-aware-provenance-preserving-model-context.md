@@ -45,4 +45,4 @@ Each Bot run receives a deterministic token-bounded context assembled from only 
 
 ## Discovered implementation dependencies
 
-First slice adds a deterministic assembler with documented priority `system`, `memory`, `knowledge`, then `ledger`. System rules are never truncated or replaced when the byte budget is exceeded; lower-priority kinds are dropped instead. Memory and knowledge items carry source ID, scope, version, and locator. These notes do not change the original acceptance texts, which stay unchecked.
+First slice adds a deterministic assembler with documented priority `system`, `memory`, `knowledge`, then `ledger`. System rules are never truncated or replaced when the byte budget is exceeded; lower-priority kinds are dropped instead. Memory and knowledge items carry source ID, scope, version, and locator. Claim now runs authorization and history-grant selectors before assembly, persists only kept memory/knowledge/ledger locators, and fails only when complete system rules already exceed the shared byte budget. These notes do not change the original acceptance texts, which stay unchecked.
