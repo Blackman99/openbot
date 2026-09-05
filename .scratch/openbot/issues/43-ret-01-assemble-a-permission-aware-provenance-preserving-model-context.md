@@ -2,7 +2,7 @@
 sequence: 43
 id: RET-01
 title: "Assemble a permission-aware, provenance-preserving model context"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - MEM-04
   - KNW-01
@@ -42,3 +42,7 @@ Each Bot run receives a deterministic token-bounded context assembled from only 
 - Required external embedding APIs
 - Cross-Workspace retrieval
 - Automatic source promotion
+
+## Discovered implementation dependencies
+
+First slice adds a deterministic assembler with documented priority `system`, `memory`, `knowledge`, then `ledger`. System rules are never truncated or replaced when the byte budget is exceeded; lower-priority kinds are dropped instead. Memory and knowledge items carry source ID, scope, version, and locator. These notes do not change the original acceptance texts, which stay unchecked.
