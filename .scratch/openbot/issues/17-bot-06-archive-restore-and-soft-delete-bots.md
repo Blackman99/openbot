@@ -2,7 +2,7 @@
 sequence: 17
 id: BOT-06
 title: "Archive, restore, and soft-delete bots"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-03
   - BOT-04
@@ -39,3 +39,7 @@ Bot owners can stop new work, restore archived bots, or place bots in an auditab
 - Physical erasure after retention expires
 - Expiration of data in backups
 - Rewriting authorship in existing history
+
+## Implementation handoff
+
+Follow [BOT-COPY-LIFECYCLE-HANDOFF](../BOT-COPY-LIFECYCLE-HANDOFF.md). BOT-03 is integrated; its remaining native evidence stays explicit in REL-01.

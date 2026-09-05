@@ -1,3 +1,5 @@
+import { registerBotVersionRoutes } from './bots/version-routes.js';
+import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
 import { registerBotAclRoutes } from './bots/acl-routes.js';
 import type { BotAclService } from './bots/acl-service.js';
@@ -56,6 +58,7 @@ export interface BuildAppOptions {
   botAcl?: BotAclService;
   avatars?: BotAvatarService;
   conversations?: ConversationService;
+  botVersions?: BotVersionService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -150,6 +153,7 @@ export function buildApp({
   botAcl,
   avatars,
   conversations,
+  botVersions,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -192,6 +196,7 @@ export function buildApp({
 
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
+    if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);

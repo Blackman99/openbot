@@ -2,7 +2,7 @@
 sequence: 16
 id: BOT-05
 title: "Safely copy a bot configuration"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-03
   - BOT-04
@@ -39,3 +39,7 @@ Authorized users can preview and copy the current configuration into a new priva
 - Cross-workspace template import or export
 - Copying conversation history or memory
 - A public bot marketplace
+
+## Implementation handoff
+
+Follow [BOT-COPY-LIFECYCLE-HANDOFF](../BOT-COPY-LIFECYCLE-HANDOFF.md). BOT-03 is integrated; its remaining native evidence stays explicit in REL-01.

@@ -148,6 +148,7 @@ jobs:
       # Each suite closes its pools before the next one reprovisions the fixed role.
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-acl-runtime.test.ts
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-avatars-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-versions-runtime.test.ts
 
   object-storage:
     needs: code

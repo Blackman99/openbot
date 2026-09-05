@@ -1,17 +1,25 @@
+import { admitBotModel } from './model-binding.js';
+import {
+  applyConfigurationChange,
+  compareConfigurations,
+  readBotVersion,
+  versionObject,
+  versionRationale,
+} from './version-data.js';
 import { randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedBot, botVersion, type BotAccess } from './postgres-bot-access.js';
-import { BotInputError, type BotConfiguration, type BotVersion } from './service.js';
+import { type BotConfiguration, type BotVersion } from './service.js';
 
 export class BotVersionConflictError extends Error {}
 export class BotAvatarUnavailableError extends Error {}
-export interface BotVersionChange {
-  expectedCurrentVersionId: string;
-  changes: { avatarObjectId: string | null };
-  rationale?: string;
-}
+export type BotVersionChange = { expectedCurrentVersionId: string; rationale?: string } & (
+  | { kind?: 'avatar'; changes: { avatarObjectId: string | null } }
+  | { kind: 'configuration'; changes: unknown }
+  | { kind: 'restore'; sourceVersionId: string }
+);
 // Caller owns BEGIN/COMMIT and all related object publication/cleanup writes.
-// BOT-03 extends this allowlisted change, rather than rewinding version pointers.
+// All callers share fresh authority, CAS, admission and immutable audit/reference writes.
 export async function appendBotVersion(
   connection: SqlConnection,
   access: BotAccess,
@@ -20,22 +28,70 @@ export async function appendBotVersion(
 ): Promise<BotVersion> {
   const current = await lockAuthorizedBot(connection, access, 'edit');
   if (current.version_id !== change.expectedCurrentVersionId) throw new BotVersionConflictError();
-  const avatarObjectId = change.changes.avatarObjectId;
-  if ((current.configuration.avatarObjectId ?? null) === avatarObjectId) return botVersion(current);
+  const restored =
+    change.kind === 'restore'
+      ? await readBotVersion(connection, access.botId, change.sourceVersionId)
+      : undefined;
+  const configuration: BotConfiguration = restored
+    ? restored.configuration
+    : change.kind === 'configuration'
+      ? applyConfigurationChange(current.configuration, change.changes)
+      : change.kind !== 'restore'
+        ? { ...current.configuration, avatarObjectId: change.changes.avatarObjectId }
+        : current.configuration;
+  const rationale =
+    versionRationale(change.rationale) ??
+    (restored
+      ? `Restored version ${restored.number}`
+      : change.kind === 'configuration'
+        ? 'Configuration updated'
+        : configuration.avatarObjectId
+          ? 'Avatar updated'
+          : 'Avatar removed');
+  if (
+    restored ||
+    (change.kind === 'configuration' &&
+      versionObject(change.changes) &&
+      'modelBinding' in change.changes)
+  )
+    await admitBotModel(
+      connection,
+      access.actorUserId,
+      access.workspaceId,
+      configuration.modelBinding,
+    );
+  const differences = compareConfigurations(current.configuration, configuration);
+  if (!restored && !differences.length) return botVersion(current);
+  const avatarObjectId = configuration.avatarObjectId;
   if (avatarObjectId) {
     const object = (
-      await connection.query<{ state: string; workspace_id: string }>(
-        'SELECT state,workspace_id FROM avatar_objects WHERE id=$1 FOR UPDATE',
+      await connection.query<{ state: string; workspace_id: string; bot_id: string }>(
+        'SELECT state,workspace_id,bot_id FROM avatar_objects WHERE id=$1 FOR UPDATE',
         [avatarObjectId],
       )
     ).rows[0];
-    if (!object || object.workspace_id !== access.workspaceId || object.state !== 'live')
+    if (
+      !object ||
+      object.workspace_id !== access.workspaceId ||
+      object.bot_id !== access.botId ||
+      object.state !== 'live'
+    )
+      throw new BotAvatarUnavailableError();
+    // Restore may reference only the retained object of the same Bot's source version.
+    // Configuration edits carry the current reference; public patches cannot introduce storage IDs.
+    const sourceVersionId =
+      restored?.id ?? (change.kind === 'configuration' ? current.version_id : undefined);
+    if (
+      sourceVersionId &&
+      !(
+        await connection.query(
+          'SELECT version_id FROM bot_avatar_references WHERE version_id=$1 AND object_id=$2',
+          [sourceVersionId, avatarObjectId],
+        )
+      ).rows[0]
+    )
       throw new BotAvatarUnavailableError();
   }
-  const rationale =
-    change.rationale?.trim() || (avatarObjectId ? 'Avatar updated' : 'Avatar removed');
-  if (rationale.length > 500) throw new BotInputError();
-  const configuration: BotConfiguration = { ...current.configuration, avatarObjectId };
   const id = randomUUID(),
     occurredAt = now(),
     number = current.version + 1;
@@ -69,11 +125,15 @@ export async function appendBotVersion(
         versionId: id,
         previousVersionId: current.version_id,
         version: number,
-        changedFields: ['avatarObjectId'],
+        changedFields: differences.map(({ field }) => field),
+        ...(restored ? { restoredFromVersionId: restored.id } : {}),
       }),
     ],
   );
-  if (current.configuration.avatarObjectId)
+  if (
+    current.configuration.avatarObjectId &&
+    current.configuration.avatarObjectId !== avatarObjectId
+  )
     await connection.query('UPDATE avatar_objects SET cleanup_after=$2 WHERE id=$1', [
       current.configuration.avatarObjectId,
       occurredAt,

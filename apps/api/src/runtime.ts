@@ -1,3 +1,4 @@
+import { BotVersionService } from './bots/version-service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
 import { startAvatarCleanup } from './bots/avatar-cleanup.js';
 import { createObjectStore, type ObjectStorageConfig } from './objects/config.js';
@@ -102,6 +103,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     auth,
     avatars,
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
+    botVersions: new BotVersionService(pool, avatars),
     bots: new BotService(new PostgresBotRepository(pool)),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     groups: new GroupService(new PostgresGroupRepository(pool)),

@@ -2,7 +2,7 @@
 sequence: 13
 id: BOT-02
 title: "Upload and securely display bot avatars"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-01
 labels:
@@ -49,3 +49,7 @@ BOT-02 integrated as `9eb8f89c78afdca995280f2cbbb53784e2901027`, tree `4c1c7aaca
 ## Actual service CI result
 
 BOT-02 Verify33948926135 on remote `1d46acbeafea4df02ecb72b071955bedc68f69cf` completed2026-09-05 at06:09:49 UTC with the object-storage job failing. Code and all four PostgreSQL jobs passed; postgres-bots executed identity8,ACL9,avatar8 cases successfully. Compose passed migration0013, actual Alpine Sharp loading and the private runtime-volume roundtrip/ownership checks plus prior application/outage checks. Real S3 passed five of six cases; the shared concurrent-save case confirmed exactly one successful save and one object-already-exists result, then its following GET failed with safe object_store_unavailable at contract line57. No overwrite assertion failed. BOT-02-E1 remains open; isolated diagnosis is in .worktrees/ci-s3-contract. Do not count the partial S3 run as a passed storage gate.
+
+## Actual service gate closure
+
+BOT-02-E1 closed by [Verify33950565666](https://github.com/Blackman99/openbot/actions/runs/33950565666), all eight jobs successful on remote `6a611f9b0fe78b666fe63ab3c601a376c415fddd`, completed2026-09-05 at06:45:58 UTC. Published tree `065c73a6fe52d5f88cfd2abe520e94fb2d1c9fb2` exactly matches accepted local `3351d411a316652c7d698be1583ffa23d6050da5`, verified by fetch and pinned diff. The object-storage job101264648438 executed all six original real-S3 cases and seven private local-store cases successfully after the connection-pooling correction; temporary diagnostics and automatic retries are absent. The postgres-bots job101264648426 passed identity8,ACL9,avatar8 in three separate commands. Compose job101264648429 passed fresh/upgrade through0014, exact object/reference and conversation grants, actual Alpine Sharp loading, private runtime-volume roundtrip/ownership and all previous application/outage checks. Code and all five PostgreSQL jobs also passed. This closes the avatar release gate on actual services; seventeen tickets are now fully complete.

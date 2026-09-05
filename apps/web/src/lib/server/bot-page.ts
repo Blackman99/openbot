@@ -41,7 +41,11 @@ async function requireWorkspace(context: PageContext, workspaceId: string) {
   if (!workspace) error(403, 'You cannot access this workspace');
   return { user: identity.identity.user, workspace, workspaces: result.value };
 }
-async function modelChoices(context: PageContext, workspaceId: string, userId: string) {
+export async function loadBotModelChoices(
+  context: PageContext,
+  workspaceId: string,
+  userId: string,
+) {
   const session = readSessionCookie(context.cookies)!;
   let rejectedSession = false;
   // The personal provider client predates status/code matching. Track real HTTP 401s here.
@@ -132,7 +136,7 @@ export async function loadBotsPage(context: PageContext, workspaceId: string) {
   return {
     ...page,
     bots: result.value,
-    ...(await modelChoices(context, page.workspace.id, page.user.id)),
+    ...(await loadBotModelChoices(context, page.workspace.id, page.user.id)),
   };
 }
 export async function loadBotPage(context: PageContext, workspaceId: string, botId: string) {

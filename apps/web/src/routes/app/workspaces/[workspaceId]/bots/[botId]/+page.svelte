@@ -20,6 +20,12 @@
     <p><a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/permissions`}>Manage permissions</a></p>
   {/if}
   {#if version}
+    <nav aria-label="Bot versions">
+      <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/versions`}>Version history</a>
+      {#if data.bot.accessRole === 'owner' || data.bot.accessRole === 'editor'}
+        · <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/edit`}>Edit configuration</a>
+      {/if}
+    </nav>
     {#if form && 'avatarError' in form}<p role="alert">{form.avatarError}</p>{/if}
     {#if form && 'avatarMessage' in form}<p role="status">{form.avatarMessage}</p>{/if}
     {#if data.bot.accessRole === 'owner' || data.bot.accessRole === 'editor'}
