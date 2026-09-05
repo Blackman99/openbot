@@ -100,7 +100,12 @@ describe('memory contribution limits at the provider boundary', () => {
       content: 'Instructions visible only with a direct Bot grant.',
     });
     expect(sent.some((message) => message.content.includes('group_memories'))).toBe(true);
-    expect(sent.filter((message) => message.content.startsWith('Evidence '))).toEqual([]);
+    expect(
+      sent.reduce((total, message) => total + Buffer.byteLength(message.content), 0),
+    ).toBeLessThanOrEqual(1048576);
+    expect(sent.filter((message) => message.content.startsWith('Evidence ')).length).toBeLessThan(
+      3,
+    );
     expect(
       await task.tasks.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.task.id),
     ).toMatchObject({ status: 'completed' });

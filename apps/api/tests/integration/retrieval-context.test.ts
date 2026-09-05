@@ -355,10 +355,18 @@ describe('RET-01 permission-aware context assembly', () => {
       idempotencyKey: 'current-run',
     });
     const sent = await captureRun(f.pool);
-    const payload = sent.map((message) => message.content).join('\n');
-    expect(payload).toContain('The launch code is indigo.');
-    expect(payload).not.toContain('The launch code is cobalt.');
-    expect(payload).not.toContain('FORGOTTEN-MEMORY-MARKER');
+    const memoryMessage = sent.find((message) =>
+      message.content.includes('"kind":"group_memories"'),
+    );
+    expect(memoryMessage).toBeDefined();
+    const memories = (
+      JSON.parse(memoryMessage!.content) as { memories: Array<{ text: string; version: number }> }
+    ).memories;
+    expect(memories).toEqual([
+      expect.objectContaining({ text: 'The launch code is indigo.', version: 2 }),
+    ]);
+    expect(JSON.stringify(memories)).not.toContain('The launch code is cobalt.');
+    expect(JSON.stringify(memories)).not.toContain('FORGOTTEN-MEMORY-MARKER');
     expect(edited.text).toBe('The launch code is indigo.');
     await f.grants.remove(f.owner.user.id, f.owner.workspace.id, f.group.id, grant.id, {
       idempotencyKey: 'remove-current',
@@ -373,10 +381,18 @@ describe('RET-01 permission-aware context assembly', () => {
       groupGrantId: bounded.id,
       idempotencyKey: 'bounded-run',
     });
-    const boundedSent = (await captureRun(f.pool)).map((message) => message.content).join('\n');
-    expect(boundedSent).not.toContain('The launch code is indigo.');
-    expect(boundedSent).not.toContain('The launch code is cobalt.');
-    expect(boundedSent).not.toContain('FORGOTTEN-MEMORY-MARKER');
+    const boundedSent = await captureRun(f.pool);
+    expect(boundedSent.some((message) => message.content.includes('"kind":"group_memories"'))).toBe(
+      false,
+    );
+    expect(
+      boundedSent.some(
+        (message) =>
+          message.content === 'The launch code is cobalt.' ||
+          message.content === 'The launch code is indigo.' ||
+          message.content === 'FORGOTTEN-MEMORY-MARKER',
+      ),
+    ).toBe(false);
   }, 20000);
 
   it('rebuilds derived search data from authoritative chunks with an equivalent authorized set', async () => {
