@@ -1,5 +1,10 @@
 import type { ModelAdapter, ProviderProtocol } from './model-events.js';
-import { ModelConnectionProbe, type ConnectionProbe, type ProbeInput } from './model-probe.js';
+import {
+  ModelConnectionProbe,
+  type ConnectionProbe,
+  type ProbeInput,
+  type ProbeAdmission,
+} from './model-probe.js';
 import { OpenAiChatAdapter } from './openai-chat.js';
 import { OpenAiResponsesAdapter } from './openai-responses.js';
 import { AnthropicMessagesAdapter } from './anthropic-messages.js';
@@ -21,10 +26,10 @@ export class ProtocolConnectionProbe implements ConnectionProbe {
     private readonly policy: ProviderUrlPolicy,
     private readonly options: { timeoutMs?: number; clock?: () => Date } = {},
   ) {}
-  run(input: ProbeInput, signal?: AbortSignal) {
+  run(input: ProbeInput, signal?: AbortSignal, beforeRequest?: ProbeAdmission) {
     return new ModelConnectionProbe(
       createModelAdapter(input.protocol ?? 'openai-chat', this.policy, this.options),
       this.options,
-    ).run(input, signal);
+    ).run(input, signal, beforeRequest);
   }
 }

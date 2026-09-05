@@ -60,7 +60,7 @@ Integrated at `84f05b24649ce539025d368847da73bbb1a04422`: 352 unit/integration t
 
 Combined load exposed two test timing assumptions and excessive integration worker concurrency. Startup now validates configuration before dynamically loading runtime dependencies; the real-HTTP deadline regression expires its controlled signal only after headers arrive, while retaining exact production deadline assertions; API integration tests use four workers without increasing timeouts or replacing real Argon2. Root independently reviewed these three narrow changes. Membership BFF header/body-deadline fixes, restricted membership grants and the ordered 0006/0007 ledger are preserved.
 
-`AUTH-02-E1` in REL-01 tracks the actual PostgreSQL and Compose checks still required on the integrated revision.
+`AUTH-02-E1` in REL-01 closed by [Verify33943166881](https://github.com/Blackman99/openbot/actions/runs/33943166881), successful at 2026-09-05 03:57:50 UTC on published commit `20b0618c84dc2a3e2e582bf6e9de10f260e3de3f` (exact tree match to local `8081ae9`). All five jobs passed, including 11 actual authentication/invitation/member/OIDC PostgreSQL tests and the separate deployment-role OIDC test, existing provider PostgreSQL checks and complete Compose checks. The earlier local skip record is historical; real external evidence now closes this ticket gate.
 
 ## Dependency/protocol references
 

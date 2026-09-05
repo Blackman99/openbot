@@ -1,6 +1,10 @@
 import { createServer } from 'node:http';
 import { handleProviderFixture, resetProviderFixture } from './provider-fixture.mjs';
 import {
+  handleWorkspaceProviderFixture,
+  resetWorkspaceProviderFixture,
+} from './workspace-provider-fixture.mjs';
+import {
   handleMemberFixture,
   recordFixtureInvitation,
   recordFixtureMembership,
@@ -35,6 +39,7 @@ function readJson(request, callback) {
 
 function resetAuth() {
   resetProviderFixture();
+  resetWorkspaceProviderFixture();
   resetMemberFixture();
   claimed = false;
   owner = undefined;
@@ -68,6 +73,16 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
+  if (
+    handleWorkspaceProviderFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      memberships,
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
   if (
     handleProviderFixture(request, response, {
       authenticated: sessions.has(readSession(request)),

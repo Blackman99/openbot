@@ -1,4 +1,5 @@
 import type { ModelAdapter, ModelInput, ProviderProtocol } from './model-events.js';
+import { withAbort } from './transport.js';
 import { redactProviderText, type ProviderCredentials } from './secrets.js';
 
 export interface ProbeInput extends ProviderCredentials {
@@ -17,8 +18,13 @@ export interface ProbeReport {
   text: ProbeResult;
   action: ProbeResult;
 }
+export type ProbeAdmission = () => Promise<void>;
 export interface ConnectionProbe {
-  run(input: ProbeInput, signal?: AbortSignal): Promise<ProbeReport>;
+  run(
+    input: ProbeInput,
+    signal?: AbortSignal,
+    beforeRequest?: ProbeAdmission,
+  ): Promise<ProbeReport>;
 }
 
 export class ModelConnectionProbe implements ConnectionProbe {
@@ -26,7 +32,11 @@ export class ModelConnectionProbe implements ConnectionProbe {
     private readonly adapter: ModelAdapter,
     private readonly options: { timeoutMs?: number; clock?: () => Date } = {},
   ) {}
-  async run(input: ProbeInput, signal?: AbortSignal): Promise<ProbeReport> {
+  async run(
+    input: ProbeInput,
+    signal?: AbortSignal,
+    beforeRequest?: ProbeAdmission,
+  ): Promise<ProbeReport> {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -37,6 +47,18 @@ export class ModelConnectionProbe implements ConnectionProbe {
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) controller.abort();
     const runProbe = async (stream: boolean): Promise<ProbeResult> => {
+      const interrupted = (): ProbeResult => ({
+        ok: false,
+        code: timedOut ? 'provider_timeout' : 'provider_cancelled',
+        raw: '',
+      });
+      if (controller.signal.aborted) return interrupted();
+      try {
+        await withAbort(Promise.resolve(beforeRequest?.()), controller.signal);
+      } catch (error) {
+        if (controller.signal.aborted) return interrupted();
+        throw error;
+      }
       const request: ModelInput = {
         ...input,
         maxResponseBytes: 65_536,

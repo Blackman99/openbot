@@ -1,5 +1,8 @@
 import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
-import { PERSONAL_MODEL_CONNECTION_STATEMENTS } from '../providers/schema.js';
+import {
+  PERSONAL_MODEL_CONNECTION_STATEMENTS,
+  WORKSPACE_MODEL_CONNECTION_STATEMENTS,
+} from '../providers/schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -163,6 +166,11 @@ const MIGRATIONS = [
     postgresStatements: [],
   },
   { version: '0007_oidc', statements: OIDC_SCHEMA_STATEMENTS, postgresStatements: [] },
+  {
+    version: '0008_workspace_model_connections',
+    statements: WORKSPACE_MODEL_CONNECTION_STATEMENTS,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

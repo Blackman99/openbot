@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import {
+  credentialContext,
+  personalAccess,
+  sharedView,
+  type ConnectionAccess,
+  type ConnectionAuthority,
+  type ConnectionPermission,
+} from './scope.js';
 import type { ProviderProtocol } from './model-events.js';
-import type { ConnectionProbe, ProbeInput, ProbeReport } from './model-probe.js';
+import type { ConnectionProbe, ProbeInput, ProbeReport, ProbeAdmission } from './model-probe.js';
 import { ProviderSecretBox, redactProviderText } from './secrets.js';
 import { ProviderError, ProviderUrlPolicy } from './url-policy.js';
 
@@ -27,16 +35,25 @@ export interface ConnectionMetadata {
 }
 export interface ConnectionRecord {
   metadata: ConnectionMetadata;
-  ownerId: string;
+  access: ConnectionAccess;
+  canManage: boolean;
   sealedCredentials: string;
   revision: number;
 }
 export interface ProviderRepository {
+  authorize(
+    access: ConnectionAccess,
+    permission: ConnectionPermission,
+  ): Promise<ConnectionAuthority>;
   insert(record: ConnectionRecord): Promise<void>;
-  find(ownerId: string, id: string): Promise<ConnectionRecord | undefined>;
-  list(ownerId: string): Promise<ConnectionRecord[]>;
+  find(
+    access: ConnectionAccess,
+    id: string,
+    permission?: ConnectionPermission,
+  ): Promise<ConnectionRecord | undefined>;
+  list(access: ConnectionAccess): Promise<{ canManage: boolean; records: ConnectionRecord[] }>;
   replace(record: ConnectionRecord, event: string): Promise<boolean>;
-  delete(ownerId: string, id: string): Promise<boolean>;
+  delete(access: ConnectionAccess, id: string): Promise<boolean>;
 }
 
 export function parseConnectionInput(value: unknown): ConnectionInput {
@@ -129,12 +146,44 @@ export class ProviderConnections {
     private readonly secrets: ProviderSecretBox,
     private readonly policy: ProviderUrlPolicy,
     private readonly probe: ConnectionProbe,
+    private readonly workspaceId?: string,
   ) {}
 
+  inWorkspace(workspaceId: string): ProviderConnections {
+    return new ProviderConnections(
+      this.repository,
+      this.secrets,
+      this.policy,
+      this.probe,
+      workspaceId,
+    );
+  }
+  private access(actorUserId: string): ConnectionAccess {
+    return this.workspaceId === undefined
+      ? personalAccess(actorUserId)
+      : { actorUserId, scope: { kind: 'workspace', id: this.workspaceId.toLowerCase() } };
+  }
+  async view(actorUserId: string) {
+    const result = await this.repository.list(this.access(actorUserId));
+    return {
+      canManage: result.canManage,
+      connections: result.records.map((record) => sharedView(record.metadata, result.canManage)),
+    };
+  }
+  async viewOne(actorUserId: string, id: string) {
+    const record = await this.owned(actorUserId, id, 'read');
+    return {
+      canManage: record.canManage,
+      connection: sharedView(record.metadata, record.canManage),
+    };
+  }
+
   async save(ownerId: string, value: unknown, signal?: AbortSignal): Promise<ConnectionMetadata> {
+    const access = this.access(ownerId);
+    await this.repository.authorize(access, 'manage');
     const input = parseConnectionInput(value);
     this.policy.validate(input.baseUrl);
-    const report = await this.runProbe(input, signal);
+    const report = await this.runProbe(input, signal, this.admission(ownerId, 'manage'));
     const id = randomUUID();
     const metadata: ConnectionMetadata = {
       id,
@@ -149,29 +198,36 @@ export class ProviderConnections {
       lastProbe: report,
     };
     await this.repository.insert({
-      ownerId,
+      access,
+      canManage: true,
       metadata,
       revision: 0,
       sealedCredentials: this.secrets.seal(
         { apiKey: input.apiKey, headers: input.headers },
-        `${ownerId}/${id}`,
+        credentialContext(this.access(ownerId).scope, id),
       ),
     });
     return metadata;
   }
 
   async get(ownerId: string, id: string): Promise<ConnectionMetadata> {
-    const record = await this.repository.find(ownerId, id);
+    const record = await this.repository.find(this.access(ownerId), id);
     if (!record) throw new ProviderError('connection_not_found');
     return record.metadata;
   }
 
   async list(ownerId: string): Promise<ConnectionMetadata[]> {
-    return (await this.repository.list(ownerId)).map((record) => record.metadata);
+    return (await this.repository.list(this.access(ownerId))).records.map(
+      (record) => record.metadata,
+    );
   }
 
-  private async owned(ownerId: string, id: string): Promise<ConnectionRecord> {
-    const record = await this.repository.find(ownerId, id);
+  private async owned(
+    ownerId: string,
+    id: string,
+    permission: ConnectionPermission = 'manage',
+  ): Promise<ConnectionRecord> {
+    const record = await this.repository.find(this.access(ownerId), id, permission);
     if (!record) throw new ProviderError('connection_not_found');
     return record;
   }
@@ -185,12 +241,15 @@ export class ProviderConnections {
     const record = await this.owned(ownerId, id);
     if (!value || typeof value !== 'object' || Array.isArray(value))
       throw new ProviderError('invalid_connection');
-    const existing = this.secrets.open(record.sealedCredentials, `${ownerId}/${id}`);
+    const existing = this.secrets.open(
+      record.sealedCredentials,
+      credentialContext(this.access(ownerId).scope, id),
+    );
     const input = parseConnectionInput({ ...record.metadata, ...existing, ...value });
     this.policy.validate(input.baseUrl);
-    const report = await this.runProbe(input, signal);
+    const report = await this.runProbe(input, signal, this.admission(ownerId, 'manage', record));
     const metadata: ConnectionMetadata = {
-      id,
+      id: record.metadata.id,
       protocol: input.protocol,
       ...(input.anthropicVersion === undefined ? {} : { anthropicVersion: input.anthropicVersion }),
       name: input.name,
@@ -203,11 +262,17 @@ export class ProviderConnections {
     };
     const sealedCredentials = this.secrets.seal(
       { apiKey: input.apiKey, headers: input.headers },
-      `${ownerId}/${id}`,
+      credentialContext(this.access(ownerId).scope, id),
     );
     if (
       !(await this.repository.replace(
-        { ownerId, metadata, sealedCredentials, revision: record.revision },
+        {
+          access: this.access(ownerId),
+          canManage: true,
+          metadata,
+          sealedCredentials,
+          revision: record.revision,
+        },
         'provider.connection_updated',
       ))
     )
@@ -216,11 +281,18 @@ export class ProviderConnections {
   }
 
   async test(ownerId: string, id: string, signal?: AbortSignal): Promise<ProbeReport> {
-    const record = await this.owned(ownerId, id);
+    const record = await this.owned(ownerId, id, 'use');
     if (!record.metadata.enabled) throw new ProviderError('connection_disabled');
-    const credentials = this.secrets.open(record.sealedCredentials, `${ownerId}/${id}`);
+    const credentials = this.secrets.open(
+      record.sealedCredentials,
+      credentialContext(this.access(ownerId).scope, id),
+    );
     this.policy.validate(record.metadata.baseUrl);
-    const report = await this.runProbe({ ...record.metadata, ...credentials }, signal);
+    const report = await this.runProbe(
+      { ...record.metadata, ...credentials },
+      signal,
+      this.admission(ownerId, 'use', record),
+    );
     record.metadata.lastProbe = report;
     if (!(await this.repository.replace(record, 'provider.connection_tested')))
       throw new ProviderError('connection_conflict');
@@ -237,13 +309,37 @@ export class ProviderConnections {
 
   async delete(ownerId: string, id: string): Promise<void> {
     await this.owned(ownerId, id);
-    if (!(await this.repository.delete(ownerId, id)))
+    if (!(await this.repository.delete(this.access(ownerId), id)))
       throw new ProviderError('connection_not_found');
   }
 
-  private async runProbe(input: ProbeInput, signal?: AbortSignal): Promise<ProbeReport> {
+  private admission(
+    actorUserId: string,
+    permission: ConnectionPermission,
+    expected?: ConnectionRecord,
+  ): ProbeAdmission | undefined {
+    if (this.workspaceId === undefined) return undefined;
+    return async () => {
+      if (!expected) {
+        await this.repository.authorize(this.access(actorUserId), permission);
+        return;
+      }
+      const current = await this.owned(actorUserId, expected.metadata.id, permission);
+      if (permission === 'use' && !current.metadata.enabled)
+        throw new ProviderError('connection_disabled');
+      if (current.revision !== expected.revision) throw new ProviderError('connection_conflict');
+    };
+  }
+
+  private async runProbe(
+    input: ProbeInput,
+    signal?: AbortSignal,
+    admission?: ProbeAdmission,
+  ): Promise<ProbeReport> {
     if (signal?.aborted) throw new ProviderError('provider_cancelled');
-    const report = await this.probe.run(input, signal);
+    const report = await (admission
+      ? this.probe.run(input, signal, admission)
+      : this.probe.run(input, signal));
     if (signal?.aborted) throw new ProviderError('provider_cancelled');
     if ([report.text.code, report.action.code].includes('provider_url_not_allowed'))
       throw new ProviderError('provider_url_not_allowed');

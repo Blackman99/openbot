@@ -174,6 +174,8 @@ try {
     GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT, UPDATE, DELETE ON personal_model_connections TO openbot_runtime;
+    GRANT SELECT, INSERT ON workspace_model_connections TO openbot_runtime;
+    GRANT UPDATE (metadata, sealed_credentials, revision, updated_at) ON workspace_model_connections TO openbot_runtime;
   `);
   await client.query('COMMIT');
   transactionOpen = false;

@@ -2,7 +2,7 @@
 sequence: 6
 id: AUTH-02
 title: "Sign in or accept invitations through optional OIDC"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - WS-02
 labels:
@@ -42,4 +42,4 @@ An OIDC-enabled instance lets existing users explicitly link identities and invi
 
 See [AUTH-02 verification](../AUTH-02-VERIFICATION.md) for the acceptance evidence, 257 passing local unit/integration checks, 8 passing browser scenarios, and the required external PostgreSQL/Compose release gates. Independent standards and spec reviews are both clean at `80ffeb150123c2b8c76789a3f5cc841b557caf67`. The real PostgreSQL and Compose release gates remain required and unrun locally.
 
-Integrated as `84f05b2` with all 352 unit/integration tests, 9 ordinary browser scenarios, the real signed-IdP browser journey, formatting, types and production builds passing. The three narrow integration fixes received independent root review. `AUTH-02-E1` remains explicit in REL-01 until the real database and Compose jobs pass on this integrated revision.
+Integrated as `84f05b2` with all 352 unit/integration tests, 9 ordinary browser scenarios, the real signed-IdP browser journey, formatting, types and production builds passing. The three narrow integration fixes received independent root review. `AUTH-02-E1` closed by [Verify33943166881](https://github.com/Blackman99/openbot/actions/runs/33943166881), successful on remote `20b0618c84dc2a3e2e582bf6e9de10f260e3de3f` at 2026-09-05 03:57:50 UTC. All five jobs passed, including real OIDC concurrency, rollback and restricted-role checks and the expanded Compose gate.

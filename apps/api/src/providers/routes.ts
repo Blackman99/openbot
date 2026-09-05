@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthService } from '../auth/service.js';
 import { readSessionToken } from '../auth/session-cookie.js';
 import type { ProviderConnections } from './connections.js';
+import { publicProbe } from './scope.js';
 import { ProviderError } from './url-policy.js';
 
 export function registerProviderRoutes(
@@ -53,19 +54,29 @@ export function registerProviderRoutes(
       try {
         return reply
           .code(status)
-          .send(await action(identity.user.id, providers, controller.signal));
+          .send(
+            await action(
+              identity.user.id,
+              'workspaceId' in (request.params as object)
+                ? providers.inWorkspace((request.params as { workspaceId: string }).workspaceId)
+                : providers,
+              controller.signal,
+            ),
+          );
       } catch (error) {
         const code = error instanceof ProviderError ? error.code : 'provider_operation_failed';
         return reply
           .code(
-            code === 'connection_not_found'
-              ? 404
-              : code === 'connection_disabled' || code === 'connection_conflict'
-                ? 409
-                : code === 'provider_operation_failed' ||
-                    code === 'provider_credentials_unavailable'
-                  ? 503
-                  : 400,
+            code === 'workspace_forbidden'
+              ? 403
+              : code === 'connection_not_found'
+                ? 404
+                : code === 'connection_disabled' || code === 'connection_conflict'
+                  ? 409
+                  : code === 'provider_operation_failed' ||
+                      code === 'provider_credentials_unavailable'
+                    ? 503
+                    : 400,
           )
           .send({ error: { code } });
       } finally {
@@ -106,6 +117,49 @@ export function registerProviderRoutes(
         )
           throw new ProviderError('invalid_connection');
         return service.disable(owner, id(request));
+      }),
+    );
+    const workspaceBase = '/api/v1/workspaces/:workspaceId/model-connections';
+    routes.get(workspaceBase, (request, reply) =>
+      run(request, reply, (actor, service) => service.view(actor)),
+    );
+    routes.get(`${workspaceBase}/:id`, (request, reply) =>
+      run(request, reply, (actor, service) => service.viewOne(actor, id(request))),
+    );
+    routes.post(workspaceBase, (request, reply) =>
+      run(
+        request,
+        reply,
+        async (actor, service, signal) => {
+          const connection = await service.save(actor, request.body, signal);
+          return service.viewOne(actor, connection.id);
+        },
+        201,
+      ),
+    );
+    routes.put(`${workspaceBase}/:id`, (request, reply) =>
+      run(request, reply, async (actor, service, signal) => {
+        await service.update(actor, id(request), request.body, signal);
+        return service.viewOne(actor, id(request));
+      }),
+    );
+    routes.patch(`${workspaceBase}/:id`, (request, reply) =>
+      run(request, reply, async (actor, service) => {
+        if (
+          !request.body ||
+          typeof request.body !== 'object' ||
+          Object.keys(request.body).length !== 1 ||
+          (request.body as { enabled: unknown }).enabled !== false
+        )
+          throw new ProviderError('invalid_connection');
+        await service.disable(actor, id(request));
+        return service.viewOne(actor, id(request));
+      }),
+    );
+    routes.post(`${workspaceBase}/:id/test`, (request, reply) =>
+      run(request, reply, async (actor, service, signal) => {
+        if (request.body !== undefined) throw new ProviderError('invalid_connection');
+        return { report: publicProbe(await service.test(actor, id(request), signal)) };
       }),
     );
     routes.delete(`${base}/:id`, (request, reply) =>

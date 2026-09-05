@@ -41,6 +41,7 @@ describe('database migrations', () => {
       '0005_workspace_invitations',
       '0006_workspace_member_provenance',
       '0007_oidc',
+      '0008_workspace_model_connections',
     ]);
 
     const database: DatabaseClient = {
@@ -86,6 +87,7 @@ describe('database migrations', () => {
       'users',
       'workspace_invitations',
       'workspace_memberships',
+      'workspace_model_connections',
       'workspaces',
     ]);
 
@@ -99,7 +101,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0007_oidc' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0008_workspace_model_connections' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -196,6 +198,11 @@ describe('database migrations', () => {
     const pool = new (database.adapters.createPg().Pool)();
     pools.push(pool);
     await migrateDatabase(pool, { installPostgresGuards: false });
+    await pool.query(
+      'ALTER TABLE workspace_model_connections DROP CONSTRAINT workspace_model_connections_pkey',
+    );
+    await pool.query('DROP INDEX workspace_model_connections_workspace_idx');
+    await pool.query('DROP TABLE workspace_model_connections');
     for (const table of ['oidc_transactions', 'oidc_identities']) {
       for (const index of database.public.getTable(table).listIndices()) {
         await pool.query(`DROP INDEX "${index.name}"`);

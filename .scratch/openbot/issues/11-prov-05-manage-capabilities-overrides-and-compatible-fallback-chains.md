@@ -2,7 +2,7 @@
 sequence: 11
 id: PROV-05
 title: "Manage capabilities, overrides, and compatible fallback chains"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - PROV-02
   - PROV-03

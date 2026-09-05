@@ -155,7 +155,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -323,6 +323,15 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_memberships'")"
           test "$membership_update_privileges" = 'created_at:false,invitation_id:false,role:true,user_id:false,workspace_id:false'
+
+          shared_model_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'workspace_model_connections', 'SELECT'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'INSERT'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'UPDATE'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'DELETE'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'TRUNCATE'))")"
+          test "$shared_model_table_privileges" = 't,t,f,f,f'
+          shared_model_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_model_connections', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_model_connections'")"
+          test "$shared_model_update_privileges" = 'created_at:false,id:false,metadata:true,revision:true,sealed_credentials:true,updated_at:true,workspace_id:false'
 
           column_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
