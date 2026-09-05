@@ -88,9 +88,17 @@ Local evidence and independent reviews are recorded in [PROV-03 verification](..
 
 PROV-03-E1 closed by [Verify33941574408](https://github.com/Blackman99/openbot/actions/runs/33941574408), all four jobs successful on remote `8f7e47f50a935cffc849e29c73b48a89d75ee449`, completed on 2026-09-05 at 03:22:16 UTC.
 
-## Open external gate — PROV-04-E1
+## Closed external gate — PROV-04-E1
 
-- [ ] Execute the combined provider PostgreSQL test with both Responses and Anthropic, including persisted Anthropic version metadata and restricted-role storage, ownership, stale revisions and audit rollback.
-- [ ] Keep authentication/invitation PostgreSQL and Compose green on the same integrated revision.
+- [x] Execute the combined provider PostgreSQL test with both Responses and Anthropic, including persisted Anthropic version metadata and restricted-role storage, ownership, stale revisions and audit rollback.
+- [x] Keep authentication/invitation PostgreSQL and Compose green on the same integrated revision.
 
-Local combined verification at `87632a1` passed 249 unit/integration tests and 8 browser scenarios; prior protocol CI does not certify this later change.
+Local combined verification at `87632a1` passed 249 unit/integration tests and 8 browser scenarios. [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) passed all four jobs on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC, closing PROV-04-E1.
+
+## Open external gate — WS-03-E1
+
+- [ ] Execute the real PostgreSQL membership concurrency and rollback tests, including simultaneous last-owner changes and actor rechecks.
+- [ ] Execute the integrated Compose member provenance, role boundaries, last-owner rejection, removal with retained authentication, preserved history and audit checks using the deployed runtime role.
+- [ ] Verify membership DELETE and role-only UPDATE privileges, and the ordered migration ledger through `0006_workspace_member_provenance`.
+
+Integrated revision `faea29a` passed 284 unit/integration tests, 9 browser scenarios, formatting, types and builds. The new deployment smoke was independently reviewed and all 20 workflow shell steps passed syntax checks. Actual PostgreSQL/Compose execution remains required; this explicit exception unlocks local PROV-02, COL-01 and API-01 work.

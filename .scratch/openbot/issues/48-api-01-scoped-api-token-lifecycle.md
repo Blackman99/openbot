@@ -2,7 +2,7 @@
 sequence: 48
 id: API-01
 title: "Scoped API token lifecycle"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - WS-03
 labels:

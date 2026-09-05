@@ -2,7 +2,7 @@
 sequence: 10
 id: PROV-04
 title: "Support Anthropic Messages-compatible models"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - PROV-01
 labels:
@@ -42,4 +42,4 @@ The connection flow supports Anthropic Messages and normalizes text streams, too
 
 Integrated revision `87632a13197e13e5c6433503ddaf3785efe8ccef` passed 249 unit/integration tests, 8 browser scenarios, formatting, types and production builds. Independent specification review was clean on Anthropic candidate `e811f8b`. Standards review found a protocol-switch form-validation issue; a witnessed browser regression and fix `b58ec82` resolved it, and independent standards recheck was clean. Root inspected that narrow follow-up for acceptance-criteria regressions.
 
-The existing shared transport, normalized events and encrypted JSON metadata support Anthropic without a new migration. The real provider runtime test now checks Anthropic version persistence as well as Responses. External gate `PROV-04-E1` remains explicit in REL-01 until the combined PostgreSQL and Compose jobs execute successfully. Detailed evidence is in [PROV-04 verification](../PROV-04-VERIFICATION.md).
+The existing shared transport, normalized events and encrypted JSON metadata support Anthropic without a new migration. The real provider runtime test now checks Anthropic version persistence as well as Responses. External gate `PROV-04-E1` closed under [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC. Code, provider PostgreSQL, authentication/invitation PostgreSQL, and Compose all passed. Detailed evidence is in [PROV-04 verification](../PROV-04-VERIFICATION.md).

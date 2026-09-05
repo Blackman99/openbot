@@ -40,14 +40,17 @@ PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenar
 ## Active frontier
 
 - WS-03: workspace member roles, invitation provenance and session identity independent of membership; worktree `.worktrees/ws-03`, migration0006 reserved if required.
-- AUTH-02: optional OIDC sign-in, explicit linking and invitation-only registration; prep complete, integrated WS-02 baseline available; migration0007 reserved if required.
-- PROV-04 integrated as `87632a1`: 249 unit/integration tests and 8 browser scenarios, formatting, types and builds pass. Both independent reviews completed; the standards P3 protocol-switch issue was fixed and rechecked at `b58ec82`. Actual PostgreSQL/Compose gate `PROV-04-E1` awaits CI.
-- WS-03 reviewed candidate `4ac4fbc` passed 221 tests and 8 browser scenarios; both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. Integrate next, then unlock PROV-02, COL-01 and API-01.
-- PROV-02 is being prepared read-only until the WS-03 integration baseline is available.
+- AUTH-02: optional OIDC sign-in, explicit linking and invitation-only registration; candidate `80ffeb1` passed 257 tests and 8 browser scenarios including real Fastify and a signed mock IdP; both independent reviews are clean. Final candidate `936641e` is ready for integration by cherry-picking `8d2b727`, `80ffeb1`, `936641e` only; migration0007 follows the integrated0006.
+- PROV-04 integrated as `87632a1`: 249 unit/integration tests and 8 browser scenarios, formatting, types and builds pass. Both independent reviews completed; the standards P3 protocol-switch issue was fixed and rechecked at `b58ec82`. Actual PostgreSQL/Compose gate `PROV-04-E1` closed by all-green [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC.
+- WS-03 integrated as `faea29a`: 284 tests and 9 browser scenarios, formatting, types and builds pass. Both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. WS-03-E1 is explicit in REL-01; actual PostgreSQL/Compose remains pending. PROV-02, COL-01 and API-01 are now unblocked.
+- PROV-02: shared workspace model connections; isolated worktree `.worktrees/prov-02`, provisional migration0008.
+- COL-01: private/workspace-visible group lifecycle and human memberships; worktree `.worktrees/col-01`, provisional migration0009.
+- API-01: scoped token lifecycle and public `/v1/me`; worktree `.worktrees/api-01`, provisional migration0010.
+- Only unpublished migrations may be renumbered during integration if completion order requires it. Never insert an earlier migration into a deployed ledger.
 - PROV-01 is integrated; migration0004 is `personal_model_connections`.
 - WS-02 is integrated; migration0005 is `workspace_invitations`. AUTH-02 research and transaction handoff are in `OIDC-NOTES.md` and the WS-02 ticket.
 - Use a separate worktree and ticket branch for each implementation. Merge and verify one completed ticket at a time. Keep API/Web build commands serial within each worktree.
-- E2E ports4399/4173 are serialized by root; AUTH-02 owns the current browser lease. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
+- E2E ports4399/4173 are serialized by root; No browser lease is currently held; request root before use. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
 - GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch; unified draft PR: https://github.com/Blackman99/openbot/pull/1.
 
 ## Integration handoffs

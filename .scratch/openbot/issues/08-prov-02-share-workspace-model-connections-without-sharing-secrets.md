@@ -2,7 +2,7 @@
 sequence: 8
 id: PROV-02
 title: "Share workspace model connections without sharing secrets"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - PROV-01
   - WS-03

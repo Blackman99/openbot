@@ -249,4 +249,27 @@ describe('local authentication service', () => {
     expect(audits.rows).toEqual([{ actor_user_id: ids[0], metadata: {} }]);
     expect(JSON.stringify(audits.rows)).not.toMatch(/cookie|secret|session|token/iu);
   });
+  it('keeps sessions and password sign-in valid after losing the final workspace membership', async () => {
+    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const pool = new (memoryDatabase.adapters.createPg().Pool)();
+    pools.push(pool);
+    await migrateDatabase(pool, { installPostgresGuards: false });
+    const auth = new LocalAuthService(new PostgresAuthRepository(pool), {
+      hashPassword: async () => '$argon2id$test-only',
+      verifyPassword: async () => true,
+    });
+    const owner = await auth.setup({
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      password: 'correct horse battery staple',
+    });
+    await pool.query('DELETE FROM workspace_memberships WHERE user_id = $1', [owner.user.id]);
+    await expect(auth.getSession(owner.sessionToken)).resolves.toEqual({
+      user: owner.user,
+      workspace: null,
+    });
+    await expect(
+      auth.signIn({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    ).resolves.toMatchObject({ user: owner.user, workspace: null });
+  });
 });

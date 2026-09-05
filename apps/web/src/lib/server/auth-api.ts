@@ -9,7 +9,7 @@ export interface AuthIdentity {
   workspace: {
     id: string;
     name: string;
-  };
+  } | null;
 }
 
 export interface SessionCookie {
@@ -74,22 +74,23 @@ export function parseIdentity(value: unknown): AuthIdentity | undefined {
     !hasOnlyKeys(value.user, ['displayName', 'email', 'id']) ||
     typeof value.user.displayName !== 'string' ||
     typeof value.user.email !== 'string' ||
-    typeof value.user.id !== 'string' ||
-    !isRecord(value.workspace) ||
-    !hasOnlyKeys(value.workspace, ['id', 'name']) ||
-    typeof value.workspace.id !== 'string' ||
-    typeof value.workspace.name !== 'string'
-  ) {
+    typeof value.user.id !== 'string'
+  )
     return undefined;
+  let workspace: AuthIdentity['workspace'] = null;
+  if (value.workspace !== null) {
+    if (
+      !isRecord(value.workspace) ||
+      !hasOnlyKeys(value.workspace, ['id', 'name']) ||
+      typeof value.workspace.id !== 'string' ||
+      typeof value.workspace.name !== 'string'
+    )
+      return undefined;
+    workspace = { id: value.workspace.id, name: value.workspace.name };
   }
-
   return {
-    user: {
-      displayName: value.user.displayName,
-      email: value.user.email,
-      id: value.user.id,
-    },
-    workspace: { id: value.workspace.id, name: value.workspace.name },
+    user: { displayName: value.user.displayName, email: value.user.email, id: value.user.id },
+    workspace,
   };
 }
 

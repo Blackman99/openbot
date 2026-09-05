@@ -31,12 +31,16 @@ export interface AuthenticatedSession {
   expiresAt: Date;
   sessionToken: string;
   user: AuthenticatedUser;
+  workspace: AuthenticatedWorkspace | null;
+}
+
+export interface AuthenticatedOwnerSession extends AuthenticatedSession {
   workspace: AuthenticatedWorkspace;
 }
 
 export interface SessionIdentity {
   user: AuthenticatedUser;
-  workspace: AuthenticatedWorkspace;
+  workspace: AuthenticatedWorkspace | null;
 }
 
 export interface AuthService {
@@ -44,7 +48,7 @@ export interface AuthService {
   isClaimed(): Promise<boolean>;
   signIn(input: SignInInput): Promise<AuthenticatedSession>;
   signOut(sessionToken: string): Promise<boolean>;
-  setup(input: SetupInput): Promise<AuthenticatedSession>;
+  setup(input: SetupInput): Promise<AuthenticatedOwnerSession>;
 }
 
 export class InvalidCredentialsError extends Error {
@@ -113,7 +117,7 @@ export class LocalAuthService implements AuthService {
     };
   }
 
-  async setup(rawInput: SetupInput): Promise<AuthenticatedSession> {
+  async setup(rawInput: SetupInput): Promise<AuthenticatedOwnerSession> {
     const input = normalizeSetupInput(rawInput);
     if (await this.repository.isClaimed()) {
       throw new InstanceAlreadyClaimedError();
@@ -193,7 +197,10 @@ export class LocalAuthService implements AuthService {
         email: credential.userEmail,
         id: credential.userId,
       },
-      workspace: { id: credential.workspaceId, name: credential.workspaceName },
+      workspace:
+        credential.workspaceId !== null && credential.workspaceName !== null
+          ? { id: credential.workspaceId, name: credential.workspaceName }
+          : null,
     };
   }
 
@@ -212,7 +219,10 @@ export class LocalAuthService implements AuthService {
         email: session.userEmail,
         id: session.userId,
       },
-      workspace: { id: session.workspaceId, name: session.workspaceName },
+      workspace:
+        session.workspaceId !== null && session.workspaceName !== null
+          ? { id: session.workspaceId, name: session.workspaceName }
+          : null,
     };
   }
 

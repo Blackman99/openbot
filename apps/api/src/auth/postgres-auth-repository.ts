@@ -142,8 +142,8 @@ export class PostgresAuthRepository implements AuthRepository {
         user_display_name: string;
         user_email: string;
         user_id: string;
-        workspace_id: string;
-        workspace_name: string;
+        workspace_id: string | null;
+        workspace_name: string | null;
       }>(
         `
           SELECT
@@ -155,8 +155,8 @@ export class PostgresAuthRepository implements AuthRepository {
             workspaces.name AS workspace_name
           FROM users
           INNER JOIN local_credentials AS credentials ON credentials.user_id = users.id
-          INNER JOIN workspace_memberships AS memberships ON memberships.user_id = users.id
-          INNER JOIN workspaces ON workspaces.id = memberships.workspace_id
+          LEFT JOIN workspace_memberships AS memberships ON memberships.user_id = users.id
+          LEFT JOIN workspaces ON workspaces.id = memberships.workspace_id
           WHERE users.normalized_email = $1
           ORDER BY memberships.created_at, workspaces.id
           LIMIT 1
@@ -215,8 +215,8 @@ export class PostgresAuthRepository implements AuthRepository {
         user_display_name: string;
         user_email: string;
         user_id: string;
-        workspace_id: string;
-        workspace_name: string;
+        workspace_id: string | null;
+        workspace_name: string | null;
       }>(
         `
           SELECT
@@ -227,8 +227,8 @@ export class PostgresAuthRepository implements AuthRepository {
             workspaces.name AS workspace_name
           FROM sessions
           INNER JOIN users ON users.id = sessions.user_id
-          INNER JOIN workspace_memberships AS memberships ON memberships.user_id = users.id
-          INNER JOIN workspaces ON workspaces.id = memberships.workspace_id
+          LEFT JOIN workspace_memberships AS memberships ON memberships.user_id = users.id
+          LEFT JOIN workspaces ON workspaces.id = memberships.workspace_id
           WHERE sessions.token_digest = $1
             AND sessions.revoked_at IS NULL
             AND sessions.expires_at > $2

@@ -2,7 +2,7 @@
 sequence: 18
 id: COL-01
 title: "Add group lifecycle and human membership"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - WS-03
 labels:

@@ -125,7 +125,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -287,7 +287,12 @@ jobs:
           application_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('instance_claims'), ('local_credentials'), ('sessions'), ('users'), ('workspace_memberships'), ('workspaces')) AS application_tables(table_name)")"
-          test "$application_table_privileges" = 'instance_claims:t,t,f,f,f;local_credentials:t,t,f,f,f;sessions:t,t,f,f,f;users:t,t,f,f,f;workspace_memberships:t,t,f,f,f;workspaces:t,t,f,f,f'
+          test "$application_table_privileges" = 'instance_claims:t,t,f,f,f;local_credentials:t,t,f,f,f;sessions:t,t,f,f,f;users:t,t,f,f,f;workspace_memberships:t,t,f,t,f;workspaces:t,t,f,f,f'
+
+          membership_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_memberships'")"
+          test "$membership_update_privileges" = 'created_at:false,invitation_id:false,role:true,user_id:false,workspace_id:false'
 
           column_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -528,6 +533,98 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'invitation.%' AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com|revoked@example.com)'")"
           test "$unsafe_invitation_audits" = '0'
+      - name: Verify member roles and access removal with the restricted runtime role
+        run: |
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            http://localhost:3001/api/v1/me > /tmp/openbot-owner-me.json
+          curl --fail --silent --show-error --cookie /tmp/openbot-invitee-cookies.txt \
+            http://localhost:3001/api/v1/me > /tmp/openbot-member-me.json
+          owner_id="$(jq --raw-output '.user.id' /tmp/openbot-owner-me.json)"
+          member_id="$(jq --raw-output '.user.id' /tmp/openbot-member-me.json)"
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-member-me.json)"
+          invitation_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation.json)"
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members" > /tmp/openbot-members.json
+          jq --exit-status --arg user "$member_id" --arg inviter "$owner_id" --arg invitation "$invitation_id" \
+            'any(.members[]; .user.id == $user and .role == "member" and .invitation.id == $invitation and .invitation.invitedBy.id == $inviter)' \
+            /tmp/openbot-members.json >/dev/null
+
+          promote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-promoted.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"administrator"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$promote_code" = '200'
+          test "$(jq --raw-output '.member.role' /tmp/openbot-member-promoted.json)" = 'administrator'
+          escalation_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-escalation.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-invitee-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"owner"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$escalation_code" = '403'
+          owner_attack_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-owner-attack.json --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-invitee-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$owner_attack_code" = '403'
+
+          last_owner_demote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-last-owner-demote.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"member"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$last_owner_demote_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-last-owner-demote.json)" = 'last_owner_required'
+          last_owner_remove_code="$(curl --silent --show-error \
+            --output /tmp/openbot-last-owner-remove.json --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$last_owner_remove_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-last-owner-remove.json)" = 'last_owner_required'
+
+          demote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-demoted.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"member"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$demote_code" = '200'
+          test "$(jq --raw-output '.member.role' /tmp/openbot-member-demoted.json)" = 'member'
+          remove_code="$(curl --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$remove_code" = '204'
+          retained_session_code="$(curl --silent --show-error \
+            --output /tmp/openbot-removed-member-me.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-invitee-cookies.txt http://localhost:3001/api/v1/me)"
+          test "$retained_session_code" = '200'
+          jq --exit-status --arg user "$member_id" '.user.id == $user and .workspace == null' \
+            /tmp/openbot-removed-member-me.json >/dev/null
+          for suffix in '' /members /invitations; do
+            test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --cookie /tmp/openbot-invitee-cookies.txt \
+              "http://localhost:3001/api/v1/workspaces/$workspace_id$suffix")" = '403'
+          done
+
+          retained_member_state="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', (SELECT COUNT(*) FROM workspace_memberships WHERE user_id = '$member_id'), (SELECT COUNT(*) FROM users WHERE id = '$member_id'), (SELECT COUNT(*) FROM local_credentials WHERE user_id = '$member_id'), (SELECT COUNT(*) FROM sessions WHERE user_id = '$member_id' AND revoked_at IS NULL AND expires_at > NOW()), (SELECT COUNT(*) FROM workspace_invitations WHERE id = '$invitation_id' AND consumed_by_user_id = '$member_id' AND consumed_at IS NOT NULL), (SELECT COUNT(*) FROM audit_events WHERE event_type = 'invitation.accepted' AND actor_user_id = '$member_id'))")"
+          test "$retained_member_state" = '0,1,1,1,1,1'
+          member_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE event_type IN ('workspace.member_removed', 'workspace.member_role_changed')")"
+          test "$member_audits" = 'workspace.member_removed,workspace.member_role_changed,workspace.member_role_changed'
+          unsafe_member_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE event_type IN ('workspace.member_removed', 'workspace.member_role_changed') AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com)'")"
+          test "$unsafe_member_audits" = '0'
       - name: Verify the real unavailable state after database outage
         run: |
           docker compose stop postgres

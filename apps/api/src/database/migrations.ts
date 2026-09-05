@@ -153,6 +153,14 @@ const MIGRATIONS = [
     ],
     postgresStatements: [],
   },
+  {
+    version: '0006_workspace_member_provenance',
+    statements: [
+      'ALTER TABLE workspace_memberships ADD COLUMN invitation_id UUID REFERENCES workspace_invitations(id)',
+      `UPDATE workspace_memberships SET invitation_id = workspace_invitations.id FROM workspace_invitations WHERE workspace_invitations.workspace_id = workspace_memberships.workspace_id AND workspace_invitations.consumed_by_user_id = workspace_memberships.user_id AND workspace_invitations.consumed_at = workspace_memberships.created_at`,
+    ],
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

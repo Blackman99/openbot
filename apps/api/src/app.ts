@@ -16,6 +16,8 @@ import {
 } from './auth/service.js';
 import { registerInvitationRoutes } from './invitations/routes.js';
 import type { InvitationService } from './invitations/service.js';
+import { registerWorkspaceMemberRoutes } from './members/routes.js';
+import type { WorkspaceMemberService } from './members/service.js';
 import type { ReadinessProbe } from './readiness.js';
 import type { ProviderConnections } from './providers/connections.js';
 import { registerProviderRoutes } from './providers/routes.js';
@@ -32,6 +34,7 @@ export interface BuildAppOptions {
   setupTokenDigest?: string;
   webOrigin?: string;
   workspaces?: WorkspaceService;
+  members?: WorkspaceMemberService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -118,6 +121,7 @@ export function buildApp({
   setupTokenDigest,
   webOrigin = 'http://localhost:3000',
   workspaces,
+  members,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -146,6 +150,7 @@ export function buildApp({
   });
 
   if (auth) {
+    if (members) registerWorkspaceMemberRoutes(app, auth, members, webOrigin);
     registerProviderRoutes(app, auth, providers, webOrigin);
     if (invitations) registerInvitationRoutes(app, auth, invitations, webOrigin);
     if (workspaces) registerWorkspaceRoutes(app, auth, workspaces, webOrigin);

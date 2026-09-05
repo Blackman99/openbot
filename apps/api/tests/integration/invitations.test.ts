@@ -527,7 +527,7 @@ describe('one-time workspace invitations', () => {
       'x-workspace-role': 'owner',
     };
     const listed = await app.inject({ url: privatePath, headers: graceHeaders });
-    expect(listed.statusCode).toBe(404);
+    expect(listed.statusCode).toBe(403);
     expect(listed.body).not.toContain('private@example.com');
     expect(
       (
@@ -537,7 +537,7 @@ describe('one-time workspace invitations', () => {
           headers: graceHeaders,
         })
       ).statusCode,
-    ).toBe(404);
+    ).toBe(403);
     expect(
       (await app.inject({ url: privatePath, headers })).json().invitations[0].revokedAt,
     ).toBeNull();

@@ -21,6 +21,7 @@ export type InvitationResult<T> =
   | { status: 'available'; value: T }
   | { status: 'rate-limited'; retryAfterSeconds?: number }
   | { status: 'anonymous' | 'forbidden' | 'not-found' | 'invalid' | 'conflict' | 'unavailable' };
+type InvitationResponse = { status: number; headers: Headers; payload: unknown };
 export interface CreateInvitationInput {
   email: string;
   role: 'member' | 'administrator';
@@ -79,7 +80,7 @@ export class InvitationApiClient {
       { method: 'POST', body: JSON.stringify(input) },
     );
     if (result.status !== 'available') return result;
-    const payload: unknown = await result.value.json().catch(() => undefined);
+    const payload = result.value.payload;
     const invitation =
       isRecord(payload) && Object.keys(payload).sort().join(',') === 'invitation,token'
         ? parseInvitation(payload.invitation)
@@ -101,7 +102,7 @@ export class InvitationApiClient {
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/invitations`,
     );
     if (result.status !== 'available') return result;
-    const payload: unknown = await result.value.json().catch(() => undefined);
+    const payload = result.value.payload;
     if (
       !isRecord(payload) ||
       Object.keys(payload).join(',') !== 'invitations' ||
@@ -134,7 +135,12 @@ export class InvitationApiClient {
   async accept(
     session: string | undefined,
     input: { token: string; email?: string; displayName?: string; password?: string },
-  ): Promise<InvitationResult<{ identity: AuthIdentity; cookie?: SessionCookie }>> {
+  ): Promise<
+    InvitationResult<{
+      identity: AuthIdentity & { workspace: NonNullable<AuthIdentity['workspace']> };
+      cookie?: SessionCookie;
+    }>
+  > {
     if (!tokenPattern.test(input.token)) return { status: 'conflict' };
     const result = await this.send(
       session,
@@ -143,17 +149,18 @@ export class InvitationApiClient {
       true,
     );
     if (result.status !== 'available') return result;
-    const identity = parseIdentity(await result.value.json().catch(() => undefined));
-    if (!identity || !/^[A-Za-z0-9_-]+$/u.test(identity.workspace.id))
+    const identity = parseIdentity(result.value.payload);
+    if (!identity || !identity.workspace || !/^[A-Za-z0-9_-]+$/u.test(identity.workspace.id))
       return { status: 'unavailable' };
+    const workspaceIdentity = { user: identity.user, workspace: identity.workspace };
     if (result.value.status === 200 && session && !result.value.headers.has('set-cookie'))
-      return { status: 'available', value: { identity } };
+      return { status: 'available', value: { identity: workspaceIdentity } };
     const cookie = parseSessionCookie(
       result.value.headers.get('set-cookie'),
       new URL(this.webOrigin).protocol === 'https:',
     );
     return result.value.status === 201 && !session && cookie
-      ? { status: 'available', value: { identity, cookie } }
+      ? { status: 'available', value: { identity: workspaceIdentity, cookie } }
       : { status: 'unavailable' };
   }
   private async send(
@@ -161,7 +168,7 @@ export class InvitationApiClient {
     path: string,
     init: RequestInit = {},
     allowAnonymous = false,
-  ): Promise<InvitationResult<Response>> {
+  ): Promise<InvitationResult<InvitationResponse>> {
     if ((!session && !allowAnonymous) || (session && !tokenPattern.test(session)))
       return { status: 'anonymous' };
     const controller = new AbortController();
@@ -170,7 +177,7 @@ export class InvitationApiClient {
       const response = await this.request(`${this.baseUrl.replace(/\/$/u, '')}${path}`, {
         ...init,
         headers: {
-          'content-type': 'application/json',
+          ...(init.body ? { 'content-type': 'application/json' } : {}),
           origin: new URL(this.webOrigin).origin,
           ...(session ? { cookie: `${SESSION_COOKIE_NAME}=${encodeURIComponent(session)}` } : {}),
         },
@@ -187,7 +194,12 @@ export class InvitationApiClient {
           ? { status: 'rate-limited' }
           : { status: 'rate-limited', retryAfterSeconds };
       }
-      return response.ok ? { status: 'available', value: response } : { status: 'unavailable' };
+      if (!response.ok) return { status: 'unavailable' };
+      const payload: unknown = response.status === 204 ? undefined : await response.json();
+      return {
+        status: 'available',
+        value: { status: response.status, headers: response.headers, payload },
+      };
     } catch {
       return { status: 'unavailable' };
     } finally {

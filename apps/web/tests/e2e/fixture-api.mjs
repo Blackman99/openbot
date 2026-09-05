@@ -1,5 +1,11 @@
 import { createServer } from 'node:http';
 import { handleProviderFixture, resetProviderFixture } from './provider-fixture.mjs';
+import {
+  handleMemberFixture,
+  recordFixtureInvitation,
+  recordFixtureMembership,
+  resetMemberFixture,
+} from './member-fixture.mjs';
 
 let scenario = 'ready';
 let claimed = false;
@@ -29,6 +35,7 @@ function readJson(request, callback) {
 
 function resetAuth() {
   resetProviderFixture();
+  resetMemberFixture();
   claimed = false;
   owner = undefined;
   password = undefined;
@@ -57,13 +64,24 @@ function userWorkspaces(user) {
     .map((workspace) => ({ ...workspace, role: memberships.get(workspace.id).get(user.id) }));
 }
 function identity(user = owner, workspace = userWorkspaces(user)[0]) {
-  return { user, workspace: { id: workspace.id, name: workspace.name } };
+  return { user, workspace: workspace ? { id: workspace.id, name: workspace.name } : null };
 }
 
 const server = createServer((request, response) => {
   if (
     handleProviderFixture(request, response, {
       authenticated: sessions.has(readSession(request)),
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
+  if (
+    handleMemberFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      users,
+      memberships,
       readJson,
       sendJson,
       trustedOrigin,
@@ -127,6 +145,7 @@ const server = createServer((request, response) => {
       password = input.password;
       users.set(owner.email, { user: owner, password });
       memberships.set('workspace-id', new Map([[owner.id, 'owner']]));
+      recordFixtureMembership('workspace-id', owner.id);
       workspaces.set('workspace-id', {
         id: 'workspace-id',
         name: 'My Workspace',
@@ -240,6 +259,7 @@ const server = createServer((request, response) => {
         return;
       }
       memberships.get(record.workspaceId).set(user.id, record.role);
+      recordFixtureMembership(record.workspaceId, user.id, record.id);
       record.consumedAt = new Date().toISOString();
       const headers = newUser
         ? {
@@ -295,6 +315,7 @@ const server = createServer((request, response) => {
           consumedAt: null,
         };
         invitations.set(token, invitation);
+        recordFixtureInvitation(invitation.id, user);
         sendJson(response, 201, { invitation, token });
       });
       return;
@@ -322,6 +343,13 @@ const server = createServer((request, response) => {
       sendJson(response, 200, { workspaces: userWorkspaces(sessions.get(token)) });
       return;
     }
+    if (request.method === 'GET') {
+      const id = request.url.split('/').at(-1);
+      const role = memberships.get(id)?.get(sessions.get(token).id);
+      if (!role) sendJson(response, 403, { error: { code: 'workspace_forbidden' } });
+      else sendJson(response, 200, { workspace: { ...workspaces.get(id), role } });
+      return;
+    }
     if (request.headers.origin !== trustedOrigin) {
       sendJson(response, 403, { error: { code: 'invalid_origin' } });
       return;
@@ -332,6 +360,7 @@ const server = createServer((request, response) => {
         const workspace = { id, name, description, role: 'owner' };
         workspaces.set(id, workspace);
         memberships.set(id, new Map([[sessions.get(token).id, 'owner']]));
+        recordFixtureMembership(id, sessions.get(token).id);
         sendJson(response, 201, { workspace });
       });
       return;

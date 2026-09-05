@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
-import { LocalAuthService, type AuthenticatedSession } from '../../src/auth/service.js';
+import { LocalAuthService, type AuthenticatedOwnerSession } from '../../src/auth/service.js';
 import { migrateDatabase } from '../../src/database/migrations.js';
 import { PostgresInvitationRepository } from '../../src/invitations/postgres-invitation-repository.js';
 import { InvitationService, invitationDigest } from '../../src/invitations/service.js';
@@ -25,7 +25,7 @@ postgresDescribe('real PostgreSQL invitation transactions', () => {
     () => new Date(),
     async () => '$argon2id$ci-fixture',
   );
-  let owner: AuthenticatedSession;
+  let owner: AuthenticatedOwnerSession;
 
   beforeAll(async () => {
     await admin.query(`CREATE SCHEMA ${schema}`);

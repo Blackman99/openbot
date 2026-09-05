@@ -32,7 +32,7 @@ export class PostgresInvitationRepository implements InvitationRepository {
       'SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
       [workspaceId, userId],
     );
-    if (!membership.rows[0]) throw new InvitationWorkspaceError();
+    if (!membership.rows[0]) throw new InvitationAccessError();
     if (!['owner', 'administrator'].includes(membership.rows[0].role))
       throw new InvitationAccessError();
   }
@@ -126,8 +126,8 @@ export class PostgresInvitationRepository implements InvitationRepository {
       );
       if (member.rows[0]) throw new InvitationUnavailableError();
       await connection.query(
-        'INSERT INTO workspace_memberships (workspace_id,user_id,role,created_at) VALUES ($1,$2,$3,$4)',
-        [workspace.id, user.id, invitation.role, acceptedAt],
+        'INSERT INTO workspace_memberships (workspace_id,user_id,role,created_at,invitation_id) VALUES ($1,$2,$3,$4,$5)',
+        [workspace.id, user.id, invitation.role, acceptedAt, invitation.id],
       );
       const consumed = await connection.query(
         'UPDATE workspace_invitations SET consumed_at = $2, consumed_by_user_id = $3 WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $2 RETURNING id',

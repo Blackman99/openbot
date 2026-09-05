@@ -5,6 +5,7 @@ import type { AuthService } from '../auth/service.js';
 import {
   InvalidWorkspaceInputError,
   WorkspaceAccessError,
+  WorkspaceNotFoundError,
   type WorkspaceService,
 } from './service.js';
 
@@ -22,8 +23,10 @@ export function registerWorkspaceRoutes(
     routes.setErrorHandler((error, _request, reply) => {
       if (error instanceof InvalidWorkspaceInputError)
         return reply.code(400).send({ error: { code: 'invalid_workspace' } });
-      if (error instanceof WorkspaceAccessError)
+      if (error instanceof WorkspaceNotFoundError)
         return reply.code(404).send({ error: { code: 'workspace_not_found' } });
+      if (error instanceof WorkspaceAccessError)
+        return reply.code(403).send({ error: { code: 'workspace_forbidden' } });
       return reply.send(error);
     });
     async function authenticate(request: FastifyRequest, reply: FastifyReply) {
