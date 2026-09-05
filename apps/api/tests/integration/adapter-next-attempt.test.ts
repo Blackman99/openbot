@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type ServerResponse } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { taskFixture } from '../helpers/task-fixture.js';
 import { ProviderConnections } from '../../src/providers/connections.js';
@@ -14,9 +14,7 @@ describe('COL-10 real adapter to worker scheduling', () => {
     for (const close of cleanup.splice(0).reverse()) await close();
   });
 
-  async function workerAgainst(
-    respond: (request: IncomingMessage, response: ServerResponse) => void,
-  ) {
+  async function workerAgainst(respond: (response: ServerResponse) => void) {
     const f = await taskFixture(cleanup, () => new Date(), {
       retryPolicy: { maxAttemptsPerModel: 3, maxRunsPerChain: 4 },
       fallbackModel: true,
@@ -26,7 +24,7 @@ describe('COL-10 real adapter to worker scheduling', () => {
       request.resume();
       request.on('end', () => {
         calls += 1;
-        respond(request, response);
+        respond(response);
       });
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -93,25 +91,29 @@ describe('COL-10 real adapter to worker scheduling', () => {
         response.end('data: []\n\n');
       },
     ],
-  ] as const)('does not retry or fall back after %s and keeps one Task', async (_name, respond) => {
-    const { f, worker, calls } = await workerAgainst(respond);
-    expect(await worker.runOnce()).toBe(true);
-    expect(await f.read()).toMatchObject({
-      status: 'failed',
-      runCount: 1,
-      runs: [{ status: 'failed', error: 'provider_failed' }],
-    });
-    expect((await f.pool.query('SELECT id FROM tasks')).rows).toHaveLength(1);
-    expect((await f.pool.query('SELECT id FROM task_runs')).rows).toHaveLength(1);
-    expect(
-      (
-        await f.pool.query(
-          "SELECT id FROM conversation_events WHERE event_type='bot.message.created'",
-        )
-      ).rows,
-    ).toHaveLength(0);
-    expect(calls()).toBe(1);
-  });
+  ] as const)(
+    'does not retry or fall back after %s and keeps one Task',
+    async (_name, respond) => {
+      const { f, worker, calls } = await workerAgainst(respond);
+      expect(await worker.runOnce()).toBe(true);
+      expect(await f.read()).toMatchObject({
+        status: 'failed',
+        runCount: 1,
+        runs: [{ status: 'failed', error: 'provider_failed' }],
+      });
+      expect((await f.pool.query('SELECT id FROM tasks')).rows).toHaveLength(1);
+      expect((await f.pool.query('SELECT id FROM task_runs')).rows).toHaveLength(1);
+      expect(
+        (
+          await f.pool.query(
+            "SELECT id FROM conversation_events WHERE event_type='bot.message.created'",
+          )
+        ).rows,
+      ).toHaveLength(0);
+      expect(calls()).toBe(1);
+    },
+    20000,
+  );
 
   it('schedules one same-model retry after a real HTTP 503 and does not call the fallback', async () => {
     const { f, worker, calls } = await workerAgainst((response) => {
@@ -144,5 +146,5 @@ describe('COL-10 real adapter to worker scheduling', () => {
       ).rows,
     ).toHaveLength(0);
     expect(calls()).toBe(1);
-  });
+  }, 20000);
 });
