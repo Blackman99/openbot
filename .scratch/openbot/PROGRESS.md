@@ -12,6 +12,10 @@ The first authorized push on 2026-09-05 was blocked before any ref update: the G
 
 Publication uses the authenticated GitHub API because the shell still lacks GitHub credentials. It publishes the verified file tree after initializing the empty repository. Remote commits will have different IDs from the original local history; the original commits remain available locally. Compare Git tree hashes to verify the published contents. Implementation remains paused and unfinished PROV-01 work is excluded.
 
+The first full snapshot was published on 2026-09-05 as remote commit `8759f449b189f6cbafeca1021db1deb45c194f3c` on both `main` and `feat/openbot-collaboration-system`. Its tree `550293dc706ac52e30de4798595d38ba8e32b655` exactly matches local commit `82f933ff71267baaf761577a5f65cb851a8cfc0a`: all 155 tracked files, including the 67 repository tickets. The original `b29e5f5` commit ID is absent from remote history.
+
+Verify run `33937667219` failed in the `code` job before dependency installation: `actions/setup-node` tried to initialize the pnpm cache before pnpm was installed (`Unable to locate executable file: pnpm`). The publication follow-up installs the package-manager version declared in `package.json` using `pnpm/action-setup` before Node's cache initialization in both Node jobs. Actual CI retry is required; PostgreSQL and Compose evidence gates remain open until successful runs are recorded.
+
 ## Completed implementation
 
 - FND-01: deployable application foundation. Docker execution remains external gate `FND-01-E1`.
