@@ -1,4 +1,5 @@
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { avatarAccess, type BotAvatarService } from './avatar-service.js';
 import {
   appendBotVersion,
@@ -28,11 +29,15 @@ export class BotVersionService {
     private readonly avatars: Pick<BotAvatarService, 'read'>,
     private readonly now: () => Date = () => new Date(),
   ) {}
-  private async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
+  private async transaction<T>(
+    operation: (connection: SqlConnection) => Promise<T>,
+    admission?: TransactionAdmission,
+  ): Promise<T> {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
       const result = await operation(connection);
+      await admission?.(connection);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
@@ -54,20 +59,22 @@ export class BotVersionService {
       rationale: versionRationale(input.rationale),
     };
   }
-  edit(access: BotAccess, input: unknown) {
+  edit(access: BotAccess, input: unknown, admission?: TransactionAdmission) {
     const request = this.request(input, ['expectedCurrentVersionId', 'changes', 'rationale']);
-    return this.transaction((connection) =>
-      appendBotVersion(
-        connection,
-        access,
-        {
-          kind: 'configuration',
-          expectedCurrentVersionId: request.expectedCurrentVersionId,
-          changes: request.input.changes,
-          ...(request.rationale ? { rationale: request.rationale } : {}),
-        },
-        this.now,
-      ),
+    return this.transaction(
+      (connection) =>
+        appendBotVersion(
+          connection,
+          access,
+          {
+            kind: 'configuration',
+            expectedCurrentVersionId: request.expectedCurrentVersionId,
+            changes: request.input.changes,
+            ...(request.rationale ? { rationale: request.rationale } : {}),
+          },
+          this.now,
+        ),
+      admission,
     );
   }
   async restore(access: BotAccess, input: unknown) {
@@ -107,14 +114,18 @@ export class BotVersionService {
       ),
     );
   }
-  get(access: BotAccess, id: unknown) {
+  get(access: BotAccess, id: unknown, admission?: TransactionAdmission) {
     const selected = versionId(id);
     return this.transaction(async (connection) => {
       await lockAuthorizedBot(connection, access, 'inspect');
       return readBotVersion(connection, access.botId, selected);
-    });
+    }, admission);
   }
-  list(access: BotAccess, query: unknown): Promise<BotVersionPage> {
+  list(
+    access: BotAccess,
+    query: unknown,
+    admission?: TransactionAdmission,
+  ): Promise<BotVersionPage> {
     if (
       !versionObject(query) ||
       Object.keys(query).some((key) => !['before', 'limit'].includes(key))
@@ -153,7 +164,7 @@ export class BotVersionService {
         versions,
         nextBefore: rows.length > limit ? versions.at(-1)!.number : null,
       };
-    });
+    }, admission);
   }
   compare(access: BotAccess, from: unknown, to: unknown) {
     const fromVersionId = versionId(from),

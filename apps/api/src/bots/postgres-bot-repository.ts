@@ -1,4 +1,5 @@
 import type { SqlPool, SqlConnection } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { admitBotModel } from './model-binding.js';
 import {
   botVersion,
@@ -26,12 +27,14 @@ export class PostgresBotRepository implements BotRepository {
     actorUserId: string,
     workspaceId: string,
     operation: (connection: SqlConnection) => Promise<T>,
+    admission?: TransactionAdmission,
   ): Promise<T> {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
       await lockBotWorkspace(connection, actorUserId, workspaceId);
       const result = await operation(connection);
+      await admission?.(connection);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
@@ -77,51 +80,67 @@ export class PostgresBotRepository implements BotRepository {
     actorUserId: string,
     workspaceId: string,
     view: BotListView = 'default',
+    admission?: TransactionAdmission,
   ): Promise<BotSummary[]> {
-    return this.read(actorUserId, workspaceId, async (connection) => {
-      const rows = await readVisibleBots(connection, actorUserId, workspaceId);
-      const statuses = new Map<string, BindingStatus>();
-      const bots: BotSummary[] = [];
-      for (const row of rows) {
-        if (
-          view === 'deleted'
-            ? row.lifecycle_state !== 'deleted' || row.role !== 'owner'
-            : view === 'usable'
-              ? row.lifecycle_state !== 'active' || !row.role
-              : row.lifecycle_state === 'deleted'
-        )
-          continue;
-        const binding = row.configuration.modelBinding;
-        const key = JSON.stringify([
-          binding.scope.kind,
-          binding.scope.id,
-          binding.connectionId,
-          binding.modelId,
-        ]);
-        let status = statuses.get(key);
-        if (!status) {
-          status = await this.bindingStatus(connection, actorUserId, row);
-          statuses.set(key, status);
+    return this.read(
+      actorUserId,
+      workspaceId,
+      async (connection) => {
+        const rows = await readVisibleBots(connection, actorUserId, workspaceId);
+        const statuses = new Map<string, BindingStatus>();
+        const bots: BotSummary[] = [];
+        for (const row of rows) {
+          if (
+            view === 'deleted'
+              ? row.lifecycle_state !== 'deleted' || row.role !== 'owner'
+              : view === 'usable'
+                ? row.lifecycle_state !== 'active' || !row.role
+                : row.lifecycle_state === 'deleted'
+          )
+            continue;
+          const binding = row.configuration.modelBinding;
+          const key = JSON.stringify([
+            binding.scope.kind,
+            binding.scope.id,
+            binding.connectionId,
+            binding.modelId,
+          ]);
+          let status = statuses.get(key);
+          if (!status) {
+            status = await this.bindingStatus(connection, actorUserId, row);
+            statuses.set(key, status);
+          }
+          bots.push(this.summary(row, status));
         }
-        bots.push(this.summary(row, status));
-      }
-      return bots;
-    });
+        return bots;
+      },
+      admission,
+    );
   }
-  get(actorUserId: string, workspaceId: string, botId: string): Promise<BotDetail> {
-    return this.read(actorUserId, workspaceId, async (connection) => {
-      const row = await lockAuthorizedBot(
-        connection,
-        { actorUserId, workspaceId, botId },
-        'discover',
-      );
-      return {
-        ...this.summary(row, await this.bindingStatus(connection, actorUserId, row)),
-        ...(row.role ? { currentVersion: botVersion(row) } : {}),
-      };
-    });
+  get(
+    actorUserId: string,
+    workspaceId: string,
+    botId: string,
+    admission?: TransactionAdmission,
+  ): Promise<BotDetail> {
+    return this.read(
+      actorUserId,
+      workspaceId,
+      async (connection) => {
+        const row = await lockAuthorizedBot(
+          connection,
+          { actorUserId, workspaceId, botId },
+          'discover',
+        );
+        return {
+          ...this.summary(row, await this.bindingStatus(connection, actorUserId, row)),
+          ...(row.role ? { currentVersion: botVersion(row) } : {}),
+        };
+      },
+      admission,
+    );
   }
-  async create(record: BotCreate): Promise<BotDetail> {
+  async create(record: BotCreate, admission?: TransactionAdmission): Promise<BotDetail> {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
@@ -166,6 +185,7 @@ export class PostgresBotRepository implements BotRepository {
           }),
         ],
       );
+      await admission?.(connection);
       await connection.query('COMMIT');
       return {
         lifecycleState: 'active',

@@ -86,12 +86,26 @@ Tokens in URL query parameters are rejected. Invalid, expired, revoked, or orpha
 401; a valid token without the required scope returns 403.
 
 The fixed scope catalogue is `me:read`, `bots:read`, `bots:write`, `groups:read`, `groups:write`,
-`tasks:read`, `tasks:write`, `tasks:approve`, and `events:read`. The resource scopes are reserved for
-the corresponding public resource endpoints. Scopes never add permissions to their creator:
+`tasks:read`, `tasks:write`, `tasks:approve`, and `events:read`. Group, task and event scopes remain
+reserved for their corresponding public endpoints. Scopes never add permissions to their creator:
 each operation must also enforce current workspace and resource access. Removing a workspace
 member permanently revokes their tokens, including if they later rejoin. Only SHA-256 digests
 are persisted, and creation, permitted or insufficient-scope use, and revocation produce audits
 without credential material.
+
+Public Bot clients use `GET /v1/bots`, `GET /v1/bots/{botId}` and the nested `/versions` and
+`/versions/{versionId}` routes with `bots:read`. `bots:write` enables `POST /v1/bots`,
+`PATCH /v1/bots/{botId}` and `POST /v1/bots/{botId}/archive`. Each scope is explicit; neither
+implies the other. The token's bound workspace is authoritative. Current direct Bot permissions
+control configuration access, editing and owner-only archive, just as in the Web UI.
+
+The [OpenAPI 3.1 contract](docs/openapi/bots.openapi.json) describes request and response schemas,
+pagination and safe permission errors. Updates require `expectedCurrentVersionId` and preserve
+omitted fields and avatar references; a stale version returns 409. Bot pages use an exclusive
+`after` UUID cursor, and version pages use an exclusive `before` version number. Both accept
+`limit` from 1 to 100 (default 50). API writes and UI edits share the same Bot identity and
+immutable versions; archive preserves that history. Tokens are checked again in the resource
+transaction before it commits, including after lock or audit waits.
 
 ## Personal model connections
 

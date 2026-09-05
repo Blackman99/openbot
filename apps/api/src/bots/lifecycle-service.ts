@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SqlPool } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { lockAuthorizedBot, type BotRow } from './postgres-bot-access.js';
 import { BotAccessError, type BotLifecycleState } from './service.js';
 import { admitBotModel } from './model-binding.js';
@@ -38,8 +39,13 @@ export class BotLifecycleService {
   get(actorUserId: string, workspaceId: string, botId: string) {
     return this.transition(actorUserId, workspaceId, botId);
   }
-  archive(actorUserId: string, workspaceId: string, botId: string) {
-    return this.transition(actorUserId, workspaceId, botId, 'archive');
+  archive(
+    actorUserId: string,
+    workspaceId: string,
+    botId: string,
+    admission?: TransactionAdmission,
+  ) {
+    return this.transition(actorUserId, workspaceId, botId, 'archive', admission);
   }
   restore(actorUserId: string, workspaceId: string, botId: string) {
     return this.transition(actorUserId, workspaceId, botId, 'restore');
@@ -55,6 +61,7 @@ export class BotLifecycleService {
     workspaceId: string,
     botId: string,
     action?: BotLifecycleAction,
+    admission?: TransactionAdmission,
   ): Promise<BotLifecycle> {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
     if (!uuid.test(workspaceId) || !uuid.test(botId)) throw new BotAccessError();
@@ -128,6 +135,7 @@ export class BotLifecycleService {
           ],
         );
       }
+      await admission?.(connection);
       await connection.query('COMMIT');
       return lifecycle(row);
     } catch (error) {

@@ -33,6 +33,7 @@ describe.skipIf(!endpoint)('private real S3-compatible service acceptance', () =
       },
     };
   });
+  // Allow the 3 MiB round trip, byte comparison and cleanup their existing bounded I/O budgets.
   it('keeps attachment and avatar byte bounds independent on the real backend', async () => {
     const store = new S3ObjectStore(config(), { maxObjectBytes: 10485760 });
     const avatar = new S3ObjectStore(config());
@@ -47,7 +48,7 @@ describe.skipIf(!endpoint)('private real S3-compatible service acceptance', () =
       store.destroy();
       avatar.destroy();
     }
-  });
+  }, 30_000);
   it('denies unsigned direct object reads', async () => {
     const configured = config();
     const store = new S3ObjectStore(configured);

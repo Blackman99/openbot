@@ -125,5 +125,5 @@ export async function botAclFixture(
     });
     return { id, email, headers: { ...headers, cookie: `openbot_session=${token}` } };
   }
-  return { pool, app, owner, headers, path, bot, addUser, providers, model };
+  return { pool, app, auth, owner, headers, path, bot, addUser, providers, model };
 }

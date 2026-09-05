@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ConnectionScope } from '../providers/scope.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 
 export type BotRole = 'owner' | 'editor' | 'user';
 export type BotListView = 'default' | 'deleted' | 'usable';
@@ -60,9 +61,19 @@ export interface BotCreate {
   configuration: BotConfiguration;
 }
 export interface BotRepository {
-  create(record: BotCreate): Promise<BotDetail>;
-  list(actorUserId: string, workspaceId: string, view?: BotListView): Promise<BotSummary[]>;
-  get(actorUserId: string, workspaceId: string, botId: string): Promise<BotDetail>;
+  create(record: BotCreate, admission?: TransactionAdmission): Promise<BotDetail>;
+  list(
+    actorUserId: string,
+    workspaceId: string,
+    view?: BotListView,
+    admission?: TransactionAdmission,
+  ): Promise<BotSummary[]>;
+  get(
+    actorUserId: string,
+    workspaceId: string,
+    botId: string,
+    admission?: TransactionAdmission,
+  ): Promise<BotDetail>;
 }
 export class BotAccessError extends Error {}
 export class BotInputError extends Error {}
@@ -167,29 +178,53 @@ export function parseBotConfiguration(input: unknown): BotConfiguration {
 }
 export class BotService {
   constructor(private readonly repository: BotRepository) {}
-  list(actorUserId: string, workspaceId: string, view: unknown = 'default'): Promise<BotSummary[]> {
+  list(
+    actorUserId: string,
+    workspaceId: string,
+    view: unknown = 'default',
+    admission?: TransactionAdmission,
+  ): Promise<BotSummary[]> {
     if (!uuid.test(workspaceId)) throw new BotAccessError();
     if (view !== 'default' && view !== 'deleted' && view !== 'usable') throw new BotInputError();
-    return this.repository.list(actorUserId.toLowerCase(), workspaceId.toLowerCase(), view);
+    return this.repository.list(
+      actorUserId.toLowerCase(),
+      workspaceId.toLowerCase(),
+      view,
+      admission,
+    );
   }
-  get(actorUserId: string, workspaceId: string, botId: string): Promise<BotDetail> {
+  get(
+    actorUserId: string,
+    workspaceId: string,
+    botId: string,
+    admission?: TransactionAdmission,
+  ): Promise<BotDetail> {
     if (!uuid.test(workspaceId) || !uuid.test(botId)) throw new BotAccessError();
     return this.repository.get(
       actorUserId.toLowerCase(),
       workspaceId.toLowerCase(),
       botId.toLowerCase(),
+      admission,
     );
   }
-  create(actorUserId: string, workspaceId: string, input: unknown): Promise<BotDetail> {
+  create(
+    actorUserId: string,
+    workspaceId: string,
+    input: unknown,
+    admission?: TransactionAdmission,
+  ): Promise<BotDetail> {
     if (!uuid.test(workspaceId)) throw new BotAccessError();
     const configuration = parseBotConfiguration(input);
-    return this.repository.create({
-      id: randomUUID(),
-      versionId: randomUUID(),
-      auditId: randomUUID(),
-      actorUserId: actorUserId.toLowerCase(),
-      workspaceId: workspaceId.toLowerCase(),
-      configuration,
-    });
+    return this.repository.create(
+      {
+        id: randomUUID(),
+        versionId: randomUUID(),
+        auditId: randomUUID(),
+        actorUserId: actorUserId.toLowerCase(),
+        workspaceId: workspaceId.toLowerCase(),
+        configuration,
+      },
+      admission,
+    );
   }
 }

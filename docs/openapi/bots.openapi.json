@@ -1,0 +1,1907 @@
+{
+  "openapi": "3.1.1",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "OpenBot public Bot API",
+    "version": "1.0.0",
+    "description": "API-02. Bearer tokens use API-01 explicit scopes intersected with current creator membership and independent Bot ACLs. Every operation rechecks current token validity and scope in its resource transaction before commit. Provider credentials, private memory, storage keys and encryption internals are never part of this contract. No group or deferred lifecycle endpoints are included."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/v1/bots": {
+      "get": {
+        "operationId": "listBots",
+        "summary": "ListBots",
+        "description": "List visible Bots in the token workspace, ordered by canonical Bot UUID ascending. Excludes soft-deleted Bots and includes archived Bots. after is exclusive; nextAfter is null when there are no further visible results. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:read",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotPage"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            },
+            "description": "Exclusive canonical Bot UUID cursor. Uppercase input is canonicalized."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": "Positive decimal integer. Duplicate query fields are rejected."
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createBot",
+        "summary": "CreateBot",
+        "description": "Create an active private Bot and version 1, with the token creator as its owner. Omitted limits receive UI defaults: 32768 tokens, 300 seconds, 8 turns and depth 2. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:write",
+        "responses": {
+          "201": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 262144 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request media type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, at most 262144 bytes. Unknown fields are rejected. Names, roles and descriptions are trimmed; instructions retain exact whitespace. Limits are partial on input.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bots/{botId}": {
+      "get": {
+        "operationId": "getBot",
+        "summary": "GetBot",
+        "description": "Retrieve the same safe Bot view as the Web UI. Workspace discovery alone exposes a summary; currentVersion and avatarVersionId require a direct Bot grant. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:read",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BotResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "updateBot",
+        "summary": "UpdateBot",
+        "description": "Append configuration using current-version compare-and-swap. Current editor or owner authority is required. Omitted fields and avatar references are preserved. An effective no-op returns the existing version. An explicit model selection checks the token creator's current provider authority. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:write",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 262144 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request media type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current version, avatar or lifecycle conflict. Inspect current state before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "JSON object, at most 262144 bytes. Unknown fields are rejected. Names, roles and descriptions are trimmed; instructions retain exact whitespace. Limits are partial on input.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BotUpdate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/bots/{botId}/versions": {
+      "get": {
+        "operationId": "listBotVersions",
+        "summary": "ListBotVersions",
+        "description": "List immutable version metadata, newest first, for a current direct Bot user, editor or owner. before is an exclusive version number. nextBefore is null at the end. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:read",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionPage"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647,
+              "default": 2147483647
+            },
+            "description": "Exclusive version number, encoded as a positive decimal integer."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            },
+            "description": "Positive decimal integer. Duplicate query fields are rejected."
+          }
+        ]
+      }
+    },
+    "/v1/bots/{botId}/versions/{versionId}": {
+      "get": {
+        "operationId": "getBotVersion",
+        "summary": "GetBotVersion",
+        "description": "Retrieve one immutable version belonging to this Bot, for a current direct Bot user, editor or owner. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:read",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version belongs to this authorized Bot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionNotFound"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/bots/{botId}/archive": {
+      "post": {
+        "operationId": "archiveBot",
+        "summary": "ArchiveBot",
+        "description": "Archive through the existing Bot lifecycle operation. Current Bot owner authority is required. Preserves configuration/history/avatar references and blocks fresh use. Repeated archive is idempotent; a soft-deleted Bot returns conflict. The request must have no body. Unknown query fields are rejected. Token workspace and creator are authoritative; clients cannot select another actor or workspace.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-scope": "bots:write",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResponse"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or unavailable model.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, expired or no longer authorized API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidToken"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              },
+              "WWW-Authenticate": {
+                "schema": {
+                  "const": "Bearer"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The explicit token scope or current Bot authority is insufficient.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operation could not be completed. Inspect current state before retrying an unknown mutation outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unavailable"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 1024 bytes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported request media type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequest"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current version, avatar or lifecycle conflict. Inspect current state before retrying.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            },
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "private, no-store"
+                }
+              },
+              "X-Content-Type-Options": {
+                "schema": {
+                  "const": "nosniff"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "botId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Uuid"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "ob_<43 base64url characters>"
+      }
+    },
+    "schemas": {
+      "Uuid": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        "format": "uuid"
+      },
+      "PartialLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxTotalTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "maxDurationSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          },
+          "maxTurns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "maxDelegationDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        },
+        "required": []
+      },
+      "Limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "maxTotalTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "maxDurationSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          },
+          "maxTurns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "maxDelegationDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        },
+        "required": ["maxTotalTokens", "maxDurationSeconds", "maxTurns", "maxDelegationDepth"]
+      },
+      "ModelBinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": ["personal", "workspace"]
+              },
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              }
+            },
+            "required": ["kind", "id"]
+          },
+          "connectionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "modelId": {
+            "type": "string",
+            "maxLength": 256,
+            "pattern": "\\S"
+          }
+        },
+        "required": ["scope", "connectionId", "modelId"]
+      },
+      "BotCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,98}\\S)?\\s*$"
+          },
+          "roleDescription": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "pattern": "\\S"
+          },
+          "modelBinding": {
+            "$ref": "#/components/schemas/ModelBinding"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/PartialLimits"
+          }
+        },
+        "required": ["name", "roleDescription", "instructions", "modelBinding"]
+      },
+      "ConfigurationChanges": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,98}\\S)?\\s*$"
+          },
+          "roleDescription": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "pattern": "\\S"
+          },
+          "modelBinding": {
+            "$ref": "#/components/schemas/ModelBinding"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/PartialLimits"
+          }
+        },
+        "required": []
+      },
+      "BotUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "expectedCurrentVersionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "changes": {
+            "$ref": "#/components/schemas/ConfigurationChanges"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["expectedCurrentVersionId", "changes"]
+      },
+      "Configuration": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,98}\\S)?\\s*$"
+          },
+          "roleDescription": {
+            "type": "string",
+            "pattern": "^\\s*\\S(?:[\\s\\S]{0,198}\\S)?\\s*$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 32000,
+            "pattern": "\\S"
+          },
+          "modelBinding": {
+            "$ref": "#/components/schemas/ModelBinding"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits"
+          },
+          "avatarObjectId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "name",
+          "roleDescription",
+          "description",
+          "instructions",
+          "modelBinding",
+          "limits"
+        ]
+      },
+      "BindingStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "const": "ready"
+              },
+              "chatOnly": {
+                "type": "boolean"
+              }
+            },
+            "required": ["state", "chatOnly"]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "const": "unavailable"
+              },
+              "reason": {
+                "enum": ["disabled", "binding-changed", "capability-unavailable", "not-accessible"]
+              }
+            },
+            "required": ["state", "reason"]
+          }
+        ]
+      },
+      "BotSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workspaceId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "visibility": {
+            "enum": ["private", "workspace"]
+          },
+          "accessRole": {
+            "enum": ["owner", "editor", "user", null]
+          },
+          "lifecycleState": {
+            "enum": ["active", "archived", "deleted"]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "roleDescription": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "bindingStatus": {
+            "$ref": "#/components/schemas/BindingStatus"
+          },
+          "avatarVersionId": {
+            "$ref": "#/components/schemas/Uuid"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "visibility",
+          "accessRole",
+          "lifecycleState",
+          "name",
+          "roleDescription",
+          "description",
+          "bindingStatus"
+        ]
+      },
+      "VersionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "displayName"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["id", "number", "author", "createdAt", "rationale"]
+      },
+      "Version": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "displayName": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "displayName"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/Configuration"
+          }
+        },
+        "required": ["id", "number", "author", "createdAt", "rationale", "configuration"]
+      },
+      "BotDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "workspaceId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "visibility": {
+            "enum": ["private", "workspace"]
+          },
+          "accessRole": {
+            "enum": ["owner", "editor", "user", null]
+          },
+          "lifecycleState": {
+            "enum": ["active", "archived", "deleted"]
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "\\S"
+          },
+          "roleDescription": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "bindingStatus": {
+            "$ref": "#/components/schemas/BindingStatus"
+          },
+          "avatarVersionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "currentVersion": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "visibility",
+          "accessRole",
+          "lifecycleState",
+          "name",
+          "roleDescription",
+          "description",
+          "bindingStatus"
+        ]
+      },
+      "BotResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bot": {
+            "$ref": "#/components/schemas/BotDetail"
+          }
+        },
+        "required": ["bot"]
+      },
+      "VersionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "$ref": "#/components/schemas/Version"
+          }
+        },
+        "required": ["version"]
+      },
+      "BotPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bots": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/BotSummary"
+            }
+          },
+          "nextAfter": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["bots", "nextAfter"]
+      },
+      "VersionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "currentVersionId": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "versions": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/VersionSummary"
+            }
+          },
+          "nextBefore": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          }
+        },
+        "required": ["currentVersionId", "versions", "nextBefore"]
+      },
+      "ArchiveResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lifecycle": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "botId": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "workspaceId": {
+                "$ref": "#/components/schemas/Uuid"
+              },
+              "state": {
+                "const": "archived"
+              },
+              "deletedAt": {
+                "type": "null"
+              },
+              "recoveryDeadline": {
+                "type": "null"
+              },
+              "preDeletedState": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "botId",
+              "workspaceId",
+              "state",
+              "deletedAt",
+              "recoveryDeadline",
+              "preDeletedState"
+            ]
+          }
+        },
+        "required": ["lifecycle"]
+      },
+      "InvalidToken": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["invalid_api_token"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "Forbidden": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["insufficient_scope", "bot_forbidden"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "InvalidRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["invalid_bot_request"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "VersionNotFound": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["bot_version_not_found"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "Conflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["bot_version_conflict", "bot_avatar_unavailable", "bot_lifecycle_conflict"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "Unavailable": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": ["bot_unavailable"]
+              }
+            },
+            "required": ["code"]
+          }
+        },
+        "required": ["error"]
+      },
+      "BadRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/InvalidRequest"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "const": "bot_model_unavailable"
+                  },
+                  "reason": {
+                    "enum": [
+                      "disabled",
+                      "binding-changed",
+                      "capability-unavailable",
+                      "not-accessible"
+                    ]
+                  }
+                },
+                "required": ["code", "reason"]
+              }
+            },
+            "required": ["error"]
+          }
+        ]
+      }
+    }
+  }
+}

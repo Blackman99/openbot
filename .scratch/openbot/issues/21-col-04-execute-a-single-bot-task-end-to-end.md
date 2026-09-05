@@ -2,7 +2,7 @@
 sequence: 21
 id: COL-04
 title: "Execute a single-Bot Task end to end"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - COL-02
   - COL-03
@@ -48,4 +48,6 @@ Source1f68e42933df9b143e0f1e0e3e66a11eea020c49 passed independent Standards and 
 
 The complete merged pnpm verify exited0 on2026-09-05 at09:27:22 UTC:1039 unit/integration tests (API92+347, Web65+535),35 ordinary browser journeys and one signed OIDC journey, formatting, zero-error/zero-warning types and both final production builds. The observed final-response pagination defect was fixed test-first and independently rechecked with a real service/worker sequence32 response; browser reload also passes with30 earlier messages.
 
-COL-04-E1 remains explicit in REL-01: all26 actual restricted-role PostgreSQL cases and separate-worker Compose execution must pass in CI, alongside fresh/upgrade through0017. Local discovery or skips do not close this gate. See [Web/review evidence](../COL-04-WEB-EVIDENCE.md), [core evidence](../COL-04-CORE-VERIFICATION.md), [native evidence](../COL-04-NATIVE-VERIFICATION.md) and [API contract](../COL-04-API-CONTRACT.md).
+COL-04-E1 is closed by [Verify33959031255](https://github.com/Blackman99/openbot/actions/runs/33959031255), completed on 2026-09-05 at 09:54:57 UTC. Actual restricted-role PostgreSQL job101287771356 passed all 26 Task cases after the independently reviewed audit assertion correction `c653bab`. Separate-worker Compose job101287771360 passed durable seed, running and reloaded history; general Compose job101287771315 passed fresh/upgrade through actual migrations 0016 → 0017 → 0018 and exact runtime privileges. The checkout tree matches accepted local `675fd53c0ac098abac05a1560ce339abd7ae9df1`. The run's unrelated new attachment S3 timeout remains ATT-01-E1 and does not represent a Task failure. No local discovery or skipped case is counted as a native pass.
+
+See [actual CI evidence](../VERIFY-33959031255.md), [Web/review evidence](../COL-04-WEB-EVIDENCE.md), [core evidence](../COL-04-CORE-VERIFICATION.md), [native evidence](../COL-04-NATIVE-VERIFICATION.md) and [API contract](../COL-04-API-CONTRACT.md).

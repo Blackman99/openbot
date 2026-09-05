@@ -104,6 +104,12 @@ export async function authorizeApiRequest(
   request: { url: string; headers: { authorization?: string | undefined } },
   scope: ApiTokenScope,
 ) {
+  return tokens.authorize(readApiRequestToken(request), scope);
+}
+export function readApiRequestToken(request: {
+  url: string;
+  headers: { authorization?: string | undefined };
+}) {
   const url = new URL(request.url, 'http://localhost');
   if (
     url.searchParams.has('token') ||
@@ -113,5 +119,5 @@ export async function authorizeApiRequest(
     throw new ApiTokenAuthenticationError();
   const match = /^Bearer (ob_[A-Za-z0-9_-]{43})$/iu.exec(request.headers.authorization ?? '');
   if (!match?.[1]) throw new ApiTokenAuthenticationError();
-  return tokens.authorize(match[1], scope);
+  return match[1];
 }

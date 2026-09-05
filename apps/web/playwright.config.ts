@@ -31,7 +31,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'node tests/e2e/fixture-api.mjs',
+      command: 'pnpm --filter @openbot/api build && node tests/e2e/fixture-api.mjs',
       reuseExistingServer: false,
       url: 'http://127.0.0.1:4399/api/v1/status',
     },

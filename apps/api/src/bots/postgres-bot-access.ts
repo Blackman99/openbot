@@ -1,4 +1,5 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
+import { botConfigurationView } from './configuration-view.js';
 import {
   BotAccessError,
   type BotConfiguration,
@@ -97,7 +98,7 @@ export function botVersion(row: BotRow): BotVersion {
   return {
     id: row.version_id,
     number: row.version,
-    configuration: row.configuration,
+    configuration: botConfigurationView(row.configuration),
     author: { id: row.author_user_id, displayName: row.author_name },
     createdAt: row.version_created_at,
     rationale: row.rationale,

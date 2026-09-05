@@ -7,6 +7,7 @@ import { registerTaskRoutes } from './tasks/routes.js';
 import type { TaskService } from './tasks/service.js';
 import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
+import { registerPublicBotRoutes } from './bots/public-routes.js';
 import { registerBotLifecycleRoutes } from './bots/lifecycle-routes.js';
 import type { BotLifecycleService } from './bots/lifecycle-service.js';
 import { registerBotAclRoutes } from './bots/acl-routes.js';
@@ -215,6 +216,8 @@ export function buildApp({
   });
 
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
+  if (apiTokens && bots && botVersions && botLifecycle)
+    registerPublicBotRoutes(app, apiTokens, bots, botVersions, botLifecycle);
   if (auth) {
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
     if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);

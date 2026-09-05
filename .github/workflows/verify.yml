@@ -154,6 +154,10 @@ jobs:
           : "${TEST_BOT_DATABASE_URL:?Bot lifecycle PostgreSQL URL is required}"
           pnpm --filter @openbot/api exec vitest run tests/postgres/bot-lifecycle-runtime.test.ts
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-copy-runtime.test.ts
+      - name: Verify public Bot admission with the restricted PostgreSQL role
+        run: |
+          : "${TEST_BOT_DATABASE_URL:?Public Bot PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/public-bots-runtime.test.ts
 
   object-storage:
     needs: code

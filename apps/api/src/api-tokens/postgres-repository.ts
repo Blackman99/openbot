@@ -12,6 +12,9 @@ import {
   ApiTokenAccessError,
   type ApiTokenRepository,
   type CreateApiTokenRecord,
+  type RecheckApiTokenRecord,
+  ApiTokenAuthenticationError,
+  ApiTokenScopeError,
 } from './service.js';
 
 type TokenRow = {
@@ -38,8 +41,46 @@ function toToken(row: TokenRow): ApiToken {
     revokedAt: row.revoked_at,
   };
 }
+type AuthorizedTokenRow = {
+  id: string;
+  creator_user_id: string;
+  workspace_id: string;
+  scopes: ApiTokenScope[];
+  email: string;
+  display_name: string;
+  name: string;
+  role: WorkspaceRole;
+};
+async function readAuthorizedToken(connection: SqlConnection, digest: string, occurredAt: Date) {
+  return (
+    await connection.query<AuthorizedTokenRow>(
+      `SELECT t.id,t.creator_user_id,t.workspace_id,t.scopes,u.email,u.display_name,w.name,m.role
+      FROM api_tokens t INNER JOIN users u ON u.id = t.creator_user_id
+      INNER JOIN workspaces w ON w.id = t.workspace_id
+      INNER JOIN workspace_memberships m ON m.workspace_id = t.workspace_id AND m.user_id = t.creator_user_id
+      WHERE t.token_digest = $1 AND t.revoked_at IS NULL AND t.expires_at > $2`,
+      [digest, occurredAt],
+    )
+  ).rows[0];
+}
 export class PostgresApiTokenRepository implements ApiTokenRepository {
   constructor(private readonly pool: SqlPool) {}
+  async assertCurrent(connection: SqlConnection, record: RecheckApiTokenRecord, clock: () => Date) {
+    // The domain operation already holds this same workspace lock. Never route
+    // the final check to a workspace or creator supplied by a public request.
+    await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
+      record.workspaceId,
+    ]);
+    const row = await readAuthorizedToken(connection, record.tokenDigest, clock());
+    if (
+      !row ||
+      row.id !== record.tokenId ||
+      row.creator_user_id !== record.creatorUserId ||
+      row.workspace_id !== record.workspaceId
+    )
+      throw new ApiTokenAuthenticationError();
+    if (!row.scopes.includes(record.requiredScope)) throw new ApiTokenScopeError();
+  }
   async list(creatorUserId: string, workspaceId: string): Promise<ApiToken[]> {
     const connection = await this.pool.connect();
     try {
@@ -126,25 +167,7 @@ export class PostgresApiTokenRepository implements ApiTokenRepository {
         candidate.workspace_id,
       ]);
       const occurredAt = clock();
-      const row = (
-        await connection.query<{
-          id: string;
-          creator_user_id: string;
-          workspace_id: string;
-          scopes: ApiTokenScope[];
-          email: string;
-          display_name: string;
-          name: string;
-          role: WorkspaceRole;
-        }>(
-          `SELECT t.id,t.creator_user_id,t.workspace_id,t.scopes,u.email,u.display_name,w.name,m.role
-          FROM api_tokens t INNER JOIN users u ON u.id = t.creator_user_id
-          INNER JOIN workspaces w ON w.id = t.workspace_id
-          INNER JOIN workspace_memberships m ON m.workspace_id = t.workspace_id AND m.user_id = t.creator_user_id
-          WHERE t.token_digest = $1 AND t.revoked_at IS NULL AND t.expires_at > $2`,
-          [record.tokenDigest, occurredAt],
-        )
-      ).rows[0];
+      const row = await readAuthorizedToken(connection, record.tokenDigest, occurredAt);
       if (!row) {
         await connection.query('COMMIT');
         return undefined;

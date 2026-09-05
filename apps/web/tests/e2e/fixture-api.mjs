@@ -1,3 +1,4 @@
+import { handlePublicBotFixture, resetPublicBotFixture } from './public-bot-fixture.mjs';
 import { handleGroupBotFixture, resetGroupBotFixture } from './group-bot-fixture.mjs';
 import { handleBotFixture, resetBotFixture } from './bot-fixture.mjs';
 import { handleBotVersionFixture, resetBotVersionFixture } from './bot-version-fixture.mjs';
@@ -91,6 +92,7 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
+  if (handlePublicBotFixture(request, response, { sendJson, trustedOrigin })) return;
   if (
     handleTaskFixture(request, response, {
       user: sessions.get(readSession(request)),
@@ -229,6 +231,7 @@ const server = createServer((request, response) => {
     return;
   if (request.method === 'POST' && request.url === '/__scenario') {
     readJson(request, ({ scenario: requestedScenario }) => {
+      void resetPublicBotFixture();
       scenario = requestedScenario === 'unavailable' ? 'unavailable' : 'ready';
       if (requestedScenario === 'unclaimed') {
         resetAuth();
@@ -529,6 +532,9 @@ const server = createServer((request, response) => {
 
 server.listen(4399, '127.0.0.1');
 
-const close = () => server.close();
+const close = () => {
+  server.close();
+  void resetPublicBotFixture();
+};
 process.once('SIGINT', close);
 process.once('SIGTERM', close);

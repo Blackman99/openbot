@@ -1,6 +1,8 @@
 import type { AuthenticatedUser } from '../auth/service.js';
 import type { WorkspaceRole } from '../workspaces/service.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import type { SqlConnection } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 
 export const API_TOKEN_SCOPES = [
   'me:read',
@@ -47,7 +49,19 @@ export interface RevokeApiTokenRecord {
   occurredAt: Date;
   auditId: string;
 }
+export interface RecheckApiTokenRecord {
+  tokenDigest: string;
+  requiredScope: ApiTokenScope;
+  tokenId: string;
+  creatorUserId: string;
+  workspaceId: string;
+}
 export interface ApiTokenRepository {
+  assertCurrent(
+    connection: SqlConnection,
+    record: RecheckApiTokenRecord,
+    clock: () => Date,
+  ): Promise<void>;
   list(creatorUserId: string, workspaceId: string): Promise<ApiToken[]>;
   revoke(record: RevokeApiTokenRecord): Promise<void>;
   authorize(
@@ -102,6 +116,26 @@ export class ApiTokenService {
     if (!identity) throw new ApiTokenAuthenticationError();
     if (identity === 'insufficient_scope') throw new ApiTokenScopeError();
     return identity;
+  }
+  async authorizeResource(
+    secret: string,
+    requiredScope: ApiTokenScope,
+  ): Promise<{
+    identity: ApiTokenIdentity;
+    admit: TransactionAdmission;
+  }> {
+    const identity = await this.authorize(secret, requiredScope);
+    const record: RecheckApiTokenRecord = {
+      tokenDigest: digestApiToken(secret),
+      requiredScope,
+      tokenId: identity.token.id,
+      creatorUserId: identity.user.id,
+      workspaceId: identity.workspace.id,
+    };
+    return {
+      identity,
+      admit: (connection) => this.repository.assertCurrent(connection, record, this.clock),
+    };
   }
   async create(
     creatorUserId: string,
