@@ -104,12 +104,15 @@ describe('repository contract', () => {
     });
     expect(compose.services.worker?.command).toEqual(['node', 'dist/worker.js']);
     expect(compose.services.worker?.ports).toBeUndefined();
-    expect(compose.services.worker?.volumes).toBeUndefined();
+    expect(compose.services.api?.volumes).toEqual(['object-data:/var/lib/openbot/objects']);
+    expect(compose.services.worker?.volumes).toEqual(['object-data:/var/lib/openbot/objects']);
     expect(compose.services.worker?.environment).not.toHaveProperty('OPENBOT_SETUP_TOKEN');
     expect(compose.services.worker?.environment).toMatchObject({
       PGUSER: 'openbot_runtime',
       PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',
       OPENBOT_PROVIDER_ENCRYPTION_KEY: '${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}',
+      OBJECT_STORAGE_BACKEND: '${OBJECT_STORAGE_BACKEND:-local}',
+      OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
     });
     expect(compose.services.web?.depends_on?.api?.condition).toBe('service_started');
     expect(compose.services.web?.environment).toMatchObject({
