@@ -1,5 +1,5 @@
 import { parseRoutingSummary, type RoutingSummary } from './routing-contract.js';
-import { parseRunContinuation, type RunContinuation } from './server/task-contract.js';
+import { parseRunContinuation, type RunContinuation } from './task-continuation-contract.js';
 
 export interface ConversationStreamScope {
   workspaceId: string;

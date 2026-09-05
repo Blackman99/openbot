@@ -1,9 +1,21 @@
 import { parseRoutingSummary, type RoutingSummary } from '../routing-contract.js';
+import { parseRunContinuation, type RunContinuation } from '../task-continuation-contract.js';
 import {
   isConversationUuid,
   isConversationCursor,
   type MessageReceipt,
 } from './conversation-api.js';
+export type {
+  ContinuationOrigin,
+  ContinuationReason,
+  RunContinuation,
+  SafeModelSnapshot,
+} from '../task-continuation-contract.js';
+export {
+  continuationReasons,
+  parseRunContinuation,
+  parseSafeModelSnapshot,
+} from '../task-continuation-contract.js';
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export const taskErrorCodes = [
   'execution_forbidden',
@@ -15,26 +27,6 @@ export const taskErrorCodes = [
   'worker_stopped',
 ] as const;
 export type TaskErrorCode = (typeof taskErrorCodes)[number];
-export const continuationReasons = [
-  'provider_rate_limited',
-  'provider_unavailable',
-  'provider_connection_reset',
-] as const;
-export type ContinuationReason = (typeof continuationReasons)[number];
-export type ContinuationOrigin = 'provider_retry' | 'model_fallback';
-export interface SafeModelSnapshot {
-  protocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
-  modelId: string;
-}
-export interface RunContinuation {
-  origin: ContinuationOrigin;
-  reason: ContinuationReason;
-  previousRunId: string;
-  previousProvider: SafeModelSnapshot;
-  nextProvider: SafeModelSnapshot;
-  dueAt: string;
-  admitted: boolean;
-}
 export interface TaskRun {
   id: string;
   attempt: number;
@@ -114,40 +106,6 @@ function receipt(value: unknown): MessageReceipt | undefined {
         sequence: value.sequence,
       }
     : undefined;
-}
-export function parseSafeModelSnapshot(value: unknown): SafeModelSnapshot | undefined {
-  if (
-    !taskKeys(value, 'modelId,protocol') ||
-    !taskText(value.modelId, 256) ||
-    (value.protocol !== 'openai-chat' &&
-      value.protocol !== 'openai-responses' &&
-      value.protocol !== 'anthropic-messages')
-  )
-    return undefined;
-  return { protocol: value.protocol, modelId: value.modelId };
-}
-export function parseRunContinuation(value: unknown): RunContinuation | undefined {
-  if (
-    !taskKeys(value, 'admitted,dueAt,nextProvider,origin,previousProvider,previousRunId,reason') ||
-    (value.admitted !== true && value.admitted !== false) ||
-    (value.origin !== 'provider_retry' && value.origin !== 'model_fallback') ||
-    !isConversationUuid(value.previousRunId) ||
-    !taskDate(value.dueAt)
-  )
-    return undefined;
-  const reason = continuationReasons.find((code) => code === value.reason);
-  const previousProvider = parseSafeModelSnapshot(value.previousProvider),
-    nextProvider = parseSafeModelSnapshot(value.nextProvider);
-  if (!reason || !previousProvider || !nextProvider) return undefined;
-  return {
-    origin: value.origin,
-    reason,
-    previousRunId: value.previousRunId.toLowerCase(),
-    previousProvider,
-    nextProvider,
-    dueAt: value.dueAt,
-    admitted: value.admitted,
-  };
 }
 export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | undefined {
   if (
