@@ -47,6 +47,7 @@ describe('database migrations', () => {
       '0011_model_capability_policies',
       '0012_bot_identity',
       '0013_bot_avatar_objects',
+      '0014_conversation_ledger',
     ]);
 
     const database: DatabaseClient = {
@@ -88,6 +89,8 @@ describe('database migrations', () => {
       'bot_avatar_references',
       'bot_versions',
       'bots',
+      'conversation_events',
+      'conversations',
       'group_memberships',
       'groups',
       'instance_claims',
@@ -114,7 +117,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0013_bot_avatar_objects' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0014_conversation_ledger' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

@@ -224,6 +224,36 @@ jobs:
         if: always()
         run: docker rm --force --volumes openbot-s3-ci
 
+  postgres-conversations:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_conversations_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_conversations_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_CONVERSATION_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_conversations_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/conversations-runtime.test.ts
+
   compose:
     needs: code
     runs-on: ubuntu-latest
@@ -263,7 +293,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -489,6 +519,19 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'bot_versions', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_bot_version_mutation()', 'EXECUTE'))")"
           test "$bot_immutable_update_privileges" = 'f,f'
+
+          conversation_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('conversations'), ('conversation_events')) AS ledger_tables(table_name)")"
+          test "$conversation_table_privileges" = 'conversation_events:t,t,f,f,f;conversations:t,t,f,f,f'
+          conversation_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'conversations', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='conversations'")"
+          test "$conversation_update_privileges" = 'bot_id:false,created_at:false,creator_user_id:false,group_id:false,id:false,last_sequence:true,workspace_id:false'
+          conversation_guard_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'conversation_events', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_conversation_event_mutation()', 'EXECUTE'), has_function_privilege('openbot_runtime', 'protect_conversation_subject()', 'EXECUTE'))")"
+          test "$conversation_guard_privileges" = 'f,f,f'
 
           api_token_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \

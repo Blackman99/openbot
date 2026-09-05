@@ -2,7 +2,7 @@
 sequence: 19
 id: COL-02
 title: "Add Bot membership and history grants"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-01
   - BOT-04
@@ -46,3 +46,7 @@ Authorized users can add or remove Bots with auditable future-only, since, or al
 ## Discovered implementation dependency
 
 COL-02 joins, removals and history boundaries consume the single COL-03 ledger/sequence allocator. The explicit COL-03 prerequisite avoids provisional timestamps, duplicate counters and unreviewed ledger fragments. It introduces no cycle and changes no acceptance criterion; ticket sequence identifiers stay stable. Follow [the ledger contract](../CONVERSATION-LEDGER-CONTRACT.md).
+
+## Ready implementation handoff
+
+COL-03 is integrated with its explicit REL-01 database evidence gate; other prerequisites are fully complete. Follow [GROUP-BOT-HANDOFF](../GROUP-BOT-HANDOFF.md), the ledger contract and BOT-CONTRACT for permanent grant closure, typed membership events and history projection.

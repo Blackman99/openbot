@@ -1,5 +1,9 @@
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
+import {
+  CONVERSATION_SCHEMA_STATEMENTS,
+  CONVERSATION_POSTGRES_GUARDS,
+} from '../conversations/schema.js';
 import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
 import {
   PERSONAL_MODEL_CONNECTION_STATEMENTS,
@@ -216,6 +220,11 @@ const MIGRATIONS = [
     version: '0013_bot_avatar_objects',
     statements: AVATAR_SCHEMA_STATEMENTS,
     postgresStatements: AVATAR_POSTGRES_GUARDS,
+  },
+  {
+    version: '0014_conversation_ledger',
+    statements: CONVERSATION_SCHEMA_STATEMENTS,
+    postgresStatements: CONVERSATION_POSTGRES_GUARDS,
   },
 ] as const;
 

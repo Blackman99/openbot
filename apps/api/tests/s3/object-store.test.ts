@@ -1,10 +1,11 @@
 // Opt-in REAL S3-compatible service gate. Requires a precreated private bucket.
 // The deterministic HTTP wire fixture is intentionally not used in this file.
 import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { S3ObjectStore, type S3ObjectStoreConfig } from '../../src/objects/s3-store.js';
 import { createObjectKey } from '../../src/objects/store.js';
 import { objectStoreContract } from '../contracts/object-store-contract.js';
+import { observeS3ForCi, S3_CI_DIAGNOSTIC_TAG } from '../helpers/s3-ci-diagnostics.js';
 const endpoint = process.env.TEST_S3_ENDPOINT;
 function config(): S3ObjectStoreConfig {
   const bucket = process.env.TEST_S3_BUCKET;
@@ -24,6 +25,15 @@ function config(): S3ObjectStoreConfig {
   };
 }
 describe.skipIf(!endpoint)('private real S3-compatible service acceptance', () => {
+  let diagnostic: ReturnType<typeof observeS3ForCi>;
+  beforeAll(() => {
+    diagnostic = observeS3ForCi();
+  });
+  beforeEach(() => diagnostic.reset());
+  afterEach(() => {
+    console.error(S3_CI_DIAGNOSTIC_TAG, JSON.stringify(diagnostic.events));
+  });
+  afterAll(() => diagnostic?.restore());
   objectStoreContract('real service save/read/immutable replacement/delete', async () => {
     const store = new S3ObjectStore(config(), { maxObjectBytes: 64 });
     return {

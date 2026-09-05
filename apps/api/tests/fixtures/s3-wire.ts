@@ -10,6 +10,7 @@ export async function s3WireFixture() {
   }> = [];
   const behavior = {
     errorStatus: 0,
+    checksum: undefined as string | undefined,
     stall: '' as '' | 'headers' | 'body',
     chunked: false,
     endlessError: false,
@@ -64,6 +65,7 @@ export async function s3WireFixture() {
         return;
       }
       response.writeHead(200, {
+        ...(behavior.checksum === undefined ? {} : { 'x-amz-checksum-crc32': behavior.checksum }),
         'content-type': 'application/octet-stream',
         ...(behavior.chunked || behavior.stall === 'body'
           ? {}

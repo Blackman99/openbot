@@ -5,6 +5,8 @@ import { S3ObjectStore } from './objects/s3-store.js';
 import { BotService } from './bots/service.js';
 import { BotAclService } from './bots/acl-service.js';
 import { PostgresBotAclRepository } from './bots/postgres-bot-acl-repository.js';
+import { ConversationService } from './conversations/service.js';
+import { PostgresConversationRepository } from './conversations/postgres-repository.js';
 import { PostgresBotRepository } from './bots/postgres-bot-repository.js';
 import { OpenIdProvider } from './oidc/provider.js';
 import { PostgresOidcRepository } from './oidc/postgres-repository.js';
@@ -99,6 +101,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     avatars,
+    conversations: new ConversationService(new PostgresConversationRepository(pool)),
     bots: new BotService(new PostgresBotRepository(pool)),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     groups: new GroupService(new PostgresGroupRepository(pool)),

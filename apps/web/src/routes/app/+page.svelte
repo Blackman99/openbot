@@ -50,6 +50,7 @@
 
   <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/groups`}>Groups</a></p>
   <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/bots`}>Bots</a></p>
+  <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/conversations`}>Conversations</a></p>
 
   <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Workspace settings</h2>

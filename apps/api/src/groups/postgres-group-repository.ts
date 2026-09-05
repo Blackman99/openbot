@@ -1,4 +1,5 @@
 import type { SqlPool, SqlConnection } from '../auth/postgres-auth-repository.js';
+import { lockAuthorizedGroup } from './postgres-group-access.js';
 import {
   GroupAccessError,
   GroupMemberConflictError,
@@ -208,33 +209,8 @@ export class PostgresGroupRepository implements GroupRepository {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
-      const workspace = await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
-        record.workspaceId,
-      ]);
-      if (!workspace.rows[0]) throw new GroupAccessError();
-      const membership = await connection.query(
-        'SELECT user_id FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2',
-        [record.workspaceId, record.actorId],
-      );
-      if (!membership.rows[0]) throw new GroupAccessError();
-      const group = (
-        await connection.query<Omit<GroupRow, 'role'>>(
-          'SELECT id,workspace_id,name,description,visibility,created_at,updated_at FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
-          [record.workspaceId, record.groupId],
-        )
-      ).rows[0];
-      if (!group) throw new GroupAccessError();
-      const actor = (
-        await connection.query<{ role: GroupRole }>(
-          'SELECT role FROM group_memberships WHERE group_id=$1 AND user_id=$2',
-          [record.groupId, record.actorId],
-        )
-      ).rows[0];
-      if (!actor || actor.role === 'member') throw new GroupAccessError();
-      const result = await operation(connection, {
-        ...groupDto({ ...group, role: actor.role }),
-        role: actor.role,
-      });
+      const group = await lockAuthorizedGroup(connection, record, 'manage');
+      const result = await operation(connection, group);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
