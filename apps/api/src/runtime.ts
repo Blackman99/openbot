@@ -122,7 +122,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     auth,
     avatars,
     attachments,
-    knowledge: new KnowledgeService(attachments),
+    knowledge: new KnowledgeService(pool, attachments),
     memories: new MemoryService(pool),
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     conversationStreams: new ConversationStreamService(pool),

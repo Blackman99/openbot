@@ -72,7 +72,7 @@ async function fixture() {
   };
   const store: ObjectStore = new LocalObjectStore(root, { maxObjectBytes: 10 * 1024 * 1024 });
   const attachments = new AttachmentService(attachmentPool, store);
-  const knowledge = new KnowledgeService(attachments);
+  const knowledge = new KnowledgeService(attachmentPool, attachments);
   const app = buildApp({
     auth,
     groups,
@@ -83,7 +83,7 @@ async function fixture() {
   });
   cleanup.push(() => app.close());
   const base = `/api/v1/workspaces/${owner.workspace.id}/conversations/${conversation.id}`;
-  return { app, pool, base };
+  return { app, pool, base, owner, group };
 }
 
 function envelope(command: unknown, content: Buffer) {
@@ -139,5 +139,124 @@ describe('KNW-01 text-like promotion preview', () => {
     });
     expect((await pool.query('SELECT id FROM knowledge_documents')).rows).toEqual([]);
     expect((await pool.query('SELECT id FROM knowledge_chunks')).rows).toEqual([]);
+  });
+
+  it('writes scoped knowledge only after an authorized confirmation of an explicit destination', async () => {
+    const { app, pool, base, owner, group } = await fixture();
+    const uploaded = await app.inject({
+      method: 'POST',
+      url: `${base}/attachments`,
+      headers: { ...headers, 'content-type': 'application/octet-stream' },
+      payload: envelope(metadata, bytes),
+    });
+    const messageId = uploaded.json().receipt.messageId as string;
+    const preview = await app.inject({
+      method: 'POST',
+      url: `${base}/messages/${messageId}/knowledge/preview`,
+      headers,
+      payload: {},
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/messages/${messageId}/knowledge/promotions`,
+          headers,
+          payload: {
+            destination: { kind: 'group', id: group.id },
+            idempotencyKey: 'promote-notes',
+            acknowledged: false,
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect((await pool.query('SELECT id FROM knowledge_documents')).rows).toEqual([]);
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: `${base}/messages/${messageId}/knowledge/promotions`,
+      headers,
+      payload: {
+        destination: { kind: 'group', id: group.id },
+        idempotencyKey: 'promote-notes',
+        acknowledged: true,
+      },
+    });
+    expect(confirmed.statusCode).toBe(201);
+    expect(confirmed.json()).toMatchObject({
+      document: {
+        scope: { kind: 'group', id: group.id, workspaceId: owner.workspace.id },
+        source: {
+          messageId,
+          filename: 'notes.txt',
+          fileVersion: 1,
+        },
+        chunkCount: 2,
+        approver: { id: owner.user.id },
+        replayed: false,
+      },
+    });
+    expect((await pool.query('SELECT scope_kind,scope_id FROM knowledge_documents')).rows).toEqual([
+      { scope_kind: 'group', scope_id: group.id },
+    ]);
+    expect(
+      (
+        await pool.query(
+          'SELECT position,locator_kind,locator_start,text FROM knowledge_chunks ORDER BY position',
+        )
+      ).rows,
+    ).toEqual([
+      { position: 1, locator_kind: 'line', locator_start: 1, text: 'Quarterly notes' },
+      { position: 2, locator_kind: 'line', locator_start: 2, text: 'Keep the cobalt key' },
+    ]);
+    const replay = await app.inject({
+      method: 'POST',
+      url: `${base}/messages/${messageId}/knowledge/promotions`,
+      headers,
+      payload: {
+        destination: { kind: 'group', id: group.id },
+        idempotencyKey: 'promote-notes',
+        acknowledged: true,
+      },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().document.id).toBe(confirmed.json().document.id);
+    expect(replay.json().document.replayed).toBe(true);
+    expect((await pool.query('SELECT id FROM knowledge_documents')).rows).toHaveLength(1);
+    const outsiderId = '11111111-1111-4111-8111-111111111111';
+    const outsiderToken = Buffer.alloc(32, 48).toString('base64url');
+    await pool.query(
+      'INSERT INTO users(id,email,normalized_email,display_name,created_at) VALUES($1,$2,$2,$3,NOW())',
+      [outsiderId, 'outsider@example.com', 'Outsider'],
+    );
+    await pool.query(
+      'INSERT INTO workspace_memberships(workspace_id,user_id,role,created_at) VALUES($1,$2,$3,NOW())',
+      [owner.workspace.id, outsiderId, 'member'],
+    );
+    await new PostgresAuthRepository(pool).createSession({
+      userId: outsiderId,
+      tokenDigest: createHash('sha256').update(outsiderToken).digest('hex'),
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 3600000),
+      auditId: '22222222-2222-4222-8222-222222222222',
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/messages/${messageId}/knowledge/promotions`,
+          headers: {
+            cookie: `openbot_session=${outsiderToken}`,
+            origin: 'http://localhost:3000',
+          },
+          payload: {
+            destination: { kind: 'group', id: group.id },
+            idempotencyKey: 'outsider-promote',
+            acknowledged: true,
+          },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await pool.query('SELECT id FROM knowledge_documents')).rows).toHaveLength(1);
   });
 });

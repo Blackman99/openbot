@@ -1,10 +1,30 @@
+import { createHash, randomUUID } from 'node:crypto';
+import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import type { AttachmentService } from '../attachments/service.js';
+import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
+import { ConversationTransaction } from '../conversations/postgres-repository.js';
 import type { ConversationAccess } from '../conversations/service.js';
-import { extractTextKnowledgeChunks } from './text-extractor.js';
-import { KnowledgeInputError, knowledgeAccess, type KnowledgePreview } from './types.js';
+import { ConversationAccessError } from '../conversations/service.js';
+import { BotAccessError } from '../bots/service.js';
+import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
+import { GroupAccessError } from '../groups/service.js';
+import { TEXT_KNOWLEDGE_EXTRACTOR_VERSION, extractTextKnowledgeChunks } from './text-extractor.js';
+import {
+  KnowledgeAccessError,
+  KnowledgeConflictError,
+  KnowledgeInputError,
+  knowledgeAccess,
+  knowledgePromotionInput,
+  type KnowledgeDestination,
+  type KnowledgePreview,
+} from './types.js';
 
 export class KnowledgeService {
-  constructor(private readonly attachments: AttachmentService) {}
+  constructor(
+    private readonly pool: SqlPool,
+    private readonly attachments: AttachmentService,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async preview(
     supplied: ConversationAccess,
@@ -36,5 +56,254 @@ export class KnowledgeService {
         chunks: extraction.chunks,
       },
     };
+  }
+
+  async promote(supplied: ConversationAccess, messageId: string, input: unknown) {
+    const access = knowledgeAccess(
+      supplied.actorUserId,
+      supplied.workspaceId,
+      supplied.conversationId,
+    );
+    const command = knowledgePromotionInput(input);
+    const object = await this.attachments.read(access, messageId);
+    const extraction = extractTextKnowledgeChunks({
+      filename: object.metadata.filename,
+      mediaType: object.metadata.mediaType,
+      bytes: object.bytes,
+      fileVersion: 1,
+    });
+    if (!extraction.ok) throw new KnowledgeInputError(extraction.error);
+    return this.withAdmission(access, async (connection) => {
+      await this.lockDestination(connection, access, command.destination);
+      await ConversationTransaction.lock(connection, access, this.now, 'inspect');
+      const attachment = (
+        await connection.query<{
+          id: string;
+          filename: string;
+          media_type: string;
+          sha256: string;
+          message_id: string | null;
+          state: string;
+        }>(
+          `SELECT id,filename,media_type,sha256,message_id,state FROM attachment_objects
+           WHERE workspace_id=$1 AND conversation_id=$2 AND message_id=$3 AND original_id IS NULL`,
+          [access.workspaceId, access.conversationId, messageId],
+        )
+      ).rows[0];
+      if (
+        !attachment ||
+        attachment.id !== object.metadata.id ||
+        attachment.state !== 'live' ||
+        attachment.filename !== object.metadata.filename ||
+        attachment.media_type !== object.metadata.mediaType
+      )
+        throw new KnowledgeAccessError();
+      const hash = createHash('sha256')
+        .update(
+          JSON.stringify({
+            attachmentId: attachment.id,
+            fileVersion: 1,
+            sha256: attachment.sha256,
+            destination: command.destination,
+          }),
+        )
+        .digest('hex');
+      const prior = (
+        await connection.query<{
+          id: string;
+          command_hash: string;
+          approved_at: Date;
+          source_attachment_id: string;
+        }>(
+          `SELECT id,command_hash,approved_at,source_attachment_id
+           FROM knowledge_documents
+           WHERE workspace_id=$1 AND approver_user_id=$2 AND idempotency_key=$3`,
+          [access.workspaceId, access.actorUserId, command.idempotencyKey],
+        )
+      ).rows[0];
+      if (prior) {
+        if (prior.command_hash !== hash) throw new KnowledgeConflictError();
+        const chunks = (
+          await connection.query<{ count: string }>(
+            'SELECT COUNT(*)::text AS count FROM knowledge_chunks WHERE document_id=$1',
+            [prior.id],
+          )
+        ).rows[0];
+        return {
+          created: false,
+          document: {
+            id: prior.id,
+            scope: {
+              kind: command.destination.kind,
+              id: command.destination.id,
+              workspaceId: access.workspaceId,
+            },
+            source: {
+              attachmentId: prior.source_attachment_id,
+              messageId,
+              filename: attachment.filename,
+              fileVersion: 1,
+            },
+            chunkCount: Number(chunks?.count ?? 0),
+            approver: { id: access.actorUserId },
+            approvedAt: prior.approved_at,
+            replayed: true,
+          },
+        };
+      }
+      const documentId = randomUUID(),
+        approvedAt = this.now();
+      await connection.query(
+        `INSERT INTO knowledge_documents(
+          id,workspace_id,scope_kind,scope_id,source_attachment_id,source_conversation_id,source_message_id,
+          file_version,filename,media_type,sha256,extractor_version,approver_user_id,approved_at,idempotency_key,command_hash
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [
+          documentId,
+          access.workspaceId,
+          command.destination.kind,
+          command.destination.id,
+          attachment.id,
+          access.conversationId,
+          messageId,
+          attachment.filename,
+          attachment.media_type,
+          attachment.sha256,
+          TEXT_KNOWLEDGE_EXTRACTOR_VERSION,
+          access.actorUserId,
+          approvedAt,
+          command.idempotencyKey,
+          hash,
+        ],
+      );
+      for (const [index, chunk] of extraction.chunks.entries()) {
+        await connection.query(
+          `INSERT INTO knowledge_chunks(
+            id,document_id,position,file_version,locator_kind,locator_start,locator_end,text
+          ) VALUES($1,$2,$3,1,$4,$5,$6,$7)`,
+          [
+            randomUUID(),
+            documentId,
+            index + 1,
+            chunk.locator.kind,
+            chunk.locator.start,
+            chunk.locator.end,
+            chunk.text,
+          ],
+        );
+      }
+      await connection.query(
+        'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
+        [
+          randomUUID(),
+          'knowledge.promoted',
+          access.actorUserId,
+          approvedAt,
+          JSON.stringify({
+            workspaceId: access.workspaceId,
+            conversationId: access.conversationId,
+            documentId,
+            attachmentId: attachment.id,
+            destinationKind: command.destination.kind,
+            destinationId: command.destination.id,
+          }),
+        ],
+      );
+      return {
+        created: true,
+        document: {
+          id: documentId,
+          scope: {
+            kind: command.destination.kind,
+            id: command.destination.id,
+            workspaceId: access.workspaceId,
+          },
+          source: {
+            attachmentId: attachment.id,
+            messageId,
+            filename: attachment.filename,
+            fileVersion: 1,
+          },
+          chunkCount: extraction.chunks.length,
+          approver: { id: access.actorUserId },
+          approvedAt,
+          replayed: false,
+        },
+      };
+    });
+  }
+
+  private async lockDestination(
+    connection: SqlConnection,
+    access: ConversationAccess,
+    destination: KnowledgeDestination,
+  ) {
+    if (destination.kind === 'workspace') {
+      if (destination.id !== access.workspaceId) throw new KnowledgeAccessError();
+      const role = (
+        await connection.query<{ role: string }>(
+          "SELECT role FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2 AND role IN ('owner','administrator')",
+          [access.workspaceId, access.actorUserId],
+        )
+      ).rows[0];
+      if (!role) throw new KnowledgeAccessError();
+      return;
+    }
+    if (destination.kind === 'group') {
+      await lockAuthorizedGroup(
+        connection,
+        {
+          actorId: access.actorUserId,
+          workspaceId: access.workspaceId,
+          groupId: destination.id,
+        },
+        'content',
+      );
+      return;
+    }
+    const bot = await lockAuthorizedBot(
+      connection,
+      {
+        actorUserId: access.actorUserId,
+        workspaceId: access.workspaceId,
+        botId: destination.id,
+      },
+      'edit',
+    );
+    if (bot.lifecycle_state === 'deleted') throw new KnowledgeAccessError();
+  }
+
+  private async withAdmission<T>(
+    access: ConversationAccess,
+    action: (connection: SqlConnection) => Promise<T>,
+  ): Promise<T> {
+    const connection = await this.pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
+        access.workspaceId,
+      ]);
+      const member = (
+        await connection.query(
+          'SELECT role FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2',
+          [access.workspaceId, access.actorUserId],
+        )
+      ).rows[0];
+      if (!member) throw new KnowledgeAccessError();
+      const value = await action(connection);
+      await connection.query('COMMIT');
+      return value;
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      if (
+        error instanceof ConversationAccessError ||
+        error instanceof GroupAccessError ||
+        error instanceof BotAccessError
+      )
+        throw new KnowledgeAccessError();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
