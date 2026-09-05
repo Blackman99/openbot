@@ -30,7 +30,6 @@ describe('Memory pages', () => {
       props: {
         data: { ...data, memory: { ...memory, text: '<script>untrusted</script>' } },
         form: null,
-        params,
       },
     }).body;
     expect(html).toContain(memory.source.eventId);
@@ -71,7 +70,6 @@ describe('Memory pages', () => {
             content: memory.text,
           },
         },
-        params,
       },
     }).body;
     expect(html).toContain('Source group:');
