@@ -187,12 +187,24 @@ export async function lockReviewScopes(
       ),
     ),
   ].sort();
+  let destinationBot: Awaited<ReturnType<typeof lockAuthorizedBot>> | undefined;
   for (const botId of bots) {
-    await lockAuthorizedBot(
-      connection,
-      { actorUserId: access.actorUserId, workspaceId: access.workspaceId, botId },
-      destination?.kind === 'bot' && destination.id === botId ? 'edit' : 'inspect',
-    );
+    if (destination?.kind === 'bot' && destination.id === botId) {
+      destinationBot = await lockAuthorizedBot(
+        connection,
+        { actorUserId: access.actorUserId, workspaceId: access.workspaceId, botId },
+        'edit',
+      );
+      if (destinationBot.lifecycle_state === 'deleted') throw new MemoryAccessError();
+    } else {
+      const locked = (
+        await connection.query<{ id: string }>(
+          'SELECT id FROM bots WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [access.workspaceId, botId],
+        )
+      ).rows[0];
+      if (!locked) throw new MemoryAccessError();
+    }
   }
   if (destination?.kind === 'workspace') {
     if (destination.id !== access.workspaceId) throw new MemoryAccessError();
@@ -203,19 +215,6 @@ export async function lockReviewScopes(
       )
     ).rows[0];
     if (!role) throw new MemoryAccessError();
-  }
-  let destinationBot: Awaited<ReturnType<typeof lockAuthorizedBot>> | undefined;
-  if (destination?.kind === 'bot') {
-    destinationBot = await lockAuthorizedBot(
-      connection,
-      {
-        actorUserId: access.actorUserId,
-        workspaceId: access.workspaceId,
-        botId: destination.id,
-      },
-      'edit',
-    );
-    if (destinationBot.lifecycle_state === 'deleted') throw new MemoryAccessError();
   }
   await ConversationTransaction.lock(
     connection,

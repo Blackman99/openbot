@@ -1445,6 +1445,9 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     ]);
     const accepted = raced.filter((result) => result.status === 'fulfilled');
     const denied = raced.filter((result) => result.status === 'rejected');
+    expect(raced.map((result) => result.status)).toEqual(
+      expect.arrayContaining(['fulfilled', 'rejected']),
+    );
     expect(accepted).toHaveLength(1);
     expect(denied).toHaveLength(1);
     expect(denied[0]).toMatchObject({

@@ -115,6 +115,33 @@ async function extractedDirectCandidate(
 }
 
 describe('candidate review inbox', () => {
+  it('lets a group content member approve without Bot ACL', async () => {
+    const base = await memoryFixture(cleanup);
+    const { candidateId, revision } = await extractedGroupCandidate(
+      base,
+      'Remember: a group member can review this.',
+      'member-review',
+    );
+    const access = {
+      actorUserId: base.member.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    const approved = await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: revision,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.61,
+      idempotencyKey: 'member-approve',
+    });
+    expect(approved.replayed).toBe(false);
+    expect(approved.candidate.status).toBe('approved');
+    expect(approved.fact).toMatchObject({
+      kind: 'approved_fact',
+      text: 'a group member can review this.',
+      creator: { id: base.member.id },
+    });
+  });
+
   it('edits then approves a same-group candidate into searchable context and keeps pending text inert', async () => {
     const base = await memoryFixture(cleanup);
     const { grant, tasks, candidateId, revision } = await extractedGroupCandidate(
