@@ -5,6 +5,8 @@ import { readProviderConfig } from '../providers/config.js';
 import { ProviderSecretBox } from '../providers/secrets.js';
 import { ProviderUrlPolicy } from '../providers/url-policy.js';
 import { createModelAdapter } from '../providers/protocols.js';
+import { createObjectStore, readObjectStorageConfig } from '../objects/config.js';
+import { S3ObjectStore } from '../objects/s3-store.js';
 import { TaskWorker } from './worker.js';
 import { runTaskLoop } from './loop.js';
 import { PostgresReadinessProbe } from '../database/readiness.js';
@@ -48,12 +50,21 @@ export async function runProductionTaskWorker(
     if (readiness.database !== 'ready' || readiness.migrations !== 'current')
       throw new Error('Task worker database is not ready');
     const policy = new ProviderUrlPolicy(providers.network);
+    const attachmentMaxBytes = Number(environment.ATTACHMENT_MAX_BYTES ?? 10485760);
+    const objects = createObjectStore(readObjectStorageConfig(environment), {
+      maxObjectBytes: Number.isSafeInteger(attachmentMaxBytes) ? attachmentMaxBytes : 10485760,
+    });
     const worker = new TaskWorker(pool, {
       secrets: new ProviderSecretBox(providers.encryptionKey),
       createAdapter: (protocol, options) => createModelAdapter(protocol, policy, options),
+      objects,
     });
     report('task_worker_ready');
-    await runTaskLoop(worker, signal, () => report('task_worker_poll_failed'));
+    try {
+      await runTaskLoop(worker, signal, () => report('task_worker_poll_failed'));
+    } finally {
+      if (objects instanceof S3ObjectStore) objects.destroy();
+    }
   } finally {
     await pool.end();
   }

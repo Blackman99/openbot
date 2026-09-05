@@ -2,6 +2,7 @@ import type { SqlPool } from '../auth/postgres-auth-repository.js';
 import type { ModelAdapter, ProviderProtocol } from '../providers/model-events.js';
 import type { ProviderSecretBox } from '../providers/secrets.js';
 import { withAbort } from '../providers/transport.js';
+import type { ObjectStore } from '../objects/store.js';
 import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
@@ -10,6 +11,7 @@ import { ExtractionWorker } from '../memories/extraction-worker.js';
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
   createAdapter: (protocol: ProviderProtocol, options: { timeoutMs: number }) => ModelAdapter;
+  objects?: ObjectStore;
 }
 export class TaskWorker {
   private readonly queue: TaskQueue;
@@ -19,7 +21,7 @@ export class TaskWorker {
     private readonly options: TaskWorkerOptions,
     private readonly now: () => Date = () => new Date(),
   ) {
-    this.queue = new TaskQueue(pool, now);
+    this.queue = new TaskQueue(pool, now, options.objects);
     this.extraction = new ExtractionWorker(pool, now);
   }
   async runOnce(signal?: AbortSignal): Promise<boolean> {

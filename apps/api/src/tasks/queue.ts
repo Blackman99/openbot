@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
@@ -6,6 +6,13 @@ import { BotAccessError, type BotBinding, type BotConfiguration } from '../bots/
 import { ProviderError } from '../providers/url-policy.js';
 import { admitExecutionModel, admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { ModelFailure, ModelInput } from '../providers/model-events.js';
+import type { ObjectStore } from '../objects/store.js';
+import {
+  connectionSupportsVision,
+  selectAuthorizedImageAttachments,
+  selectCurrentTurnImageMessage,
+  withImages,
+} from './vision-context.js';
 import { currentPage } from '../conversations/projection.js';
 import {
   loadAttemptChain,
@@ -82,6 +89,7 @@ type Candidate = {
   group_grant_id: string | null;
   group_id: string | null;
   trigger_sequence: string | number;
+  trigger_message_id: string;
 };
 export interface TaskClaim {
   runId: string;
@@ -119,6 +127,7 @@ export class TaskQueue {
   constructor(
     private readonly pool: SqlPool,
     private readonly now: () => Date = () => new Date(),
+    private readonly objects?: ObjectStore,
   ) {}
   private async transaction<T>(action: (connection: SqlConnection) => Promise<T>) {
     const connection = await this.pool.connect();
@@ -137,7 +146,7 @@ export class TaskQueue {
   private async candidate(connection: SqlConnection, runId?: string) {
     const rows = (
       await connection.query<Candidate>(
-        `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,c.group_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN conversation_events e ON e.id=t.trigger_event_id
+        `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,c.group_id,e.sequence AS trigger_sequence,e.message_id AS trigger_message_id FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN conversation_events e ON e.id=t.trigger_event_id
        WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id`,
         runId ? [runId] : [],
       )
@@ -368,6 +377,40 @@ export class TaskQueue {
           { actorUserId: task.execution_user_id, scope: binding.scope },
           { connectionId: binding.connectionId, expectedModelId: binding.modelId },
         );
+        const vision = await connectionSupportsVision(
+          connection,
+          { actorUserId: task.execution_user_id, scope: provider.scope },
+          provider.connectionId,
+        );
+        const imageMessageId = await selectCurrentTurnImageMessage(connection, {
+          conversationId: task.conversation_id,
+          triggerMessageId: task.trigger_message_id,
+          triggerSequence: task.trigger_sequence,
+        });
+        const currentImages = await this.loadAuthorizedImages(connection, {
+          workspaceId: task.workspace_id,
+          conversationId: task.conversation_id,
+          messageId: imageMessageId,
+        });
+        if (currentImages.length && !vision) throw new ProviderError('model_capability_required');
+        const knowledgeImages =
+          vision && knowledge.messages[0]
+            ? await this.loadKnowledgeImages(connection, knowledge.messages[0].content)
+            : [];
+        messages = assembled.items.map((item, index) => {
+          const message = messages[index] ?? assembled.messages[index]!;
+          if (item.kind === 'ledger' && item.id === imageMessageId && currentImages.length)
+            return withImages(message, currentImages);
+          if (item.kind === 'knowledge' && knowledgeImages.length)
+            return withImages(message, knowledgeImages);
+          return message;
+        });
+        if (
+          currentImages.length &&
+          vision &&
+          !assembled.items.some((item) => item.id === imageMessageId)
+        )
+          messages.push(withImages({ role: 'user', content: '' }, currentImages));
       } catch (error) {
         const code = admissionFailure(error);
         if (!code) throw error;
@@ -654,6 +697,63 @@ export class TaskQueue {
       plan,
       now: this.now(),
     };
+  }
+  private async loadAuthorizedImages(
+    connection: SqlConnection,
+    filter: { workspaceId: string; conversationId: string; messageId: string },
+  ) {
+    const rows = await selectAuthorizedImageAttachments(connection, filter);
+    if (!rows.length) return [];
+    if (!this.objects) throw new ProviderError('model_capability_required');
+    const images = [];
+    for (const row of rows) {
+      const bytes = await this.objects.read(
+        { workspaceId: row.workspaceId, objectId: row.storageId },
+        row.bytes,
+      );
+      if (
+        bytes.length !== row.bytes ||
+        createHash('sha256').update(bytes).digest('hex') !== row.sha256
+      )
+        throw new ProviderError('model_capability_required');
+      images.push({ mediaType: row.mediaType, bytes });
+    }
+    return images;
+  }
+  private async loadKnowledgeImages(connection: SqlConnection, content: string) {
+    let chunks: Array<{
+      mediaType?: string;
+      source?: { workspaceId?: string; conversationId?: string; messageId?: string };
+    }> = [];
+    try {
+      chunks = (JSON.parse(content) as { chunks?: typeof chunks }).chunks ?? [];
+    } catch {
+      return [];
+    }
+    const images = [];
+    const seen = new Set<string>();
+    for (const chunk of chunks) {
+      const workspaceId = chunk.source?.workspaceId;
+      const conversationId = chunk.source?.conversationId;
+      const messageId = chunk.source?.messageId;
+      if (
+        !workspaceId ||
+        !conversationId ||
+        !messageId ||
+        seen.has(messageId) ||
+        (chunk.mediaType !== 'image/png' && chunk.mediaType !== 'image/jpeg')
+      )
+        continue;
+      seen.add(messageId);
+      images.push(
+        ...(await this.loadAuthorizedImages(connection, {
+          workspaceId,
+          conversationId,
+          messageId,
+        })),
+      );
+    }
+    return images;
   }
 }
 

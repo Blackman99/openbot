@@ -53,6 +53,7 @@ export type KnowledgeRow = {
   source_conversation_id: string;
   source_message_id: string;
   filename: string;
+  media_type: string;
   workspace_id: string;
 };
 
@@ -130,10 +131,10 @@ const CHUNK_FROM = `knowledge_chunks c
       LEFT JOIN message_purges p ON p.workspace_id=d.workspace_id AND p.conversation_id=d.source_conversation_id AND p.message_id=d.source_message_id`;
 
 const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.locator_ref,c.text,c.position,
-       d.source_attachment_id,d.source_conversation_id,d.source_message_id,d.filename,d.workspace_id`;
+       d.source_attachment_id,d.source_conversation_id,d.source_message_id,d.filename,d.media_type,d.workspace_id`;
 
 const PROJECTED_COLUMNS = `id,document_id,file_version,locator_kind,locator_start,locator_end,locator_ref,text,
-       source_attachment_id,source_conversation_id,source_message_id,filename,workspace_id`;
+       source_attachment_id,source_conversation_id,source_message_id,filename,media_type,workspace_id`;
 
 function authorizedCte(
   filter: {
@@ -237,6 +238,7 @@ export function projectKnowledgeChunk(row: KnowledgeRow) {
     text: row.text,
     fileVersion: Number(row.file_version),
     locator,
+    mediaType: row.media_type,
     source: knowledgeSourceReference({
       workspaceId: row.workspace_id,
       conversationId: row.source_conversation_id,

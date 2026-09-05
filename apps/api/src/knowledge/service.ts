@@ -14,6 +14,11 @@ import {
   extractKnowledgeChunks,
 } from './document-extractor.js';
 import {
+  IMAGE_KNOWLEDGE_EXTRACTOR_VERSION,
+  classifyKnowledgeImage,
+  imageKnowledgeChunk,
+} from './image-knowledge.js';
+import {
   KnowledgeAccessError,
   KnowledgeConflictError,
   KnowledgeInputError,
@@ -43,6 +48,20 @@ export class KnowledgeService {
       supplied.conversationId,
     );
     const object = await this.attachments.read(access, messageId);
+    if (classifyKnowledgeImage(object.metadata.filename, object.metadata.mediaType))
+      return {
+        preview: {
+          source: {
+            attachmentId: object.metadata.id,
+            messageId,
+            filename: object.metadata.filename,
+            mediaType: object.metadata.mediaType,
+            fileVersion: 1,
+          },
+          kind: 'image',
+          chunks: [],
+        },
+      };
     const extraction = extractKnowledgeChunks({
       filename: object.metadata.filename,
       mediaType: object.metadata.mediaType,
@@ -73,13 +92,24 @@ export class KnowledgeService {
     );
     const command = knowledgePromotionInput(input);
     const object = await this.attachments.read(access, messageId);
-    const extraction = extractKnowledgeChunks({
-      filename: object.metadata.filename,
-      mediaType: object.metadata.mediaType,
-      bytes: object.bytes,
-      fileVersion: 1,
-    });
+    const image = classifyKnowledgeImage(object.metadata.filename, object.metadata.mediaType);
+    if (image && (command.title === undefined || command.description === undefined))
+      throw new KnowledgeInputError('image_description_required');
+    const extraction = image
+      ? {
+          ok: true as const,
+          kind: image,
+          chunks: [imageKnowledgeChunk(command.title!, command.description!, 1)],
+        }
+      : extractKnowledgeChunks({
+          filename: object.metadata.filename,
+          mediaType: object.metadata.mediaType,
+          bytes: object.bytes,
+          fileVersion: 1,
+        });
     if (!extraction.ok) throw new KnowledgeInputError(extraction.error);
+    if (!image && (command.title !== undefined || command.description !== undefined))
+      throw new KnowledgeInputError();
     return this.withAdmission(access, async (connection) => {
       await this.lockDestination(connection, access, command.destination);
       await ConversationTransaction.lock(connection, access, this.now, 'inspect');
@@ -112,6 +142,9 @@ export class KnowledgeService {
             fileVersion: 1,
             sha256: attachment.sha256,
             destination: command.destination,
+            ...(command.title !== undefined
+              ? { title: command.title, description: command.description }
+              : {}),
           }),
         )
         .digest('hex');
@@ -199,9 +232,11 @@ export class KnowledgeService {
           attachment.filename,
           attachment.media_type,
           attachment.sha256,
-          extraction.kind === 'pdf' || extraction.kind === 'docx' || extraction.kind === 'xlsx'
-            ? DOCUMENT_KNOWLEDGE_EXTRACTOR_VERSION
-            : TEXT_KNOWLEDGE_EXTRACTOR_VERSION,
+          extraction.kind === 'image'
+            ? IMAGE_KNOWLEDGE_EXTRACTOR_VERSION
+            : extraction.kind === 'pdf' || extraction.kind === 'docx' || extraction.kind === 'xlsx'
+              ? DOCUMENT_KNOWLEDGE_EXTRACTOR_VERSION
+              : TEXT_KNOWLEDGE_EXTRACTOR_VERSION,
           access.actorUserId,
           approvedAt,
           command.idempotencyKey,

@@ -7,6 +7,7 @@ import {
 } from './model-events.js';
 import { SseDecoder } from './sse.js';
 import { executeModelRequest, upstreamErrorCode } from './model-request.js';
+import { openaiChatMessages } from './vision-messages.js';
 import { ProviderError, type ProviderUrlPolicy } from './url-policy.js';
 
 function action(call: unknown): ModelEvent {
@@ -124,7 +125,7 @@ export class OpenAiChatAdapter implements ModelAdapter {
         },
         body: {
           model: input.modelId,
-          messages: input.messages,
+          messages: openaiChatMessages(input.messages),
           stream: input.stream,
           ...(input.tools
             ? { tools: input.tools.map((tool) => ({ type: 'function', function: tool })) }

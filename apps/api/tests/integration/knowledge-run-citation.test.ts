@@ -141,6 +141,7 @@ describe('KNW-01 authorized run retrieval and citation', () => {
             documentId: f.document.id,
             text: 'Keep the cobalt key',
             fileVersion: 1,
+            mediaType: 'text/plain',
             locator: { kind: 'line', start: 2, end: 2 },
             source: {
               attachmentId: f.document.source.attachmentId,

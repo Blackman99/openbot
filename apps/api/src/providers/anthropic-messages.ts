@@ -6,6 +6,7 @@ import type {
 } from './model-events.js';
 import type { ProviderUrlPolicy } from './url-policy.js';
 import { executeModelRequest } from './model-request.js';
+import { anthropicMessages } from './vision-messages.js';
 import { AnthropicMessageDecoder } from './anthropic-events.js';
 
 export class AnthropicMessagesAdapter implements ModelAdapter {
@@ -37,7 +38,7 @@ export class AnthropicMessagesAdapter implements ModelAdapter {
         body: {
           model: input.modelId,
           max_tokens: input.maxOutputTokens ?? 256,
-          messages: input.messages.filter((message) => message.role !== 'system'),
+          messages: anthropicMessages(input.messages),
           stream: input.stream,
           ...(system ? { system } : {}),
           ...(input.tools

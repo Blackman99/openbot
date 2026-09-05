@@ -6,6 +6,7 @@ import {
   type ModelInput,
 } from './model-events.js';
 import { executeModelRequest, upstreamErrorCode } from './model-request.js';
+import { openaiResponsesInput } from './vision-messages.js';
 import { SseDecoder } from './sse.js';
 import { ProviderError, type ProviderUrlPolicy } from './url-policy.js';
 
@@ -202,7 +203,7 @@ export class OpenAiResponsesAdapter implements ModelAdapter {
         },
         body: {
           model: input.modelId,
-          input: input.messages,
+          input: openaiResponsesInput(input.messages),
           stream: input.stream,
           ...(input.tools
             ? { tools: input.tools.map((tool) => ({ type: 'function', ...tool })) }

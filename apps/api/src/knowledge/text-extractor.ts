@@ -27,7 +27,7 @@ export const DEFAULT_SOURCE_EXTENSIONS = Object.freeze([
 ]);
 export const MAX_KNOWLEDGE_CHUNKS = 10_000;
 const KIND_MEDIA: Record<
-  Exclude<KnowledgeFileKind, 'source' | 'pdf' | 'docx' | 'xlsx'>,
+  Exclude<KnowledgeFileKind, 'source' | 'pdf' | 'docx' | 'xlsx' | 'image'>,
   readonly string[]
 > = {
   txt: ['text/plain'],
@@ -38,7 +38,7 @@ const KIND_MEDIA: Record<
 };
 
 export type KnowledgeFileKind =
-  'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source' | 'pdf' | 'docx' | 'xlsx';
+  'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source' | 'pdf' | 'docx' | 'xlsx' | 'image';
 export type KnowledgeLocatorKind = 'line' | 'row' | 'page' | 'paragraph' | 'cells';
 export interface KnowledgeChunk {
   text: string;

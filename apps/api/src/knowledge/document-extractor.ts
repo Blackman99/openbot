@@ -19,7 +19,7 @@ export function extractKnowledgeChunks(input: KnowledgeExtractionInput): Knowled
 export const DOCUMENT_KNOWLEDGE_EXTRACTOR_VERSION = 'document-page-cell-v1';
 
 const DOCUMENT_MEDIA: Record<
-  Exclude<KnowledgeFileKind, 'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source'>,
+  Exclude<KnowledgeFileKind, 'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source' | 'image'>,
   string
 > = {
   pdf: 'application/pdf',

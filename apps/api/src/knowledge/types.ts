@@ -13,7 +13,8 @@ export class KnowledgeInputError extends Error {
       | 'invalid_text'
       | 'extraction_limit'
       | 'encrypted_file'
-      | 'corrupt_file' = 'unsupported_file',
+      | 'corrupt_file'
+      | 'image_description_required' = 'unsupported_file',
   ) {
     super(code);
   }
@@ -100,14 +101,37 @@ export function knowledgePromotionInput(input: unknown): {
   destination: KnowledgeDestination;
   idempotencyKey: string;
   acknowledged: true;
+  title?: string;
+  description?: string;
 } {
-  const value = knowledgeObject(input, ['destination', 'idempotencyKey', 'acknowledged']);
+  const keys =
+    input && typeof input === 'object' && !Array.isArray(input) ? Object.keys(input) : [];
+  const value = keys.includes('title')
+    ? knowledgeObject(input, [
+        'destination',
+        'idempotencyKey',
+        'acknowledged',
+        'title',
+        'description',
+      ])
+    : knowledgeObject(input, ['destination', 'idempotencyKey', 'acknowledged']);
   if (
     value.acknowledged !== true ||
     typeof value.idempotencyKey !== 'string' ||
     !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
   )
     throw new KnowledgeInputError();
+  if (keys.includes('title')) {
+    if (typeof value.title !== 'string' || typeof value.description !== 'string')
+      throw new KnowledgeInputError('image_description_required');
+    return {
+      destination: knowledgeDestination(value.destination),
+      idempotencyKey: value.idempotencyKey,
+      acknowledged: true,
+      title: value.title,
+      description: value.description,
+    };
+  }
   return {
     destination: knowledgeDestination(value.destination),
     idempotencyKey: value.idempotencyKey,

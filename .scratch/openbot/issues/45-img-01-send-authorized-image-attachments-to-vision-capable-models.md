@@ -35,6 +35,10 @@ Conversation and knowledge images are delivered only to endpoints that advertise
 - [ ] No OCR text or generated description is stored unless a distinct user-confirmed extraction action created it.
 - [ ] Image metadata, bytes, and references obey the same scope, history grant, version, and tombstone checks as their source attachment.
 
+## Discovered implementation dependencies
+
+Claim reads authorized PNG/JPEG attachments on the trigger message or the immediately previous user message, then checks the resolved `visionInput` catalog before calling a provider. Vision-capable targets receive original bytes on the protocol payload; non-vision targets fail the run with `model_unavailable` instead of dropping the image. Image knowledge stores only a user-confirmed title and description (`image-description-v1`); retrieval attaches the original file only when the target supports vision. These notes do not change the original acceptance texts, which stay unchecked.
+
 ## Non-goals
 
 - Automatic OCR
