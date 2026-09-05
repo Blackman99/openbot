@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33975558882](https://github.com/Blackman99/openbot/actions/runs/33975558882) on `e443ebb` passed 15/16; `compose-tasks` failed because the stdin ES module verifier used a top-level `return`. The retry stages now branch with `else if` and the contract parses the verifier the same way CI does. Compose still lengthens `notBefore` to 60s for a worker restart before due. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33975944283](https://github.com/Blackman99/openbot/actions/runs/33975944283) on `f743e5e` is full green (16/16), including Compose restart-before-due: a real 503 queues a 60s compose-only fallback, the worker restart makes no extra call, and the configured fallback runs only after due. Production delays stay 1s/2s. Adapter-to-worker auth/validation, BFF/browser previous/next/reason, and native lock contention remain witnessed. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 
