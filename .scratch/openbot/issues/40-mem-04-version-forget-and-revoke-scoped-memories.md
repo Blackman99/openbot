@@ -2,7 +2,7 @@
 sequence: 40
 id: MEM-04
 title: "Version, forget, and revoke scoped memories"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - MEM-02
   - MEM-03
