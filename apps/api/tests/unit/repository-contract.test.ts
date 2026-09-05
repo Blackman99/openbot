@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -342,5 +343,10 @@ describe('repository contract', () => {
     expect(readFileSync(`${repositoryRoot}/infra/compose-tasks.yaml`, 'utf8')).toContain(
       "OPENBOT_COL10_RETRY_DELAY_MS: '60000'",
     );
+    expect(() =>
+      execFileSync(process.execPath, ['--check', '--input-type=module'], {
+        input: readFileSync(`${repositoryRoot}/infra/verify-tasks.mjs`),
+      }),
+    ).not.toThrow();
   });
 });

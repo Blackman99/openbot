@@ -185,10 +185,7 @@ try {
         { prompt: 'compose-transient', modelId: 'compose-fallback-model' },
       ]);
     }
-    console.info(`task_smoke_${mode}_passed`);
-    return;
-  }
-  if (mode === 'seed') {
+  } else if (mode === 'seed') {
     stage = 'configured provider and durable submission with idle worker';
     const model = await request('/api/v1/model-connections', {
       cookie,

@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974792544](https://github.com/Blackman99/openbot/actions/runs/33974792544) on `b47b78f` is full green (16/16). Compose `compose-tasks` now persists a waiting fallback, restarts the worker before due, and claims only after the compose-only 60s `notBefore`. Production delays stay 1s/2s; the overlay may only lengthen them. Adapter-to-worker auth/validation and native lock contention remain witnessed. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33975558882](https://github.com/Blackman99/openbot/actions/runs/33975558882) on `e443ebb` passed 15/16; `compose-tasks` failed because the stdin ES module verifier used a top-level `return`. The retry stages now branch with `else if` and the contract parses the verifier the same way CI does. Compose still lengthens `notBefore` to 60s for a worker restart before due. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 
