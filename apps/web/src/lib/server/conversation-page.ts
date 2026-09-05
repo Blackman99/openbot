@@ -21,9 +21,12 @@ type ConversationAction = 'open' | 'append' | 'edit' | 'tombstone';
 function pageQuery(url: URL) {
   const cursor = url.searchParams.get('cursor');
   const limit = url.searchParams.get('limit');
+  const messageId = url.searchParams.get('messageId');
   if (
     url.searchParams.getAll('cursor').length > 1 ||
     url.searchParams.getAll('limit').length > 1 ||
+    url.searchParams.getAll('messageId').length > 1 ||
+    (messageId !== null && (!isConversationUuid(messageId) || cursor !== null)) ||
     (cursor !== null && !isConversationCursor(cursor)) ||
     (limit !== null && (!/^[1-9][0-9]{0,2}$/u.test(limit) || Number(limit) > 100))
   )
@@ -31,6 +34,7 @@ function pageQuery(url: URL) {
   return {
     ...(cursor === null ? {} : { cursor }),
     ...(limit === null ? {} : { limit: Number(limit) }),
+    ...(messageId === null ? {} : { messageId: messageId.toLowerCase() }),
   };
 }
 export async function loadConversationPage(
@@ -210,6 +214,7 @@ async function requireWorkspace(context: PageContext, workspaceId: string) {
   if (!workspace) readFailure('forbidden', context);
   return { user: identity.identity.user, workspace, workspaces: result.value };
 }
+export { requireWorkspace as requireConversationWorkspace };
 export async function loadConversationsPage(context: PageContext, workspaceId: string) {
   const page = await requireWorkspace(context, workspaceId);
   const session = readSessionCookie(context.cookies);

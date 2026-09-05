@@ -2,7 +2,7 @@
 sequence: 16
 id: BOT-05
 title: "Safely copy a bot configuration"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-03
   - BOT-04
@@ -57,3 +57,7 @@ Author final repository gate passed931 unit/integration tests,30 ordinary browse
 ## Accepted integration and remaining service evidence
 
 Copy-only source4257bdf was independently CLEAN on Standards and Spec against c389f993, then integrated as0d641dba after accepted full BOT-06. The dedicated combined pnpm verify passed969 unit/integration tests,32 ordinary browser scenarios, one signed-OIDC journey, formatting, types and both builds. Root independently reviewed the two small integration resolutions. Native17 cases remain explicit BOT-05-E1 in REL-01; local discovery/skips do not close that gate.
+
+## Actual external gate closure
+
+BOT-05-E1 is closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), completed 2026-09-05 at09:07:34 UTC with all nine jobs successful. Actual native and Compose execution is recorded in [the service evidence](../VERIFY-33956965487.md). The tested tree exactly matches the accepted published candidate. This supersedes earlier pending/native-skip notes.

@@ -28,13 +28,16 @@ export interface TombstoneCommand {
   expectedVersion: number;
   reason?: string;
 }
+export type MessageAuthor =
+  | { id: string; displayName: string }
+  | { kind: 'bot'; id: string; displayName: string; versionId: string; versionNumber: number };
 export interface MessageProjection {
   id: string;
   creationSequence: number;
   versionEventId: string;
   sequence: number;
   version: number;
-  author: { id: string; displayName: string };
+  author: MessageAuthor;
   body: string | null;
   reason: string | null;
   deleted: boolean;
@@ -111,6 +114,26 @@ function actor(value: unknown) {
     ? { id: value.id.toLowerCase(), displayName: value.displayName }
     : undefined;
 }
+function messageAuthor(value: unknown): MessageAuthor | undefined {
+  const person = actor(value);
+  if (person) return person;
+  if (
+    !keys(value, 'displayName,id,kind,versionId,versionNumber') ||
+    value.kind !== 'bot' ||
+    !isConversationUuid(value.id) ||
+    !isConversationUuid(value.versionId) ||
+    !positive(value.versionNumber) ||
+    !text(value.displayName, 100)
+  )
+    return undefined;
+  return {
+    kind: 'bot',
+    id: value.id.toLowerCase(),
+    displayName: value.displayName,
+    versionId: value.versionId.toLowerCase(),
+    versionNumber: value.versionNumber,
+  };
+}
 function parseConversation(value: unknown, workspaceId: string): Conversation | undefined {
   if (
     (!keys(value, 'createdAt,id,subject,workspaceId') &&
@@ -163,8 +186,9 @@ function projection(value: unknown): MessageProjection | undefined {
       : !text(value.body, 32000) || value.reason !== null
   )
     return undefined;
-  const author = actor(value.author);
-  if (!author) return undefined;
+  const author = messageAuthor(value.author);
+  if (!author || ('kind' in author && (value.canEdit || value.canDelete || value.canAudit)))
+    return undefined;
   return {
     id: value.id.toLowerCase(),
     creationSequence: value.creationSequence,
@@ -385,16 +409,19 @@ export class ConversationApiClient {
     session: string | undefined,
     workspaceId: string,
     conversationId: string,
-    query: { cursor?: string; limit?: number } = {},
+    query: { cursor?: string; limit?: number; messageId?: string } = {},
   ): Promise<ConversationResult<ConversationPage>> {
     if (
       (query.cursor !== undefined && !isConversationCursor(query.cursor)) ||
+      (query.messageId !== undefined &&
+        (!isConversationUuid(query.messageId) || query.cursor !== undefined)) ||
       (query.limit !== undefined && (!positive(query.limit) || query.limit > 100))
     )
       return { status: 'invalid' };
     const params = new URLSearchParams();
     if (query.cursor !== undefined) params.set('cursor', query.cursor);
     if (query.limit !== undefined) params.set('limit', String(query.limit));
+    if (query.messageId !== undefined) params.set('messageId', query.messageId.toLowerCase());
     const result = await this.send(
       session,
       workspaceId,
@@ -427,6 +454,8 @@ export class ConversationApiClient {
       ids.add(message.id);
       messages.push(message);
     }
+    if (query.messageId !== undefined && !ids.has(query.messageId.toLowerCase()))
+      return { status: 'unavailable' };
     return {
       status: 'available',
       value: { conversation, messages, nextCursor: payload.nextCursor, canWrite: payload.canWrite },

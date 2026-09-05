@@ -197,34 +197,50 @@ COL-03-E1 closed by [Verify33949842135](https://github.com/Blackman99/openbot/ac
 
 BOT-02 Verify33948926135 on remote `1d46acbeafea4df02ecb72b071955bedc68f69cf` completed2026-09-05 at06:09:49 UTC with the object-storage job failing. Code and all four PostgreSQL jobs passed; postgres-bots executed identity8,ACL9,avatar8 cases successfully. Compose passed migration0013, actual Alpine Sharp loading and the private runtime-volume roundtrip/ownership checks plus prior application/outage checks. Real S3 passed five of six cases; the shared concurrent-save case confirmed exactly one successful save and one object-already-exists result, then its following GET failed with safe object_store_unavailable at contract line57. No overwrite assertion failed. BOT-02-E1 remains open; isolated diagnosis is in .worktrees/ci-s3-contract. Do not count the partial S3 run as a passed storage gate.
 
-## Open external gate — BOT-03-E1
+## Closed external gate — BOT-03-E1
 
-- [ ] Execute all11 bot-versions-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: edit/restore CAS, waiting permission revocation, mandatory-audit rollback, exact fresh provider admission, retained avatar references and post-I/O revalidation.
-- [ ] Preserve the preceding identity, ACL and avatar native files as three separate serial commands, followed by the new version suite.
-- [ ] Keep all existing S3, PostgreSQL and fresh/upgrade Compose checks green on the integrated version revision; no migration or broader grant is introduced.
+- [x] Execute all11 bot-versions-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: edit/restore CAS, waiting permission revocation, mandatory-audit rollback, exact fresh provider admission, retained avatar references and post-I/O revalidation.
+- [x] Preserve the preceding identity, ACL and avatar native files as three separate serial commands, followed by the new version suite.
+- [x] Keep all existing S3, PostgreSQL and fresh/upgrade Compose checks green on the integrated version revision; no migration or broader grant is introduced.
 
 BOT-03 integrated as `82d5d911fdcf1e7a9f17b62023f776fd694246af`, tree `ddd5bea851c863d1f95718da5b363ac399f0f4de`. Both independent review axes are CLEAN at source `a49413b010498a2309304c9a4798374bbf1fa46f`; author final `6192dd3585e730192081de4bcde4174941d81f6c` changes only ticket/evidence documents. Dedicated merged pnpm verify exited0 with813 unit/integration tests (API88+289,Web47+389),24 ordinary browsers and one signed-OIDC journey,formatting,zero-error/zero-warning types and both builds. Root independently reviewed the four shared integration files: additive version service/routes, fourth serial native command and browser fixture;26 other candidate paths match exactly. No new domain correction was required. The11 actual PostgreSQL version cases remain BOT-03-E1 in REL-01 pending CI; local skips are not execution.
 
-## Open external gate — COL-02-E1
+Actual gate closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), all nine jobs successful on2026-09-05 at09:07:34 UTC. See [actual native/Compose and commit-tree evidence](../VERIFY-33956965487.md); this supersedes the historical pending notes above.
 
-- [ ] Execute all14 group-bots-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: exact grants and immutable provenance, concurrent cap/duplicate handling, current authority and both revocation orderings, atomic audit/event rollback, retained history bounds and permanent closure.
-- [ ] Execute fresh/upgrade Compose through0015, checking precisely the four grant closure UPDATE columns and guard privileges while preserving all previous service/application checks.
-- [ ] Keep the dedicated postgres-group-bots job isolated from the other fixed-role database suites and retain the four serial Bot identity/ACL/avatar/version commands.
+## Closed external gate — COL-02-E1
+
+- [x] Execute all14 group-bots-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: exact grants and immutable provenance, concurrent cap/duplicate handling, current authority and both revocation orderings, atomic audit/event rollback, retained history bounds and permanent closure.
+- [x] Execute fresh/upgrade Compose through0015, checking precisely the four grant closure UPDATE columns and guard privileges while preserving all previous service/application checks.
+- [x] Keep the dedicated postgres-group-bots job isolated from the other fixed-role database suites and retain the four serial Bot identity/ACL/avatar/version commands.
 
 COL-02 integrated as28ce290e994f769219eb16b17565eb589dc12e16, tree1cdf7746ad50b61500a3b9ccc657ebbc066f84b9. Both independent review axes are CLEAN at final source3a297f9a94e33aaf5830a1cb17a77d6edee103ad; author finalaa08422d8b501fd0944f3e2d3faaf8062ae8fd84 adds only evidence. Dedicated merger full pnpm verify exited0:867 unit/integration tests (API88+302,Web52+425),26 ordinary browsers and one signed OIDC, formatting, zero-error/zero-warning types and both builds. Four additive shared integration files were independently reviewed;34 other candidate paths match exactly. No feature correction was needed. Local14 native skips are not service evidence. This explicit release gate permits COL-04 andATT-01 implementation because their other prerequisites are satisfied.
 
-## Open external gate — BOT-05-E1
+Actual gate closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), all nine jobs successful on2026-09-05 at09:07:34 UTC. See [actual native/Compose and commit-tree evidence](../VERIFY-33956965487.md); this supersedes the historical pending notes above.
 
-- [ ] Execute all17 bot-copy-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role, including source CAS/current actor admission, private sole-owner creation, model replacement, retained avatar reference and cleanup ordering, audit rollback, and queued source deletion.
-- [ ] Preserve serial identity8, ACL9, avatar8, version11 and lifecycle24 native commands before copy.
-- [ ] Keep actual S3 and fresh/upgrade Compose checks green on the accepted copy/lifecycle snapshot.
+## Closed external gate — BOT-05-E1
+
+- [x] Execute all17 bot-copy-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role, including source CAS/current actor admission, private sole-owner creation, model replacement, retained avatar reference and cleanup ordering, audit rollback, and queued source deletion.
+- [x] Preserve serial identity8, ACL9, avatar8, version11 and lifecycle24 native commands before copy.
+- [x] Keep actual S3 and fresh/upgrade Compose checks green on the accepted copy/lifecycle snapshot.
 
 BOT-05 copy-only source4257bdf was independently CLEAN on Standards and Spec againstc389f993. It was integrated as0d641dba after accepted fullBOT-06. The dedicated combined pnpm verify passed969 unit/integration tests (API88+328, Web61+492),32 ordinary browser scenarios, one signed-OIDC journey, formatting, zero-error/zero-warning types and both builds. Root independently reviewed the exact two integration resolutions. Local17 native skips are not service evidence.
 
-## Open external gate — BOT-06-E1
+Actual gate closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), all nine jobs successful on2026-09-05 at09:07:34 UTC. See [actual native/Compose and commit-tree evidence](../VERIFY-33956965487.md); this supersedes the historical pending notes above.
 
-- [ ] Execute all24 bot-lifecycle-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: exact privileges, current owner/workspace admission, concurrent/no-op transitions, fixed grace deadline, post-provider-wait expiry, required audit rollback and historical direct/group boundaries.
-- [ ] Execute fresh/upgrade Compose through actual0016, checking exactly current_version_id, visibility and the four lifecycle UPDATE columns while all identity/creation/workspace and table-wide mutation guards remain denied.
-- [ ] Preserve existing native, S3 and application/runtime/outage checks; this lifecycle ticket does not physically purge retained records or objects.
+## Closed external gate — BOT-06-E1
+
+- [x] Execute all24 bot-lifecycle-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: exact privileges, current owner/workspace admission, concurrent/no-op transitions, fixed grace deadline, post-provider-wait expiry, required audit rollback and historical direct/group boundaries.
+- [x] Execute fresh/upgrade Compose through actual0016, checking exactly current_version_id, visibility and the four lifecycle UPDATE columns while all identity/creation/workspace and table-wide mutation guards remain denied.
+- [x] Preserve existing native, S3 and application/runtime/outage checks; this lifecycle ticket does not physically purge retained records or objects.
 
 BOT-06 final source8392549 and author evidencef0e7731 were accepted asae567149 after both review axes were CLEAN. The combined full gate is pinned0d641dba/tree5b6bff829f4c12bc11ffe9c7963aba559dfef6d8. Reviewed CI-only follow-up4b4b553/tree6fde8ad53eedcb9b30def0b1b5a9297f7ff3f8be updates two missed Compose expectations; scoped YAML, affected shell scripts, full migration-list/schema/grant comparison, formatting and unchanged-negative-guard checks passed. Actual24 native cases and deployed Compose remain unexecuted in this local evidence.
+
+Actual gate closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), all nine jobs successful on2026-09-05 at09:07:34 UTC. See [actual native/Compose and commit-tree evidence](../VERIFY-33956965487.md); this supersedes the historical pending notes above.
+
+## Open external gate — COL-04-E1
+
+- [ ] Execute all26 tasks-runtime.test.ts cases using the deployed restricted PostgreSQL role: immutable Task/Run/output guards, current actual-human and exact-grant admission, observed concurrent command/claim/finish barriers, audit rollback, retained provider identity/usage, response locator and expired/stale claim fencing.
+- [ ] Execute the separate compose-tasks job: keyless worker leaves durable queued work intact; configured worker runs with API/Web stopped; actual persisted running, completed and failed attempts and exactly one final Bot response survive API/worker restart.
+- [ ] Keep fresh/upgrade Compose through0017, exact Task/Run table/column/guard privileges, all prior Bot/conversation/auth/provider native cases and real S3 checks green.
+
+Both independent review axes are CLEAN at1f68e42; final3505791 adds only evidence. Dedicated merge4627c692/tree030bc879 passed the complete pnpm verify:1039 unit/integration,35 ordinary browsers and one signed OIDC, formatting, types and final builds. Its four shared integration files were independently reviewed;63 candidate and32 root changed files retain exact blobs. No native PostgreSQL or Docker service was started locally. This explicit release gate permits the recorded dependent implementation frontier while actual service CI remains required.

@@ -66,7 +66,7 @@ describe('repository contract', () => {
     });
   });
 
-  it('defines dependency-ordered PostgreSQL, migration, API, and web services', () => {
+  it('defines dependency-ordered PostgreSQL, migration, API, worker, and web services', () => {
     const compose = parse(readFileSync(`${repositoryRoot}/compose.yaml`, 'utf8')) as {
       networks?: Record<string, { internal?: boolean } | null>;
       services: Record<
@@ -90,12 +90,24 @@ describe('repository contract', () => {
       >;
     };
 
-    expect(Object.keys(compose.services)).toEqual(['postgres', 'migrate', 'api', 'web']);
+    expect(Object.keys(compose.services)).toEqual(['postgres', 'migrate', 'api', 'worker', 'web']);
     expect(compose.services.postgres?.image).toBe('postgres:17.11-alpine');
     expect(compose.services.postgres?.healthcheck?.test[0]).toBe('CMD-SHELL');
     expect(compose.services.migrate?.depends_on?.postgres?.condition).toBe('service_healthy');
     expect(compose.services.api?.depends_on).toEqual({
       migrate: { condition: 'service_completed_successfully' },
+    });
+    expect(compose.services.worker?.depends_on).toEqual({
+      migrate: { condition: 'service_completed_successfully' },
+    });
+    expect(compose.services.worker?.command).toEqual(['node', 'dist/worker.js']);
+    expect(compose.services.worker?.ports).toBeUndefined();
+    expect(compose.services.worker?.volumes).toBeUndefined();
+    expect(compose.services.worker?.environment).not.toHaveProperty('OPENBOT_SETUP_TOKEN');
+    expect(compose.services.worker?.environment).toMatchObject({
+      PGUSER: 'openbot_runtime',
+      PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: '${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}',
     });
     expect(compose.services.web?.depends_on?.api?.condition).toBe('service_started');
     expect(compose.services.web?.environment).toMatchObject({
@@ -118,6 +130,7 @@ describe('repository contract', () => {
     expect(compose.services.postgres?.networks).toEqual(['data']);
     expect(compose.services.migrate?.networks).toEqual(['data']);
     expect(compose.services.api?.networks).toEqual(['data', 'frontend']);
+    expect(compose.services.worker?.networks).toEqual(['data', 'frontend']);
     expect(compose.services.web?.networks).toEqual(['frontend']);
     expect(compose.networks?.data).toEqual({ internal: true });
     expect(compose.networks?.frontend).toBeNull();
@@ -145,7 +158,7 @@ describe('repository contract', () => {
       ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
       WEB_ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
     });
-    for (const serviceName of ['migrate', 'api']) {
+    for (const serviceName of ['migrate', 'api', 'worker']) {
       expect(compose.services[serviceName]?.environment).not.toHaveProperty('DATABASE_URL');
     }
     expect(compose.services.migrate?.command).toEqual([
@@ -157,7 +170,7 @@ describe('repository contract', () => {
       './infra/postgres/grant-runtime-privileges.mjs:/app/grant-runtime-privileges.mjs:ro',
     );
 
-    for (const serviceName of ['migrate', 'api', 'web']) {
+    for (const serviceName of ['migrate', 'api', 'worker', 'web']) {
       expect(compose.services[serviceName]?.read_only).toBe(true);
       expect(compose.services[serviceName]?.cap_drop).toEqual(['ALL']);
       expect(compose.services[serviceName]?.security_opt).toContain('no-new-privileges:true');

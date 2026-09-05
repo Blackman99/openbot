@@ -153,6 +153,18 @@ export class ConversationTransaction {
   append(command: MessageCommand) {
     return this.write({ ...command });
   }
+  appendTaskTrigger(command: MessageCommand & { groupGrantId: string | null }) {
+    return this.write(
+      { idempotencyKey: command.idempotencyKey, body: command.body },
+      undefined,
+      undefined,
+      null,
+      {
+        type: 'task.submit',
+        grantId: command.groupGrantId === null ? null : conversationUuid(command.groupGrantId),
+      },
+    );
+  }
   edit(messageId: string, command: MessageEditCommand) {
     return this.write({ ...command }, conversationUuid(messageId), command.expectedVersion);
   }
@@ -169,6 +181,7 @@ export class ConversationTransaction {
     messageId?: string,
     expectedVersion?: number,
     reason: string | null = null,
+    taskIntent?: { type: 'task.submit'; grantId: string | null },
   ): Promise<{ receipt: MessageReceipt; replayed: boolean }> {
     if (this.permission !== 'use') throw new ConversationAccessError();
     const chain = messageId
@@ -179,7 +192,12 @@ export class ConversationTransaction {
     const deleting = command.body === null;
     const author = original?.actor_user_id === this.access.actorUserId;
     const moderator = this.groupRole === 'owner' || this.groupRole === 'admin';
-    if (messageId && (!original || (!author && !(deleting && moderator))))
+    if (
+      messageId &&
+      (!original ||
+        original.event_type !== 'message.created' ||
+        (!author && !(deleting && moderator)))
+    )
       throw new ConversationAccessError();
     if (deleting && !reason) {
       if (!author) throw new InvalidConversationInputError();
@@ -188,13 +206,21 @@ export class ConversationTransaction {
     const type = deleting ? 'message.deleted' : messageId ? 'message.edited' : 'message.created';
     const hash = createHash('sha256')
       .update(
-        JSON.stringify({
-          type,
-          target: messageId ?? null,
-          expectedVersion: expectedVersion ?? null,
-          body: command.body,
-          reason,
-        }),
+        JSON.stringify(
+          taskIntent
+            ? {
+                type: taskIntent.type,
+                body: command.body,
+                grantId: taskIntent.grantId,
+              }
+            : {
+                type,
+                target: messageId ?? null,
+                expectedVersion: expectedVersion ?? null,
+                body: command.body,
+                reason,
+              },
+        ),
       )
       .digest('hex');
     const prior = (
@@ -241,6 +267,8 @@ export class ConversationTransaction {
     return { receipt, replayed: false };
   }
   async read(read: MessageRead): Promise<ConversationPage> {
+    if (read.messageId !== undefined && read.cursor !== undefined)
+      throw new InvalidConversationInputError();
     const last = (
       await this.connection.query<{ last_sequence: string | number }>(
         'SELECT last_sequence FROM conversations WHERE id=$1',
@@ -252,6 +280,19 @@ export class ConversationTransaction {
       this.access.conversationId,
       Number(last.last_sequence),
     );
+    if (read.messageId !== undefined) {
+      const target = (
+        await this.connection.query<{ sequence: string | number }>(
+          "SELECT sequence FROM conversation_events WHERE conversation_id=$1 AND message_id=$2 AND event_type IN ('message.created','bot.message.created') LIMIT 1",
+          [this.access.conversationId, conversationUuid(read.messageId)],
+        )
+      ).rows[0];
+      if (!target) throw new ConversationAccessError();
+      // A sequence window contains at most limit message creations, so the
+      // requested message is present without scanning earlier pages. The
+      // existing projection still returns its current edit/tombstone state.
+      cursor.after = Math.max(0, Number(target.sequence) - read.limit);
+    }
     const moderator = this.groupRole === 'owner' || this.groupRole === 'admin';
     const page = await currentPage(
       this.connection,
@@ -278,6 +319,7 @@ export class ConversationTransaction {
     const chain = await readMessageEvents(this.connection, this.access.conversationId, messageId);
     if (
       !chain[0] ||
+      chain[0].event_type !== 'message.created' ||
       (chain[0].actor_user_id !== this.access.actorUserId &&
         this.groupRole !== 'owner' &&
         this.groupRole !== 'admin')

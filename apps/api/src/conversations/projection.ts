@@ -1,11 +1,14 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
-import type { MessageProjection, MessageVersion } from './service.js';
+import { ConversationAccessError, type MessageProjection, type MessageVersion } from './service.js';
 export type MessageEventRow = {
   id: string;
   message_id: string;
   sequence: string | number;
   message_version: number;
-  event_type: MessageVersion['type'];
+  event_type: MessageVersion['type'] | 'bot.message.created';
+  event_data?: {
+    bot?: { id: string; displayName: string; versionId: string; versionNumber: number };
+  };
   actor_user_id: string;
   display_name: string;
   body: string | null;
@@ -32,10 +35,11 @@ export async function currentPage(
   limit: number,
   actorUserId: string,
   moderator: boolean,
+  humanOnly = false,
 ) {
   const originals = (
     await connection.query<MessageEventRow>(
-      "SELECT e.*,u.display_name FROM conversation_events e INNER JOIN users u ON u.id=e.actor_user_id WHERE e.conversation_id=$1 AND e.event_type='message.created' AND e.sequence>$2 AND e.sequence<=$3 ORDER BY e.sequence LIMIT $4",
+      `SELECT e.*,u.display_name FROM conversation_events e INNER JOIN users u ON u.id=e.actor_user_id WHERE e.conversation_id=$1 AND ${humanOnly ? "e.event_type='message.created'" : "e.event_type IN ('message.created','bot.message.created')"} AND e.sequence>$2 AND e.sequence<=$3 ORDER BY e.sequence LIMIT $4`,
       [conversationId, after, horizon, limit + 1],
     )
   ).rows;
@@ -64,7 +68,9 @@ export function projectMessage(
   actorUserId: string,
   moderator: boolean,
 ): MessageProjection {
-  const author = original.actor_user_id === actorUserId;
+  const bot = original.event_type === 'bot.message.created' ? original.event_data?.bot : undefined;
+  if (original.event_type === 'bot.message.created' && !bot) throw new ConversationAccessError();
+  const author = !bot && original.actor_user_id === actorUserId;
   const deleted = current.event_type === 'message.deleted';
   return {
     id: original.message_id,
@@ -72,18 +78,21 @@ export function projectMessage(
     versionEventId: current.id,
     sequence: Number(current.sequence),
     version: current.message_version,
-    author: { id: original.actor_user_id, displayName: original.display_name },
+    author: bot
+      ? { kind: 'bot', ...bot }
+      : { id: original.actor_user_id, displayName: original.display_name },
     body: deleted ? null : current.body,
     reason: current.reason,
     deleted,
     createdAt: original.occurred_at,
     updatedAt: current.occurred_at,
     canEdit: author && !deleted,
-    canDelete: (author || moderator) && !deleted,
-    canAudit: author || moderator,
+    canDelete: !bot && (author || moderator) && !deleted,
+    canAudit: !bot && (author || moderator),
   };
 }
 export function messageVersion(event: MessageEventRow): MessageVersion {
+  if (event.event_type === 'bot.message.created') throw new ConversationAccessError();
   return {
     id: event.id,
     sequence: Number(event.sequence),

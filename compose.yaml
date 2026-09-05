@@ -119,6 +119,37 @@ services:
       timeout: 3s
       retries: 20
 
+  worker:
+    image: openbot-api:local
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: [node, dist/worker.js]
+    environment:
+      DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-1000}
+      DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-1000}
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: ${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: ${OPENBOT_PROVIDER_ALLOWED_HOSTS:-api.openai.com}
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: ${OPENBOT_PROVIDER_ALLOWED_SCHEMES:-https}
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: ${OPENBOT_PROVIDER_PRIVATE_CIDRS:-}
+      PGDATABASE: ${POSTGRES_DB:-openbot}
+      PGHOST: postgres
+      PGPASSWORD: ${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}
+      PGPORT: 5432
+      PGUSER: openbot_runtime
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data, frontend]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    restart: unless-stopped
+    stop_grace_period: 30s
+
   web:
     image: openbot-web:local
     build:

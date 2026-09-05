@@ -8,6 +8,7 @@
     "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/server.ts",
     "migrate": "node --env-file-if-exists=../../.env --import tsx src/database/migrate.ts",
     "start": "node dist/server.js",
+    "worker": "node --env-file-if-exists=../../.env --import tsx src/worker.ts",
     "test:integration": "vitest run tests/integration --maxWorkers=4",
     "test:postgres": "vitest run tests/postgres",
     "test:unit": "vitest run tests/unit --passWithNoTests",

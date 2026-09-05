@@ -34,6 +34,7 @@
   {#if data.conversation.subject.kind === 'direct-bot'}<p>This history is private to its human creator.</p><p>Bot ID: {data.conversation.subject.id}</p>
   {#if data.conversation.botLifecycleState === 'deleted'}<p>Deleted Bot · Historical identity retained</p>{:else if data.conversation.botLifecycleState === 'archived'}<p>Archived Bot · New work blocked</p>{/if}{/if}
   <nav aria-label="Message pages">
+    <a href={`${base}/tasks`}>Tasks</a>
     <a href={`${base}?limit=${data.limit}`}>Refresh messages</a>
     {#if data.nextCursor}<a href={`${base}?cursor=${encodeURIComponent(data.nextCursor)}&limit=${data.limit}`}>Next page</a>{/if}
   </nav>
@@ -41,6 +42,7 @@
   {#each data.messages as message (message.id)}
     <article id={`message-${message.id}`} aria-label={`Message by ${message.author.displayName}`}>
       <h2>{message.author.displayName}</h2>
+      {#if 'kind' in message.author}<p>Bot · configuration version {message.author.versionNumber}</p>{/if}
       <p>Version {message.version} · <time datetime={message.createdAt}>{message.createdAt}</time></p>
       {#if message.deleted}<p><strong>Deleted message</strong> · {message.reason}</p>{:else}<pre>{message.body}</pre>{/if}
       {#if message.canAudit}<a href={`${base}/messages/${message.id}/versions`}>View versions</a>{/if}

@@ -66,6 +66,25 @@ function append(thread, user, type, body, reason, message) {
   return { messageId: message.id, eventId: event.id, sequence: event.sequence };
 }
 
+export function readTaskConversationFixture(conversationId, userId) {
+  const thread = threads.find(({ id }) => id === conversationId);
+  if (
+    !active ||
+    !thread ||
+    (thread.subject.kind === 'direct-bot' ? thread.creatorId !== userId : revoked.has(userId))
+  )
+    return undefined;
+  return metadata(thread);
+}
+
+export function appendTaskMessageFixture(conversationId, user, body, bot) {
+  const thread = threads.find(({ id }) => id === conversationId);
+  if (!thread) throw new Error('Task conversation fixture is missing');
+  const receipt = append(thread, user, 'message.created', body, null);
+  if (bot) thread.messages.at(-1).author = { kind: 'bot', ...bot };
+  return receipt;
+}
+
 export function handleConversationFixture(request, response, context) {
   const { user, users, memberships, workspaces, createSession, readJson, sendJson, trustedOrigin } =
     context;
@@ -231,7 +250,8 @@ export function handleConversationFixture(request, response, context) {
   }
   const message = thread.messages.find(({ id }) => id === messageId);
   const canAudit = (item) =>
-    item.author.id === user.id || (thread.subject.kind === 'group' && user.id === ada.id);
+    item.author.kind !== 'bot' &&
+    (item.author.id === user.id || (thread.subject.kind === 'group' && user.id === ada.id));
   if (request.method === 'GET') {
     if (suffix === 'versions') {
       if (!message || !canAudit(message)) fail(403, 'conversation_forbidden');
@@ -240,6 +260,14 @@ export function handleConversationFixture(request, response, context) {
     }
     const limit = Number(url.searchParams.get('limit') ?? 30);
     let cursor = { horizon: thread.sequence, after: 0 };
+    if (url.searchParams.has('messageId')) {
+      const target = thread.messages.find(({ id }) => id === url.searchParams.get('messageId'));
+      if (!target) {
+        fail(403, 'conversation_forbidden');
+        return true;
+      }
+      cursor.after = Math.max(0, target.creationSequence - limit);
+    }
     if (url.searchParams.has('cursor')) {
       try {
         cursor = JSON.parse(Buffer.from(url.searchParams.get('cursor'), 'base64url').toString());
@@ -267,7 +295,7 @@ export function handleConversationFixture(request, response, context) {
         deleted,
         createdAt: time,
         updatedAt: time,
-        canEdit: !deleted && item.author.id === user.id,
+        canEdit: !deleted && item.author.kind !== 'bot' && item.author.id === user.id,
         canDelete: !deleted && canAudit(item),
         canAudit: canAudit(item),
       };

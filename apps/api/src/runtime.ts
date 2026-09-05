@@ -1,5 +1,6 @@
 import { BotCopyService } from './bots/copy-service.js';
 import { BotVersionService } from './bots/version-service.js';
+import { TaskService } from './tasks/service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
 import { startAvatarCleanup } from './bots/avatar-cleanup.js';
 import { createObjectStore, type ObjectStorageConfig } from './objects/config.js';
@@ -107,6 +108,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     auth,
     avatars,
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
+    tasks: new TaskService(pool),
     botVersions: new BotVersionService(pool, avatars),
     botCopies: new BotCopyService(pool),
     bots: new BotService(new PostgresBotRepository(pool)),

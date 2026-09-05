@@ -1,0 +1,104 @@
+import { render } from 'svelte/server';
+import { describe, expect, it } from 'vitest';
+import ListPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/tasks/+page.svelte';
+import DetailPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/tasks/[taskId]/+page.svelte';
+import { task, conversation, workspace, user } from '../fixtures/tasks.js';
+import { grant } from '../fixtures/group-bots.js';
+import type { TaskView } from '../../src/lib/server/task-api.js';
+const base = { conversation, workspace, user, workspaces: [workspace], canWrite: true };
+const data = {
+  ...base,
+  canSubmit: true,
+  grants: [{ id: grant.id, name: task.bot.name }],
+  tasks: [{ ...task, groupGrantId: grant.id }],
+  cursor: null,
+  limit: 20,
+  nextCursor: 'next-task-page',
+  idempotencyKey: 'fresh-task-command',
+};
+const params = { workspaceId: workspace.id, conversationId: conversation.id };
+const completed: TaskView = {
+  ...task,
+  status: 'completed',
+  runs: [
+    {
+      ...task.runs[0]!,
+      status: 'completed',
+      startedAt: '2026-09-05T00:00:01.000Z',
+      finishedAt: '2026-09-05T00:00:02.000Z',
+      provider: { protocol: 'openai-responses', modelId: 'actual-model' },
+      usage: { inputTokens: 12, outputTokens: 0 },
+      output: {
+        messageId: '50000000-0000-4000-8000-000000000005',
+        eventId: '60000000-0000-4000-8000-000000000006',
+        sequence: 2,
+      },
+    },
+  ],
+};
+describe('Task pages', () => {
+  it('shows a queued task, an explicit group Bot selector and durable page navigation', () => {
+    const html = render(ListPage, { props: { data, form: null, params } }).body;
+    for (const text of [
+      'Queued',
+      'Research Bot',
+      'Configuration version 3',
+      'Attempt 1',
+      'Run task',
+      'Choose a Bot',
+      'fresh-task-command',
+      'Refresh tasks',
+      'next-task-page',
+    ])
+      expect(html).toContain(text);
+    expect(html).toContain('method="POST"');
+    expect(html).not.toContain('Send message');
+  });
+  it('shows actual model and usage on a completed saved attempt, including zero reported output tokens', () => {
+    const html = render(DetailPage, {
+      props: {
+        data: { ...base, task: completed },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    for (const text of [
+      'Completed',
+      'actual-model',
+      'openai-responses',
+      'Input tokens: 12',
+      'Output tokens: 0',
+      'Refresh task',
+      completed.runs[0]!.output!.messageId,
+    ])
+      expect(html).toContain(text);
+    expect(html).toContain(
+      `?messageId=${completed.runs[0]!.output!.messageId}#message-${completed.runs[0]!.output!.messageId}`,
+    );
+    expect(html).not.toContain('Run task');
+  });
+  it('preserves the complete uncertain request and permits only unchanged replay', () => {
+    const html = render(ListPage, {
+      props: {
+        data,
+        params,
+        form: {
+          values: {
+            idempotencyKey: 'uncertain-key',
+            body: 'My exact\n  prompt',
+            groupGrantId: grant.id,
+          },
+          error: 'Check the original submission.',
+          uncertain: true,
+          conflict: false,
+        },
+      },
+    }).body;
+    expect(html).toContain('uncertain-key');
+    expect(html).toContain('My exact\n  prompt');
+    expect(html).toContain('Retry unchanged request');
+    expect(html).toMatch(/<textarea[^>]*readonly/u);
+    expect(html).toMatch(/<select[^>]*disabled/u);
+    expect(html).toContain(`type="hidden" name="groupGrantId" value="${grant.id}"`);
+  });
+});

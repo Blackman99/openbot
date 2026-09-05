@@ -2,7 +2,7 @@
 sequence: 37
 id: MEM-01
 title: "Save a group message as scoped memory and use it in the next answer"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-01
   - COL-02

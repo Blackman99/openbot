@@ -12,6 +12,7 @@ import {
 } from '../providers/schema.js';
 import { GROUP_SCHEMA_STATEMENTS } from '../groups/schema.js';
 import { GROUP_BOT_SCHEMA_STATEMENTS, GROUP_BOT_POSTGRES_GUARDS } from '../group-bots/schema.js';
+import { TASK_SCHEMA_STATEMENTS, TASK_POSTGRES_GUARDS } from '../tasks/schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -237,6 +238,11 @@ const MIGRATIONS = [
     version: '0016_bot_lifecycle',
     statements: BOT_LIFECYCLE_SCHEMA_STATEMENTS,
     postgresStatements: [],
+  },
+  {
+    version: '0017_single_bot_tasks',
+    statements: TASK_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_POSTGRES_GUARDS,
   },
 ] as const;
 

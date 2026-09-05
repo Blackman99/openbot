@@ -2,7 +2,7 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
 import { GroupAccessError } from '../groups/service.js';
-import { BotAccessError } from '../bots/service.js';
+import { BotAccessError, type BotConfiguration } from '../bots/service.js';
 import { currentPage } from '../conversations/projection.js';
 import { messageCursor, encodeMessageCursor } from '../conversations/cursor.js';
 import type { MessageRead } from '../conversations/service.js';
@@ -97,6 +97,7 @@ export class GroupBotTransaction {
       read.limit,
       this.access.actorUserId,
       false,
+      true,
     );
     return {
       grantId: this.grant.id,
@@ -110,6 +111,29 @@ export class GroupBotTransaction {
       nextCursor: page.hasMore
         ? encodeMessageCursor({ ...cursor, after: page.messages.at(-1)!.creationSequence })
         : null,
+    };
+  }
+  // Internal execution handoff; the caller retains this SQL transaction. This
+  // does not grant the invoking human direct configuration inspection rights.
+  async executionTarget(versionId?: string) {
+    const row = (
+      await this.connection.query<{ id: string; version: number; configuration: BotConfiguration }>(
+        `SELECT v.id,v.version,v.configuration FROM bots b JOIN bot_versions v ON v.bot_id=b.id
+       WHERE b.workspace_id=$1 AND b.id=$2 AND v.id=${versionId === undefined ? 'b.current_version_id' : '$3'}`,
+        versionId === undefined
+          ? [this.access.workspaceId, this.grant.botId]
+          : [this.access.workspaceId, this.grant.botId, groupBotUuid(versionId)],
+      )
+    ).rows[0];
+    if (!row) throw new GroupBotAccessError();
+    return {
+      botId: this.grant.botId,
+      versionId: row.id,
+      versionNumber: row.version,
+      conversationId: this.grant.conversationId,
+      groupGrantId: this.grant.id,
+      lowerBound: this.grant.lowerBound,
+      configuration: structuredClone(row.configuration),
     };
   }
 }

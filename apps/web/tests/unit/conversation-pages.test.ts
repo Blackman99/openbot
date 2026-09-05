@@ -25,6 +25,37 @@ const data = {
 };
 const params = { workspaceId: workspace.id, conversationId: conversation.id };
 describe('Conversation pages', () => {
+  it('labels pinned Bot replies and links the conversation to durable Tasks', () => {
+    const html = render(ConversationPage, {
+      props: {
+        data: {
+          ...data,
+          messages: [
+            {
+              ...message,
+              author: {
+                kind: 'bot',
+                id: '90000000-0000-4000-8000-000000000009',
+                displayName: 'Research Bot',
+                versionId: '91000000-0000-4000-8000-000000000009',
+                versionNumber: 3,
+              },
+              canEdit: false,
+              canDelete: false,
+              canAudit: false,
+            },
+          ],
+        },
+        form: null,
+        params,
+      },
+    }).body;
+    expect(html).toContain('Bot · configuration version 3');
+    expect(html).toContain(`/conversations/${conversation.id}/tasks`);
+    expect(html).not.toContain('Edit message');
+    expect(html).not.toContain('View versions');
+  });
+
   it('opens explicit subjects through a POST form and exposes workspace navigation', () => {
     const html = render(ListPage, {
       props: {

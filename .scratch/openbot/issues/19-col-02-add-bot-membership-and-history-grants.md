@@ -2,7 +2,7 @@
 sequence: 19
 id: COL-02
 title: "Add Bot membership and history grants"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - COL-01
   - BOT-04
@@ -65,3 +65,7 @@ See [API and transaction contract](../COL-02-API-CONTRACT.md) and [full verifica
 ## Integrated acceptance
 
 Accepted merge `28ce290e994f769219eb16b17565eb589dc12e16` passed the complete `pnpm verify`: 867 unit/integration tests (API88+302, Web52+425), 26 ordinary browser journeys and one signed OIDC journey, formatting, zero-error/zero-warning types and both builds. Both independent reviews are CLEAN at final source3a297f9; author finalaa08422 only records evidence. Root independently reviewed four additive shared integration paths;34 other paths exactly match the candidate. No behavior fixes were needed. The14 native cases and migration0015/Compose are explicit COL-02-E1 gates in REL-01; dependent local implementation is now unlocked.
+
+## Actual external gate closure
+
+COL-02-E1 is closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), completed 2026-09-05 at09:07:34 UTC with all nine jobs successful. Actual native and Compose execution is recorded in [the service evidence](../VERIFY-33956965487.md). The tested tree exactly matches the accepted published candidate. This supersedes earlier pending/native-skip notes.

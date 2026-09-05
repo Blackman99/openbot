@@ -55,7 +55,9 @@ export interface MessageProjection {
   versionEventId: string;
   sequence: number;
   version: number;
-  author: { id: string; displayName: string };
+  author:
+    | { id: string; displayName: string }
+    | { kind: 'bot'; id: string; displayName: string; versionId: string; versionNumber: number };
   body: string | null;
   reason: string | null;
   deleted: boolean;
@@ -74,6 +76,7 @@ export interface ConversationPage {
 export interface MessageRead {
   limit: number;
   cursor?: string;
+  messageId?: string;
 }
 export interface ConversationRepository {
   open(
@@ -154,12 +157,21 @@ export function messageRead(query: unknown): MessageRead {
     ...(typeof value.cursor === 'string' ? { cursor: value.cursor } : {}),
   };
 }
+function conversationRead(query: unknown): MessageRead {
+  const { messageId, ...pagination } = object(query, ['limit', 'cursor', 'messageId']);
+  if (messageId !== undefined && pagination.cursor !== undefined)
+    throw new InvalidConversationInputError();
+  return {
+    ...messageRead(pagination),
+    ...(messageId === undefined ? {} : { messageId: conversationUuid(messageId) }),
+  };
+}
 export class ConversationService {
   constructor(private readonly repository: ConversationRepository) {}
   get(actorUserId: string, workspaceId: string, conversationId: string, query: unknown) {
     return this.repository.get(
       access(actorUserId, workspaceId, conversationId),
-      messageRead(query),
+      conversationRead(query),
     );
   }
   open(actorUserId: string, workspaceId: string, input: unknown) {

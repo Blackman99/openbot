@@ -45,7 +45,7 @@ written to the application database or audit history. For any non-loopback deplo
 `WEB_ORIGIN` to the exact external HTTPS origin; the API and SvelteKit server use that same value
 for Origin checks and Secure cookies.
 
-The Compose migration service alone receives the PostgreSQL owner credentials. The API connects
+The Compose migration service alone receives the PostgreSQL owner credentials. The API and worker connect
 as the fixed, non-superuser `openbot_runtime` role using `OPENBOT_DATABASE_PASSWORD`. That role
 can perform the application queries required by authentication, but cannot change database
 schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
@@ -97,7 +97,7 @@ without credential material.
 
 After signing in, select **Personal models** in the workspace, or open
 <http://localhost:3000/app/settings/models>. Before enabling connections, generate a key with
-`openssl rand -base64 32`, set `OPENBOT_PROVIDER_ENCRYPTION_KEY` in `.env`, and restart the API.
+`openssl rand -base64 32`, set `OPENBOT_PROVIDER_ENCRYPTION_KEY` in `.env`, and restart the API and worker.
 Preserve that key across restarts and backups; changing it makes existing credentials unreadable.
 An empty key disables connections while the rest of the instance remains available.
 
@@ -153,6 +153,18 @@ People with direct Bot access can open **Copy configuration**, review the source
 an accessible model. A copy starts as a new private active Bot with version 1 and only its creator
 as owner. It does not copy permissions, conversation history, private memory or credentials.
 
+## Single-Bot tasks
+
+Open **Tasks** from a Bot conversation, enter a prompt, and submit. In a group conversation,
+select one active Bot grant. PostgreSQL retains the Task and its first Run, and a separate
+worker executes the pinned Bot version using the triggering user's current model permissions.
+Reloading shows the saved status, actual model, usage, and final Bot response.
+
+The worker uses the same provider encryption key and network policy as the API. Without a key,
+it reports `task_worker_unconfigured` and leaves queued work untouched. Configure the key and
+restart it to resume the queue. See [Task worker operation](docs/task-worker.md) for startup,
+shutdown, and the limits of this execution slice.
+
 ## Local development
 
 Node.js 24 and pnpm 11 are required.
@@ -198,7 +210,7 @@ Docker is also required to validate `docker compose up --build` itself. The Comp
 one-shot, idempotent migration and privilege service as soon as PostgreSQL is healthy. The API
 does not start during initial stack startup until the migration and privilege gate succeeds, so
 the first API process receives only the restricted runtime role. Run later schema changes during
-a maintenance window that restarts the API after the migration service finishes. Once started,
+a maintenance window that restarts the API and worker after the migration service finishes. Once started,
 the API remains running and its readiness endpoint reports `Unavailable` during a later database
 outage. The web service starts after the API container.
 PostgreSQL and migrations live on an internal data network; the web container can reach only the

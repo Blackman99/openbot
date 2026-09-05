@@ -47,6 +47,14 @@ describe('production PostgreSQL pool', () => {
       'SELECT version FROM openbot_schema_migrations ORDER BY applied_at, version',
       undefined,
     );
+    const taskResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/workspaces/00000000-0000-4000-8000-000000000001/conversations/00000000-0000-4000-8000-000000000002/tasks',
+      headers: { origin: 'http://localhost:3000' },
+      payload: { idempotencyKey: 'unauthenticated-task', body: 'Execute.' },
+    });
+    expect(taskResponse.statusCode).toBe(401);
+    expect(taskResponse.json()).toEqual({ error: { code: 'authentication_required' } });
 
     await app.close();
   });

@@ -159,6 +159,9 @@ try {
     REVOKE ALL ON FUNCTION protect_conversation_subject() FROM PUBLIC;
     REVOKE ALL ON FUNCTION protect_conversation_subject() FROM openbot_runtime;
     REVOKE ALL ON FUNCTION protect_group_bot_grant() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_run() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_bot_output() FROM PUBLIC, openbot_runtime;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -176,6 +179,8 @@ try {
       conversations,
       conversation_events,
       group_bot_grants,
+      tasks,
+      task_runs,
       instance_claims,
       sessions
     TO openbot_runtime;
@@ -186,6 +191,10 @@ try {
     GRANT UPDATE (role) ON bot_acl TO openbot_runtime;
     GRANT DELETE ON bot_acl TO openbot_runtime;
     GRANT UPDATE (last_sequence) ON conversations TO openbot_runtime;
+    GRANT UPDATE (status) ON tasks TO openbot_runtime;
+    GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
+      provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,
+      output_tokens, error_code, output_event_id) ON task_runs TO openbot_runtime;
     GRANT UPDATE (close_event_id, close_sequence, closed_at, closure_reason) ON group_bot_grants TO openbot_runtime;
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;

@@ -1,6 +1,8 @@
 import { registerBotCopyRoutes } from './bots/copy-routes.js';
 import type { BotCopyService } from './bots/copy-service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
+import { registerTaskRoutes } from './tasks/routes.js';
+import type { TaskService } from './tasks/service.js';
 import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
 import { registerBotLifecycleRoutes } from './bots/lifecycle-routes.js';
@@ -47,6 +49,7 @@ import { registerWorkspaceRoutes } from './workspaces/routes.js';
 import type { WorkspaceService } from './workspaces/service.js';
 
 export interface BuildAppOptions {
+  tasks?: TaskService;
   oidc?: OidcService;
   auth?: AuthService;
   apiTokens?: ApiTokenService;
@@ -166,6 +169,7 @@ export function buildApp({
   conversations,
   botVersions,
   botCopies,
+  tasks,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -209,6 +213,7 @@ export function buildApp({
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
+    if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);

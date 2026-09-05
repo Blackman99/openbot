@@ -2,7 +2,7 @@
 sequence: 14
 id: BOT-03
 title: 'Edit, compare, and restore bot versions'
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-01
   - BOT-02
@@ -48,3 +48,7 @@ Dedicated merged verification and actual CI remain pending. The new restricted-r
 ## Accepted integration
 
 BOT-03 integrated as `82d5d911fdcf1e7a9f17b62023f776fd694246af`, tree `ddd5bea851c863d1f95718da5b363ac399f0f4de`. Both independent review axes are CLEAN at source `a49413b010498a2309304c9a4798374bbf1fa46f`; author final `6192dd3585e730192081de4bcde4174941d81f6c` changes only ticket/evidence documents. Dedicated merged pnpm verify exited0 with813 unit/integration tests (API88+289,Web47+389),24 ordinary browsers and one signed-OIDC journey,formatting,zero-error/zero-warning types and both builds. Root independently reviewed the four shared integration files: additive version service/routes, fourth serial native command and browser fixture;26 other candidate paths match exactly. No new domain correction was required. The11 actual PostgreSQL version cases remain BOT-03-E1 in REL-01 pending CI; local skips are not execution.
+
+## Actual external gate closure
+
+BOT-03-E1 is closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), completed 2026-09-05 at09:07:34 UTC with all nine jobs successful. Actual native and Compose execution is recorded in [the service evidence](../VERIFY-33956965487.md). The tested tree exactly matches the accepted published candidate. This supersedes earlier pending/native-skip notes.

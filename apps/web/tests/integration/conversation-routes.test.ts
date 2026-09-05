@@ -83,6 +83,32 @@ function context(lifecycleState: 'active' | 'archived' = 'active') {
   };
 }
 describe('Conversation page boundary', () => {
+  it('forwards an exact message locator so the response can be opened beyond the first page', async () => {
+    const event = context();
+    event.url.searchParams.set('messageId', message.id.toUpperCase());
+    const result = await loadConversationPage(event, workspace.id, conversation.id);
+    expect(result.messages).toEqual(page.messages);
+    expect(new URL(String(event.fetch.mock.calls.at(-1)?.[0])).searchParams.get('messageId')).toBe(
+      message.id,
+    );
+  });
+
+  it.each([
+    `messageId=${message.id}&cursor=opaque_cursor`,
+    'messageId=not-a-uuid',
+    `messageId=${message.id}&messageId=${message.id}`,
+  ])('rejects ambiguous or malformed locator %s', async (query) => {
+    const event = context();
+    event.url.search = '?' + query;
+    await expect(loadConversationPage(event, workspace.id, conversation.id)).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(event.fetch.mock.calls.some(([url]) => String(url).includes('/conversations/'))).toBe(
+      false,
+    );
+    expect(event.cookies.delete).not.toHaveBeenCalled();
+  });
+
   it('excludes archived Bots from new conversation choices', async () => {
     expect((await loadConversationsPage(context('archived'), workspace.id)).subjects).toEqual([
       { kind: 'group', id: group.id, name: group.name },

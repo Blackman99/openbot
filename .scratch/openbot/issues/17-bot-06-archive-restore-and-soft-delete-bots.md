@@ -2,7 +2,7 @@
 sequence: 17
 id: BOT-06
 title: 'Archive, restore, and soft-delete bots'
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-03
   - BOT-04
@@ -57,3 +57,7 @@ Both independent Standards and Specification reviews are CLEAN at `08462e6`; roo
 ## Accepted integration and remaining service evidence
 
 Final source8392549 and documentationf0e7731 were independently reviewed and merged asae567149. The dedicated combined pnpm verify on0d641dba passed969 unit/integration tests,32 ordinary browsers, one signed-OIDC journey, formatting, types and both builds. Reviewed CI-only follow-up4b4b553 aligns Compose migration0016 and exact lifecycle column expectations; scoped YAML/shell/schema/grant/format checks passed. Actual native24 and deployed Compose evidence remain explicit BOT-06-E1 in REL-01.
+
+## Actual external gate closure
+
+BOT-06-E1 is closed by [Verify33956965487](https://github.com/Blackman99/openbot/actions/runs/33956965487), completed 2026-09-05 at09:07:34 UTC with all nine jobs successful. Actual native and Compose execution is recorded in [the service evidence](../VERIFY-33956965487.md). The tested tree exactly matches the accepted published candidate. This supersedes earlier pending/native-skip notes.

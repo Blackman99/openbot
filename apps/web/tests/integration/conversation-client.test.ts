@@ -11,6 +11,68 @@ import {
   workspace,
 } from '../fixtures/conversations.js';
 describe('Conversation API client', () => {
+  it('rejects a page that omits the specifically requested message', async () => {
+    const client = new ConversationApiClient(
+      vi.fn(async () => Response.json(page)),
+      'http://api',
+      'http://localhost:3000',
+    );
+    expect(
+      await client.get(token, workspace.id, conversation.id, { messageId: workspace.id }),
+    ).toEqual({ status: 'unavailable' });
+  });
+
+  it('reads pinned Bot-authored output while preserving the human projection', async () => {
+    const output = {
+      ...message,
+      author: {
+        kind: 'bot',
+        id: '90000000-0000-4000-8000-000000000009',
+        displayName: 'Research Bot',
+        versionId: '91000000-0000-4000-8000-000000000009',
+        versionNumber: 3,
+      },
+      canEdit: false,
+      canDelete: false,
+      canAudit: false,
+    };
+    const client = new ConversationApiClient(
+      vi.fn(async () => Response.json({ ...page, messages: [output] })),
+      'http://api:3001',
+      'http://localhost:3000',
+    );
+    expect(await client.get(token, workspace.id, conversation.id)).toEqual({
+      status: 'available',
+      value: { ...page, messages: [output] },
+    });
+  });
+
+  it('rejects Bot output that grants human mutation or audit controls', async () => {
+    for (const control of ['canEdit', 'canDelete', 'canAudit']) {
+      const output = {
+        ...message,
+        author: {
+          kind: 'bot',
+          id: '90000000-0000-4000-8000-000000000009',
+          displayName: 'Research Bot',
+          versionId: '91000000-0000-4000-8000-000000000009',
+          versionNumber: 3,
+        },
+        canEdit: false,
+        canDelete: false,
+        canAudit: false,
+        [control]: true,
+      };
+      const client = new ConversationApiClient(
+        vi.fn(async () => Response.json({ ...page, messages: [output] })),
+        'http://api:3001',
+        'http://localhost:3000',
+      );
+      expect(await client.get(token, workspace.id, conversation.id)).toEqual({
+        status: 'unavailable',
+      });
+    }
+  });
   it('reads a canonical scoped page with opaque pagination and no body-only HTTP headers', async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json(page));
     const client = new ConversationApiClient(request, 'http://api:3001/', 'http://localhost:3000');
