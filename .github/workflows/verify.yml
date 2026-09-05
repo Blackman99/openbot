@@ -408,7 +408,7 @@ jobs:
             sleep 1
           done
           test "$http_code" = '503'
-          test "$(jq --compact-output --sort-keys /tmp/openbot-api-status.json)" = '{"checks":{"database":"unavailable","migrations":"unknown"},"schemaVersion":1,"status":"unavailable"}'
+          test "$(jq --compact-output --sort-keys . /tmp/openbot-api-status.json)" = '{"checks":{"database":"unavailable","migrations":"unknown"},"schemaVersion":1,"status":"unavailable"}'
 
           for attempt in {1..20}; do
             page="$(curl --fail --silent http://localhost:3000 || true)"

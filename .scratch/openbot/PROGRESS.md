@@ -20,6 +20,8 @@ Remote follow-up `c177487d7caf5526147b811081cfffc546c29a1e` fixed pnpm initializ
 
 Verify run `33938219583` on remote `42bc88caa7b319636d3cc603f7cbfa40e0c24d74` passed the full `code` and real `postgres-auth` jobs. Compose passed fresh startup, upgrade startup, and failure-log redaction, then failed its password-rotation assertion because the test used trusted loopback connections inside the database container. The next retry connects the password checks through the `postgres` service address, and requires the old password to fail specifically with an authentication error. Remaining Compose evidence is still pending; no further feature tickets have resumed.
 
+Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` passed code, PostgreSQL, and all Compose startup, password-rotation, privilege, authentication, and workspace checks. The final outage check reached HTTP 503 but its JSON assertion failed because the `jq` invocation omitted the `.` filter and parsed the file path as an expression. The corrected invocation is locally verified against the expected outage payload; a full CI retry is pending.
+
 ## Completed implementation
 
 - FND-01: deployable application foundation. Docker execution remains external gate `FND-01-E1`.
