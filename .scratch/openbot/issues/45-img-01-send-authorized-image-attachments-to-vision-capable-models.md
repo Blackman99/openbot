@@ -2,7 +2,7 @@
 sequence: 45
 id: IMG-01
 title: "Send authorized image attachments to vision-capable models"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - ATT-01
   - RET-01

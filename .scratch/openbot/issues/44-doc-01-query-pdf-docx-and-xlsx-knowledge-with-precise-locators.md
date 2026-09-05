@@ -2,7 +2,7 @@
 sequence: 44
 id: DOC-01
 title: "Query PDF, DOCX, and XLSX knowledge with precise locators"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - RET-01
 labels:
