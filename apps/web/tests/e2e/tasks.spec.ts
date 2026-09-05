@@ -431,13 +431,11 @@ test('shows a planned fallback previous model, next model and reason before the 
   await expect(
     page.getByRole('heading', { name: 'Attempt 2 · Queued', exact: true }),
   ).toBeVisible();
-  await expect(page.getByText('Waiting to switch models', { exact: false })).toBeVisible();
   await expect(
-    page.getByText('actual-direct-model · openai-responses', { exact: false }),
-  ).toBeVisible();
-  await expect(page.getByText('fallback-model · openai-chat', { exact: false })).toBeVisible();
-  await expect(
-    page.getByText('the previous model was temporarily unavailable', { exact: false }),
+    page.getByText(
+      'Waiting to switch models from actual-direct-model · openai-responses to fallback-model · openai-chat because the previous model was temporarily unavailable.',
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(
     page.getByText('Planned model: fallback-model · openai-chat', { exact: true }),
