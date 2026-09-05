@@ -1,0 +1,41 @@
+---
+sequence: 33
+id: COL-16
+title: "Transfer Task leadership through handoff"
+status: blocked
+blocked_by:
+  - COL-12
+  - COL-14
+labels:
+  - area:collaboration
+  - area:handoff
+  - area:tasks
+  - type:feature
+  - mvp
+---
+
+# COL-16 — Transfer Task leadership through handoff
+
+## Outcome
+
+A validated handoff atomically transfers the same Task to an eligible group Bot, ends the current Run, and starts one audited successor Run.
+
+## Blocked by
+
+- [COL-12](29-col-12-enforce-hierarchical-execution-limits.md)
+- [COL-14](31-col-14-delegate-a-bounded-child-task.md)
+
+## Acceptance criteria
+
+- [ ] Only a schema-valid handoff action can change the Task Lead.
+- [ ] The source, target, and reason are appended as a public conversation event.
+- [ ] After handoff, the prior Lead cannot commit the final answer.
+- [ ] The successor receives only context allowed by its history grant and effective budget.
+- [ ] Invalid targets are rejected without leaving the Task with split ownership.
+- [ ] A handoff or turn hard limit moves the Task to waiting_budget instead of starting another Run.
+
+## Non-goals
+
+- Parallel child creation
+- Silent Lead replacement
+- Handoff outside the group

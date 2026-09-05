@@ -1,0 +1,9 @@
+.git
+.scratch
+**/node_modules
+**/dist
+**/build
+**/.svelte-kit
+**/playwright-report
+**/test-results
+**/coverage

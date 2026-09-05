@@ -1,0 +1,26 @@
+{
+  "name": "@openbot/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev",
+    "start": "node build",
+    "test:e2e": "playwright test",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
+    "test:unit": "vitest run tests/unit --passWithNoTests",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@sparticuz/chromium": "149.0.0",
+    "@sveltejs/adapter-node": "5.5.7",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "svelte": "5.57.0",
+    "svelte-check": "4.7.6",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
+  }
+}

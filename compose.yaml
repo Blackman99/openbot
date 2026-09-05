@@ -1,0 +1,138 @@
+name: openbot
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD: ${OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD:-false}
+      POSTGRES_DB: ${POSTGRES_DB:-openbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-me}
+      POSTGRES_USER: ${POSTGRES_USER:-openbot}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$${POSTGRES_PASSWORD}" = 'replace-me' ] && [ "$${OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD}" != 'true' ]; then
+          echo 'Refusing the example database password without the explicit local-development override.' >&2
+          exit 1
+        fi
+        exec docker-entrypoint.sh postgres
+    networks: [data]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: openbot-api:local
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command:
+      - /bin/sh
+      - -ec
+      - node dist/database/migrate.js && node /app/grant-runtime-privileges.mjs
+    environment:
+      OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD: ${OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD:-false}
+      OPENBOT_DATABASE_PASSWORD: ${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}
+      PGDATABASE: ${POSTGRES_DB:-openbot}
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-replace-me}
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-openbot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    volumes:
+      - ./infra/postgres/grant-runtime-privileges.mjs:/app/grant-runtime-privileges.mjs:ro
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    restart: 'no'
+
+  api:
+    image: openbot-api:local
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 3001
+      DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-1000}
+      DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-1000}
+      OPENBOT_SETUP_TOKEN: ${OPENBOT_SETUP_TOKEN:?set OPENBOT_SETUP_TOKEN in .env}
+      PGDATABASE: ${POSTGRES_DB:-openbot}
+      PGHOST: postgres
+      PGPASSWORD: ${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}
+      PGPORT: 5432
+      PGUSER: openbot_runtime
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+    ports:
+      - ${OPENBOT_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-3001}:3001
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data, frontend]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3001/api/v1/status').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  web:
+    image: openbot-web:local
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_BASE_URL: http://api:3001
+      HOST: 0.0.0.0
+      ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      PORT: 3000
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+    ports:
+      - ${OPENBOT_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000
+    depends_on:
+      api:
+        condition: service_started
+    networks: [frontend]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000').then((response)=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:
+
+networks:
+  data:
+    internal: true
+  frontend:

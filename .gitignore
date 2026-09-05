@@ -1,0 +1,11 @@
+.env
+.DS_Store
+node_modules/
+dist/
+build/
+.svelte-kit/
+playwright-report/
+test-results/
+coverage/
+.scratch/openbot/issues-staging/
+.worktrees/

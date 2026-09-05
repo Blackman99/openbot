@@ -1,0 +1,422 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+
+  postgres-auth:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_auth_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openbot -d openbot_auth_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_auth_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api run test:postgres
+
+  compose:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Verify a fresh database volume before the upgrade path
+        run: |
+          docker compose up --build --detach
+
+          migration_id="$(docker compose ps --all --quiet migrate)"
+          api_id="$(docker compose ps --all --quiet api)"
+          test -n "$migration_id"
+          test -n "$api_id"
+          test "$(docker inspect --format '{{.State.Status}}' "$migration_id")" = 'exited'
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$migration_id")" = '0'
+
+          migration_finished_at="$(docker inspect --format '{{.State.FinishedAt}}' "$migration_id")"
+          api_started_at="$(docker inspect --format '{{.State.StartedAt}}' "$api_id")"
+          if [[ "$api_started_at" < "$migration_finished_at" ]]; then
+            echo 'The API started before the migration and privilege gate completed.' >&2
+            exit 1
+          fi
+
+          stack_ready='false'
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000 >/dev/null; then
+              stack_ready='true'
+              break
+            fi
+            sleep 1
+          done
+          test "$stack_ready" = 'true'
+
+          migration_versions="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings'
+
+          docker compose down --volumes
+      - name: Seed an existing pre-authentication database volume
+        run: |
+          docker compose up --detach postgres
+
+          database_ready='false'
+          for attempt in {1..30}; do
+            if docker compose exec -T postgres pg_isready \
+              --username openbot --dbname openbot >/dev/null; then
+              database_ready='true'
+              break
+            fi
+            sleep 1
+          done
+          test "$database_ready" = 'true'
+
+          docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --set=ON_ERROR_STOP=1 \
+            --command "CREATE TABLE IF NOT EXISTS openbot_schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()); INSERT INTO openbot_schema_migrations (version) VALUES ('0001_bootstrap') ON CONFLICT (version) DO NOTHING; DROP ROLE IF EXISTS openbot_runtime; DROP ROLE IF EXISTS openbot_runtime_elevated; DROP ROLE IF EXISTS openbot_limited_migrator; CREATE ROLE openbot_runtime_elevated WITH NOLOGIN CREATEDB CREATEROLE BYPASSRLS; CREATE ROLE openbot_runtime WITH LOGIN PASSWORD 'replace-runtime-me'; ALTER ROLE openbot_runtime WITH SUPERUSER CREATEDB CREATEROLE INHERIT REPLICATION BYPASSRLS CONNECTION LIMIT 1 VALID UNTIL '2000-01-01'; ALTER ROLE openbot_runtime SET search_path TO attacker, public; ALTER ROLE openbot_runtime IN DATABASE openbot SET statement_timeout TO '1ms'; CREATE ROLE openbot_limited_migrator WITH LOGIN PASSWORD 'ci-limited-migrator-password' CREATEROLE; GRANT openbot_runtime_elevated TO openbot_runtime; GRANT ALL PRIVILEGES ON DATABASE openbot TO openbot_runtime; GRANT ALL ON SCHEMA public TO openbot_runtime;"
+      - name: Verify a failed role downgrade does not disclose its password
+        run: |
+          if failure_output="$(docker compose run --rm --no-deps \
+            -e PGUSER=openbot_limited_migrator \
+            -e PGPASSWORD=ci-limited-migrator-password \
+            -e OPENBOT_DATABASE_PASSWORD=ci-secret-must-not-appear-in-logs \
+            migrate node /app/grant-runtime-privileges.mjs 2>&1)"; then
+            echo 'A non-superuser unexpectedly downgraded the superuser runtime role.' >&2
+            exit 1
+          fi
+          grep --fixed-strings --quiet \
+            'Runtime database privilege provisioning failed' <<<"$failure_output"
+          if grep --fixed-strings --quiet \
+            'ci-secret-must-not-appear-in-logs' <<<"$failure_output"; then
+            echo 'The failed migration disclosed the runtime database password.' >&2
+            exit 1
+          fi
+          if docker compose logs postgres | grep --fixed-strings --quiet \
+            'ci-secret-must-not-appear-in-logs'; then
+            echo 'PostgreSQL logs disclosed the runtime database password.' >&2
+            exit 1
+          fi
+      - name: Start the stack and require a successful migration
+        run: |
+          docker compose up --build --detach
+
+          migration_id="$(docker compose ps --all --quiet migrate)"
+          test -n "$migration_id"
+          migration_state=''
+          for attempt in {1..60}; do
+            migration_state="$(docker inspect --format '{{.State.Status}}' "$migration_id")"
+            if [ "$migration_state" = 'exited' ] || [ "$migration_state" = 'dead' ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$migration_state" = 'exited'
+          test "$(docker inspect --format '{{.State.ExitCode}}' "$migration_id")" = '0'
+
+          stack_ready='false'
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000 >/dev/null; then
+              stack_ready='true'
+              break
+            fi
+            sleep 1
+          done
+          test "$stack_ready" = 'true'
+      - name: Verify an existing API role can rotate its password
+        run: |
+          OPENBOT_DATABASE_PASSWORD=ci-rotated-runtime-password \
+            docker compose run --rm migrate
+
+          docker compose exec -T -e PGPASSWORD=ci-rotated-runtime-password postgres psql \
+            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --command 'SELECT 1' >/dev/null
+          if docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --command 'SELECT 1' >/dev/null 2>&1; then
+            echo 'The previous API database password still authenticates.' >&2
+            exit 1
+          fi
+
+          docker compose run --rm migrate
+          docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --command 'SELECT 1' >/dev/null
+      - name: Verify the real ready state
+        run: |
+          api_status="$(curl --fail --silent http://localhost:3001/api/v1/status)"
+          test "$(printf '%s' "$api_status" | jq --compact-output --sort-keys .)" = '{"checks":{"database":"ready","migrations":"current"},"schemaVersion":1,"status":"ready"}'
+
+          page="$(curl --fail --silent http://localhost:3000)"
+          grep --fixed-strings --quiet 'data-state="ready"' <<<"$page"
+          grep --fixed-strings --quiet '>Ready<' <<<"$page"
+      - name: Verify the API database role has only minimum runtime privileges
+        run: |
+          role_flags="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', rolsuper, rolcreatedb, rolcreaterole, rolinherit, rolreplication, rolbypassrls) FROM pg_roles WHERE rolname = 'openbot_runtime'")"
+          test "$role_flags" = 'f,f,f,f,f,f'
+
+          role_login_policy="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', rolconnlimit, rolvaliduntil::text, rolconfig IS NULL) FROM pg_roles WHERE rolname = 'openbot_runtime'")"
+          test "$role_login_policy" = '-1,infinity,t'
+
+          role_settings="$(docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --tuples-only --no-align \
+            --command "SELECT current_setting('search_path') || ';' || current_setting('statement_timeout')")"
+          test "$role_settings" = 'pg_catalog, public;0'
+
+          membership_count="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM pg_auth_members AS membership JOIN pg_roles AS member_role ON member_role.oid = membership.member WHERE member_role.rolname = 'openbot_runtime'")"
+          test "$membership_count" = '0'
+
+          database_owner_membership="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT pg_has_role('openbot_runtime', 'pg_database_owner', 'MEMBER')")"
+          test "$database_owner_membership" = 'f'
+
+          runtime_owned_objects="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT (SELECT COUNT(*) FROM pg_database WHERE datdba = role.oid) + (SELECT COUNT(*) FROM pg_namespace WHERE nspowner = role.oid) + (SELECT COUNT(*) FROM pg_class WHERE relowner = role.oid) + (SELECT COUNT(*) FROM pg_proc WHERE proowner = role.oid) FROM pg_roles AS role WHERE role.rolname = 'openbot_runtime'")"
+          test "$runtime_owned_objects" = '0'
+
+          if docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+            --set=ON_ERROR_STOP=1 --command 'SET ROLE openbot_runtime_elevated' \
+            >/tmp/openbot-runtime-set-role.out 2>&1; then
+            echo 'The API database role unexpectedly retained an elevated role membership.' >&2
+            exit 1
+          fi
+          grep --extended-regexp --ignore-case --quiet \
+            'permission denied to set role|must be member of role' \
+            /tmp/openbot-runtime-set-role.out
+
+          database_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_database_privilege('openbot_runtime', current_database(), 'CONNECT'), has_database_privilege('openbot_runtime', current_database(), 'CREATE'), has_database_privilege('openbot_runtime', current_database(), 'TEMPORARY'))")"
+          test "$database_privileges" = 't,f,f'
+
+          schema_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_schema_privilege('openbot_runtime', 'public', 'USAGE'), has_schema_privilege('openbot_runtime', 'public', 'CREATE'))")"
+          test "$schema_privileges" = 't,f'
+
+          migration_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'openbot_schema_migrations', 'SELECT'), has_table_privilege('openbot_runtime', 'openbot_schema_migrations', 'INSERT'), has_table_privilege('openbot_runtime', 'openbot_schema_migrations', 'UPDATE'), has_table_privilege('openbot_runtime', 'openbot_schema_migrations', 'DELETE'), has_table_privilege('openbot_runtime', 'openbot_schema_migrations', 'TRUNCATE'))")"
+          test "$migration_table_privileges" = 't,f,f,f,f'
+
+          application_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('instance_claims'), ('local_credentials'), ('sessions'), ('users'), ('workspace_memberships'), ('workspaces')) AS application_tables(table_name)")"
+          test "$application_table_privileges" = 'instance_claims:t,t,f,f,f;local_credentials:t,t,f,f,f;sessions:t,t,f,f,f;users:t,t,f,f,f;workspace_memberships:t,t,f,f,f;workspaces:t,t,f,f,f'
+
+          column_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'instance_claims', 'owner_user_id', 'UPDATE'), has_column_privilege('openbot_runtime', 'instance_claims', 'singleton_key', 'UPDATE'), has_column_privilege('openbot_runtime', 'sessions', 'revoked_at', 'UPDATE'), has_column_privilege('openbot_runtime', 'sessions', 'token_digest', 'UPDATE'))")"
+          test "$column_update_privileges" = 't,f,t,f'
+
+          workspace_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'))")"
+          test "$workspace_update_privileges" = 't,t,f'
+
+          audit_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'audit_events', 'SELECT'), has_table_privilege('openbot_runtime', 'audit_events', 'INSERT'), has_table_privilege('openbot_runtime', 'audit_events', 'UPDATE'), has_table_privilege('openbot_runtime', 'audit_events', 'DELETE'), has_table_privilege('openbot_runtime', 'audit_events', 'TRUNCATE'))")"
+          test "$audit_privileges" = 'f,t,f,f,f'
+
+          function_execute="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT has_function_privilege('openbot_runtime', 'reject_audit_event_mutation()', 'EXECUTE')")"
+          test "$function_execute" = 'f'
+
+          for mutation in update delete truncate; do
+            case "$mutation" in
+              update) statement="UPDATE audit_events SET metadata = '{}'::jsonb" ;;
+              delete) statement='DELETE FROM audit_events' ;;
+              truncate) statement='TRUNCATE TABLE audit_events' ;;
+            esac
+            if docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+              --host 127.0.0.1 --username openbot_runtime --dbname openbot \
+              --set=ON_ERROR_STOP=1 --command "$statement" \
+              >"/tmp/openbot-runtime-audit-$mutation.out" 2>&1; then
+              echo "The API database role unexpectedly completed audit $mutation." >&2
+              exit 1
+            fi
+            grep --extended-regexp --ignore-case --quiet \
+              'permission denied|append-only' "/tmp/openbot-runtime-audit-$mutation.out"
+          done
+
+          if docker compose exec -T -e PGPASSWORD=replace-runtime-me postgres psql \
+            --host 127.0.0.1 \
+            --username openbot_runtime --dbname openbot \
+            --command 'DROP TRIGGER audit_events_append_only ON audit_events' \
+            >/tmp/openbot-runtime-ddl.out 2>&1; then
+            echo 'The API database role unexpectedly removed the audit guard.' >&2
+            exit 1
+          fi
+          grep --extended-regexp --ignore-case --quiet \
+            'must be owner|permission denied' /tmp/openbot-runtime-ddl.out
+      - name: Verify the real local-owner session lifecycle
+        run: |
+          setup_code="$(curl --silent --show-error \
+            --output /tmp/openbot-setup.json \
+            --dump-header /tmp/openbot-setup.headers \
+            --cookie-jar /tmp/openbot-cookies.txt \
+            --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --header 'Origin: http://localhost:3000' \
+            --header 'X-OpenBot-Setup-Token: local-only-openbot-setup-token-change-me' \
+            --data '{"displayName":"CI Owner","email":"owner@example.com","password":"ci-only-owner-password"}' \
+            http://localhost:3001/api/v1/setup)"
+          test "$setup_code" = '201'
+          test "$(jq --raw-output '.user.email' /tmp/openbot-setup.json)" = 'owner@example.com'
+          grep --ignore-case --quiet '^set-cookie: openbot_session=' /tmp/openbot-setup.headers
+          grep --ignore-case --quiet 'httponly' /tmp/openbot-setup.headers
+          grep --ignore-case --quiet 'samesite=lax' /tmp/openbot-setup.headers
+
+          repeat_code="$(curl --silent --show-error \
+            --output /tmp/openbot-repeat-setup.json \
+            --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --header 'Origin: http://localhost:3000' \
+            --header 'X-OpenBot-Setup-Token: local-only-openbot-setup-token-change-me' \
+            --data '{"displayName":"Second Owner","email":"second@example.com","password":"another-owner-password"}' \
+            http://localhost:3001/api/v1/setup)"
+          test "$repeat_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-repeat-setup.json)" = 'instance_already_claimed'
+
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --cookie /tmp/openbot-cookies.txt http://localhost:3001/api/v1/me)" = '200'
+
+          cross_site_code="$(curl --silent --show-error \
+            --output /tmp/openbot-cross-site.json \
+            --write-out '%{http_code}' \
+            --request DELETE \
+            --cookie /tmp/openbot-cookies.txt \
+            --header 'Origin: https://attacker.example' \
+            http://localhost:3001/api/v1/session)"
+          test "$cross_site_code" = '403'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-cross-site.json)" = 'invalid_origin'
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --cookie /tmp/openbot-cookies.txt http://localhost:3001/api/v1/me)" = '200'
+
+          sign_out_code="$(curl --silent --show-error \
+            --output /dev/null \
+            --dump-header /tmp/openbot-sign-out.headers \
+            --write-out '%{http_code}' \
+            --request DELETE \
+            --cookie /tmp/openbot-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            http://localhost:3001/api/v1/session)"
+          test "$sign_out_code" = '204'
+          grep --ignore-case --quiet 'max-age=0' /tmp/openbot-sign-out.headers
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --cookie /tmp/openbot-cookies.txt http://localhost:3001/api/v1/me)" = '401'
+
+          audit_types="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events")"
+          test "$audit_types" = 'auth.signed_in,auth.signed_out,instance.claimed'
+          unsafe_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE metadata::text ~* '(password|cookie|token|secret)'")"
+          test "$unsafe_audits" = '0'
+      - name: Verify workspace creation and settings with the restricted runtime role
+        run: |
+          curl --fail --silent --cookie-jar /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"email":"owner@example.com","password":"ci-only-owner-password"}' \
+            http://localhost:3001/api/v1/session >/dev/null
+          curl --fail --silent --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"name":"CI Workspace","description":"CI private description"}' \
+            http://localhost:3001/api/v1/workspaces > /tmp/openbot-workspace.json
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
+          test "$(jq --raw-output '.workspace.role' /tmp/openbot-workspace.json)" = 'owner'
+          curl --fail --silent --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"name":"Updated Workspace","description":"Updated private description"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id" > /tmp/openbot-workspace-updated.json
+          test "$(jq --raw-output '.workspace.name' /tmp/openbot-workspace-updated.json)" = 'Updated Workspace'
+          workspace_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE event_type LIKE 'workspace.%'")"
+          test "$workspace_audits" = 'workspace.created,workspace.settings_changed'
+          unsafe_workspace_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'workspace.%' AND metadata::text ~ '(CI Workspace|private description|Updated Workspace)'")"
+          test "$unsafe_workspace_audits" = '0'
+      - name: Verify the real unavailable state after database outage
+        run: |
+          docker compose stop postgres
+
+          for attempt in {1..20}; do
+            http_code="$(curl --silent --output /tmp/openbot-api-status.json --write-out '%{http_code}' http://localhost:3001/api/v1/status || true)"
+            if [ "$http_code" = '503' ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$http_code" = '503'
+          test "$(jq --compact-output --sort-keys /tmp/openbot-api-status.json)" = '{"checks":{"database":"unavailable","migrations":"unknown"},"schemaVersion":1,"status":"unavailable"}'
+
+          for attempt in {1..20}; do
+            page="$(curl --fail --silent http://localhost:3000 || true)"
+            if grep --fixed-strings --quiet 'data-state="unavailable"' <<<"$page"; then
+              break
+            fi
+            sleep 1
+          done
+          grep --fixed-strings --quiet 'data-state="unavailable"' <<<"$page"
+          grep --fixed-strings --quiet '>Unavailable<' <<<"$page"
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes

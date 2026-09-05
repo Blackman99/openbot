@@ -1,0 +1,26 @@
+{
+  "name": "openbot",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "build": "pnpm --recursive --if-present run build",
+    "db:migrate": "pnpm --filter @openbot/api run migrate",
+    "format": "prettier --write .",
+    "lint": "prettier --check .",
+    "test:e2e": "pnpm --filter @openbot/web run test:e2e",
+    "test:integration": "pnpm --recursive --if-present run test:integration",
+    "test:unit": "pnpm --recursive --if-present run test:unit",
+    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm test:e2e && pnpm build"
+  },
+  "devDependencies": {
+    "prettier": "3.9.6",
+    "typescript": "6.0.3"
+  }
+}
