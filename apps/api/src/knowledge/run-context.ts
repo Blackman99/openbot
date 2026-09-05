@@ -47,6 +47,7 @@ export type KnowledgeRow = {
   locator_kind: KnowledgeLocatorKind;
   locator_start: string | number;
   locator_end: string | number;
+  locator_ref: string | null;
   text: string;
   source_attachment_id: string;
   source_conversation_id: string;
@@ -128,10 +129,10 @@ const CHUNK_FROM = `knowledge_chunks c
         AND o.workspace_id=d.workspace_id AND o.conversation_id=d.source_conversation_id AND o.message_id=d.source_message_id
       LEFT JOIN message_purges p ON p.workspace_id=d.workspace_id AND p.conversation_id=d.source_conversation_id AND p.message_id=d.source_message_id`;
 
-const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.text,c.position,
+const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.locator_ref,c.text,c.position,
        d.source_attachment_id,d.source_conversation_id,d.source_message_id,d.filename,d.workspace_id`;
 
-const PROJECTED_COLUMNS = `id,document_id,file_version,locator_kind,locator_start,locator_end,text,
+const PROJECTED_COLUMNS = `id,document_id,file_version,locator_kind,locator_start,locator_end,locator_ref,text,
        source_attachment_id,source_conversation_id,source_message_id,filename,workspace_id`;
 
 function authorizedCte(
@@ -145,7 +146,17 @@ function authorizedCte(
 ): string {
   parameters.push(filter.workspaceId);
   const scopes = scopeSql(filter.scopes, parameters);
-  let sql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
+  const currentJoin =
+    filter.chunkId && filter.documentId
+      ? ''
+      : ` JOIN (
+      SELECT workspace_id, scope_kind, scope_id, filename, MAX(file_version) AS file_version
+      FROM knowledge_documents
+      GROUP BY workspace_id, scope_kind, scope_id, filename
+    ) current_doc ON current_doc.workspace_id=d.workspace_id AND current_doc.scope_kind=d.scope_kind
+      AND current_doc.scope_id=d.scope_id AND current_doc.filename=d.filename
+      AND current_doc.file_version=d.file_version`;
+  let sql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}${currentJoin}
       WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${scopes})`;
   if (filter.chunkId && filter.documentId) {
     parameters.push(filter.chunkId, filter.documentId);
@@ -218,6 +229,7 @@ export function projectKnowledgeChunk(row: KnowledgeRow) {
     kind: row.locator_kind,
     start: Number(row.locator_start),
     end: Number(row.locator_end),
+    ...(row.locator_ref ? { ref: row.locator_ref } : {}),
   };
   return {
     id: row.id,
@@ -326,11 +338,14 @@ export async function assertRunKnowledgeReferencesCurrent(
   if (references.length > MAX_RUN_KNOWLEDGE) throw new ConversationAccessError();
   if (!references.length) return;
   const terms = knowledgeMatchTerms(task.trigger_body ?? '');
-  const current = await selectAuthorizedChunks(connection, task, terms, {
-    limit: MAX_RUN_KNOWLEDGE + 1,
-  });
-  const selected = new Set(references.map((row) => `${row.chunk_id}:${row.document_id}`));
-  const visible = new Set(current.map((row) => `${row.id}:${row.document_id}`));
-  if (selected.size !== references.length || [...selected].some((key) => !visible.has(key)))
-    throw new ConversationAccessError();
+  for (const reference of references) {
+    const row = (
+      await selectAuthorizedChunks(connection, task, terms, {
+        chunkId: reference.chunk_id,
+        documentId: reference.document_id,
+        limit: 1,
+      })
+    )[0];
+    if (!row) throw new ConversationAccessError();
+  }
 }

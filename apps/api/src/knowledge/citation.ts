@@ -40,7 +40,7 @@ export function knowledgeSourceReference(input: {
   attachmentId: string;
   filename: string;
   fileVersion: number;
-  locator: { kind: KnowledgeLocatorKind; start: number; end: number };
+  locator: { kind: KnowledgeLocatorKind; start: number; end: number; ref?: string };
 }) {
   return Object.freeze({
     attachmentId: input.attachmentId,

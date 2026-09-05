@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0031_memory_revisions_and_revocations');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0032_document_knowledge_locators');
   assert.deepEqual(
     (
       await pool.query(

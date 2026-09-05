@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** RET-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `364e78e`, Verify [33990602906](https://github.com/Blackman99/openbot/actions/runs/33990602906)). DOC-01 and IMG-01 are now ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** RET-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `364e78e`, Verify [33990602906](https://github.com/Blackman99/openbot/actions/runs/33990602906)). DOC-01 is in progress: text PDFs, DOCX, and XLSX extract through `document-page-cell-v1` with page, paragraph, and cell locators, immutable replacement versions, and explicit failed states. Original DOC-01 acceptance texts stay unchecked until Verify is green. IMG-01 remains ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty-six of 67 tickets are implemented and independently reviewed: 35 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. DOC-01 is the next ticket; IMG-01 is also unblocked. COL-08 and COL-11 stay blocked on COL-07's external verification gate.
+Thirty-six of 67 tickets are implemented and independently reviewed: 35 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. DOC-01 is the active ticket; IMG-01 is also unblocked. COL-08 and COL-11 stay blocked on COL-07's external verification gate.
 
 COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

@@ -66,7 +66,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
-    expect(versions.at(-1)).toEqual({ version: '0031_memory_revisions_and_revocations' });
+    expect(versions.at(-1)).toEqual({ version: '0032_document_knowledge_locators' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(

@@ -25,8 +25,11 @@ export const DEFAULT_SOURCE_EXTENSIONS = Object.freeze([
   'yaml',
   'yml',
 ]);
-const MAX_CHUNKS = 10_000;
-const KIND_MEDIA: Record<Exclude<KnowledgeFileKind, 'source'>, readonly string[]> = {
+export const MAX_KNOWLEDGE_CHUNKS = 10_000;
+const KIND_MEDIA: Record<
+  Exclude<KnowledgeFileKind, 'source' | 'pdf' | 'docx' | 'xlsx'>,
+  readonly string[]
+> = {
   txt: ['text/plain'],
   markdown: ['text/markdown'],
   json: ['application/json'],
@@ -34,16 +37,25 @@ const KIND_MEDIA: Record<Exclude<KnowledgeFileKind, 'source'>, readonly string[]
   tsv: ['text/tab-separated-values'],
 };
 
-export type KnowledgeFileKind = 'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source';
-export type KnowledgeLocatorKind = 'line' | 'row';
+export type KnowledgeFileKind =
+  'txt' | 'markdown' | 'json' | 'csv' | 'tsv' | 'source' | 'pdf' | 'docx' | 'xlsx';
+export type KnowledgeLocatorKind = 'line' | 'row' | 'page' | 'paragraph' | 'cells';
 export interface KnowledgeChunk {
   text: string;
   fileVersion: number;
-  locator: { kind: KnowledgeLocatorKind; start: number; end: number };
+  locator: { kind: KnowledgeLocatorKind; start: number; end: number; ref?: string };
 }
 export type KnowledgeExtraction =
   | { ok: true; kind: KnowledgeFileKind; chunks: KnowledgeChunk[] }
-  | { ok: false; error: 'unsupported_file' | 'invalid_text' | 'extraction_limit' };
+  | {
+      ok: false;
+      error:
+        | 'unsupported_file'
+        | 'invalid_text'
+        | 'extraction_limit'
+        | 'encrypted_file'
+        | 'corrupt_file';
+    };
 
 export interface KnowledgeExtractionInput {
   filename: string;
@@ -104,7 +116,7 @@ export function extractTextKnowledgeChunks(input: KnowledgeExtractionInput): Kno
       fileVersion: input.fileVersion,
       locator: { kind: locatorKind, start: index + 1, end: index + 1 },
     });
-    if (chunks.length > MAX_CHUNKS) return { ok: false, error: 'extraction_limit' };
+    if (chunks.length > MAX_KNOWLEDGE_CHUNKS) return { ok: false, error: 'extraction_limit' };
   }
   return { ok: true, kind, chunks };
 }

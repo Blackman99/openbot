@@ -8,7 +8,11 @@ import { ConversationAccessError } from '../conversations/service.js';
 import { BotAccessError } from '../bots/service.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { GroupAccessError } from '../groups/service.js';
-import { TEXT_KNOWLEDGE_EXTRACTOR_VERSION, extractTextKnowledgeChunks } from './text-extractor.js';
+import { TEXT_KNOWLEDGE_EXTRACTOR_VERSION } from './text-extractor.js';
+import {
+  DOCUMENT_KNOWLEDGE_EXTRACTOR_VERSION,
+  extractKnowledgeChunks,
+} from './document-extractor.js';
 import {
   KnowledgeAccessError,
   KnowledgeConflictError,
@@ -39,7 +43,7 @@ export class KnowledgeService {
       supplied.conversationId,
     );
     const object = await this.attachments.read(access, messageId);
-    const extraction = extractTextKnowledgeChunks({
+    const extraction = extractKnowledgeChunks({
       filename: object.metadata.filename,
       mediaType: object.metadata.mediaType,
       bytes: object.bytes,
@@ -69,7 +73,7 @@ export class KnowledgeService {
     );
     const command = knowledgePromotionInput(input);
     const object = await this.attachments.read(access, messageId);
-    const extraction = extractTextKnowledgeChunks({
+    const extraction = extractKnowledgeChunks({
       filename: object.metadata.filename,
       mediaType: object.metadata.mediaType,
       bytes: object.bytes,
@@ -145,7 +149,14 @@ export class KnowledgeService {
               attachmentId: prior.source_attachment_id,
               messageId,
               filename: attachment.filename,
-              fileVersion: 1,
+              fileVersion: Number(
+                (
+                  await connection.query<{ file_version: string | number }>(
+                    'SELECT file_version FROM knowledge_documents WHERE id=$1',
+                    [prior.id],
+                  )
+                ).rows[0]?.file_version ?? 1,
+              ),
             },
             chunkCount: Number(chunks?.count ?? 0),
             approver: { id: access.actorUserId },
@@ -154,13 +165,28 @@ export class KnowledgeService {
           },
         };
       }
+      const fileVersion =
+        Number(
+          (
+            await connection.query<{ file_version: string | number | null }>(
+              `SELECT MAX(file_version) AS file_version FROM knowledge_documents
+               WHERE workspace_id=$1 AND scope_kind=$2 AND scope_id=$3 AND filename=$4`,
+              [
+                access.workspaceId,
+                command.destination.kind,
+                command.destination.id,
+                attachment.filename,
+              ],
+            )
+          ).rows[0]?.file_version ?? 0,
+        ) + 1;
       const documentId = randomUUID(),
         approvedAt = this.now();
       await connection.query(
         `INSERT INTO knowledge_documents(
           id,workspace_id,scope_kind,scope_id,source_attachment_id,source_conversation_id,source_message_id,
           file_version,filename,media_type,sha256,extractor_version,approver_user_id,approved_at,idempotency_key,command_hash
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           documentId,
           access.workspaceId,
@@ -169,10 +195,13 @@ export class KnowledgeService {
           attachment.id,
           access.conversationId,
           messageId,
+          fileVersion,
           attachment.filename,
           attachment.media_type,
           attachment.sha256,
-          TEXT_KNOWLEDGE_EXTRACTOR_VERSION,
+          extraction.kind === 'pdf' || extraction.kind === 'docx' || extraction.kind === 'xlsx'
+            ? DOCUMENT_KNOWLEDGE_EXTRACTOR_VERSION
+            : TEXT_KNOWLEDGE_EXTRACTOR_VERSION,
           access.actorUserId,
           approvedAt,
           command.idempotencyKey,
@@ -182,16 +211,18 @@ export class KnowledgeService {
       for (const [index, chunk] of extraction.chunks.entries()) {
         await connection.query(
           `INSERT INTO knowledge_chunks(
-            id,document_id,position,file_version,locator_kind,locator_start,locator_end,text
-          ) VALUES($1,$2,$3,1,$4,$5,$6,$7)`,
+            id,document_id,position,file_version,locator_kind,locator_start,locator_end,text,locator_ref
+          ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [
             randomUUID(),
             documentId,
             index + 1,
+            fileVersion,
             chunk.locator.kind,
             chunk.locator.start,
             chunk.locator.end,
             chunk.text,
+            chunk.locator.ref ?? null,
           ],
         );
       }
@@ -225,7 +256,7 @@ export class KnowledgeService {
             attachmentId: attachment.id,
             messageId,
             filename: attachment.filename,
-            fileVersion: 1,
+            fileVersion,
           },
           chunkCount: extraction.chunks.length,
           approver: { id: access.actorUserId },

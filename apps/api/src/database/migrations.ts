@@ -25,6 +25,10 @@ import {
   KNOWLEDGE_FTS_SCHEMA_STATEMENTS,
   KNOWLEDGE_FTS_POSTGRES_STATEMENTS,
 } from '../knowledge/schema.js';
+import {
+  DOCUMENT_KNOWLEDGE_SCHEMA_STATEMENTS,
+  DOCUMENT_KNOWLEDGE_POSTGRES_GUARDS,
+} from '../knowledge/document-schema.js';
 import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
@@ -359,6 +363,11 @@ const MIGRATIONS = [
     version: '0031_memory_revisions_and_revocations',
     statements: MEMORY_LIFECYCLE_SCHEMA_STATEMENTS,
     postgresStatements: MEMORY_LIFECYCLE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0032_document_knowledge_locators',
+    statements: DOCUMENT_KNOWLEDGE_SCHEMA_STATEMENTS,
+    postgresStatements: DOCUMENT_KNOWLEDGE_POSTGRES_GUARDS,
   },
 ] as const;
 

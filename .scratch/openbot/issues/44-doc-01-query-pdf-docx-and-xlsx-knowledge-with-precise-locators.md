@@ -2,7 +2,7 @@
 sequence: 44
 id: DOC-01
 title: "Query PDF, DOCX, and XLSX knowledge with precise locators"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - RET-01
 labels:
@@ -37,3 +37,7 @@ The existing scoped knowledge flow accepts common rich documents and spreadsheet
 - Macros or formula execution
 - Presentation-file parsing
 - External document synchronization
+
+## Discovered implementation dependencies
+
+Migration `0032_document_knowledge_locators` extends chunk locator kinds with `page`, `paragraph`, and `cells` plus optional `locator_ref`. Text PDFs, DOCX, and XLSX extract through `document-page-cell-v1` after the existing ATT-01 upload checks. Failed encrypted, corrupt, unsupported, or over-limit files return an explicit error code and write no knowledge rows. A later upload of the same filename in the same scope creates the next immutable `file_version`; new run retrieval uses only the latest version while prior documents and attachments remain readable. These notes do not change the original acceptance texts, which stay unchecked.

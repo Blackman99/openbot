@@ -30,7 +30,9 @@ export function registerKnowledgeRoutes(
         return reply.code(403).send({ error: { code: 'knowledge_forbidden' } });
       if (error instanceof KnowledgeConflictError)
         return reply.code(409).send({ error: { code: error.code } });
-      if (error instanceof KnowledgeInputError || error instanceof AttachmentInputError)
+      if (error instanceof KnowledgeInputError)
+        return reply.code(400).send({ error: { code: error.code } });
+      if (error instanceof AttachmentInputError)
         return reply.code(400).send({ error: { code: 'invalid_knowledge_request' } });
       if (error instanceof AttachmentUnavailableError)
         return reply.code(503).send({ error: { code: 'knowledge_unavailable' } });

@@ -8,7 +8,12 @@ import type { KnowledgeChunk, KnowledgeFileKind } from './text-extractor.js';
 
 export class KnowledgeInputError extends Error {
   constructor(
-    readonly code: 'unsupported_file' | 'invalid_text' | 'extraction_limit' = 'unsupported_file',
+    readonly code:
+      | 'unsupported_file'
+      | 'invalid_text'
+      | 'extraction_limit'
+      | 'encrypted_file'
+      | 'corrupt_file' = 'unsupported_file',
   ) {
     super(code);
   }
