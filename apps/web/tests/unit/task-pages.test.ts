@@ -256,6 +256,43 @@ describe('Task pages', () => {
     );
     expect(html).not.toContain('Run task');
   });
+  it('shows a planned fallback previous model, next model and reason before the next call', () => {
+    const waiting: TaskView = {
+      ...task,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      runs: [
+        {
+          ...task.runs[0]!,
+          attempt: 2,
+          continuation: {
+            origin: 'model_fallback',
+            reason: 'provider_unavailable',
+            previousRunId: task.runs[0]!.id,
+            previousProvider: { protocol: 'openai-chat', modelId: 'primary-model' },
+            nextProvider: { protocol: 'openai-chat', modelId: 'fallback-model' },
+            dueAt: '2026-09-05T00:00:01.000Z',
+            admitted: false,
+          },
+        },
+      ],
+    };
+    const html = render(DetailPage, {
+      props: {
+        data: { ...base, task: waiting, canRetry: false, idempotencyKey: 'unused-key' },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Waiting to switch models');
+    expect(html).toContain('primary-model · openai-chat');
+    expect(html).toContain('fallback-model · openai-chat');
+    expect(html).toContain('the previous model was temporarily unavailable');
+    expect(html).toContain('A model has not been called.');
+    expect(html).toContain('Planned model: fallback-model · openai-chat');
+    expect(html).not.toContain('connectionId');
+    expect(html).not.toContain('baseUrl');
+  });
   it('preserves the complete uncertain request and permits only unchanged replay', () => {
     const html = render(ListPage, {
       props: {

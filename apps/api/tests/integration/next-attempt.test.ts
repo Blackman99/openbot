@@ -293,6 +293,32 @@ describe('COL-10 unique next-attempt writer', () => {
       reason: 'provider_unavailable',
       previousBinding: { connectionId: f.model.id, modelId: f.model.modelId },
       binding: { connectionId: f.fallback!.id, modelId: f.fallback!.modelId },
+      previousProvider: { protocol: 'openai-chat', modelId: f.model.modelId },
+      nextProvider: { protocol: 'openai-chat', modelId: f.fallback!.modelId },
+    });
+    expect(JSON.stringify(queuedAudit)).not.toMatch(/never-return|baseUrl|apiKey|sealed/u);
+    expect(waiting.runs[0]).toMatchObject({
+      continuation: {
+        origin: 'model_fallback',
+        reason: 'provider_unavailable',
+        previousRunId: runs[0]!.id,
+        previousProvider: { protocol: 'openai-chat', modelId: f.model.modelId },
+        nextProvider: { protocol: 'openai-chat', modelId: f.fallback!.modelId },
+        admitted: false,
+      },
+    });
+    const queuedDelivery = (
+      await f.pool.query<{ execution: { continuation?: object } }>(
+        "SELECT execution FROM conversation_delivery_events WHERE run_id=$1 AND run_status='queued'",
+        [runs[1]!.id],
+      )
+    ).rows[0]!.execution;
+    expect(queuedDelivery.continuation).toMatchObject({
+      origin: 'model_fallback',
+      reason: 'provider_unavailable',
+      previousProvider: { protocol: 'openai-chat', modelId: f.model.modelId },
+      nextProvider: { protocol: 'openai-chat', modelId: f.fallback!.modelId },
+      admitted: false,
     });
     const due = Date.parse(String(queuedAudit.notBefore));
     expect(due).toBeGreaterThan(now.getTime());
@@ -301,6 +327,33 @@ describe('COL-10 unique next-attempt writer', () => {
       handled: true,
       claim: { provider: { connectionId: f.fallback!.id, modelId: f.fallback!.modelId } },
     });
+    const claimed = await f.read();
+    expect(claimed.runs[0]).toMatchObject({
+      status: 'running',
+      continuation: {
+        origin: 'model_fallback',
+        reason: 'provider_unavailable',
+        previousProvider: { protocol: 'openai-chat', modelId: f.model.modelId },
+        nextProvider: { protocol: 'openai-chat', modelId: f.fallback!.modelId },
+        admitted: true,
+      },
+    });
+    const runningAudit = (
+      await f.pool.query<{ metadata: Record<string, unknown> }>(
+        "SELECT metadata FROM audit_events WHERE event_type='task.running' AND metadata->>'runId'=$1",
+        [runs[1]!.id],
+      )
+    ).rows[0]!.metadata;
+    expect(runningAudit.continuation).toMatchObject({
+      origin: 'model_fallback',
+      reason: 'provider_unavailable',
+      previousProvider: { protocol: 'openai-chat', modelId: f.model.modelId },
+      nextProvider: { protocol: 'openai-chat', modelId: f.fallback!.modelId },
+      admitted: true,
+    });
+    expect(JSON.stringify(runningAudit.continuation)).not.toMatch(
+      /connectionId|connectionRevision|baseUrl|apiKey|sealed/u,
+    );
     expect((await f.pool.query('SELECT id FROM tasks')).rows).toHaveLength(1);
     expect(
       (

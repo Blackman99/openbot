@@ -13,6 +13,7 @@ import {
   readPlannedNotBefore,
   writeNextAttempt,
 } from './next-attempt.js';
+import { loadRunContinuation, wireContinuation } from './continuation.js';
 import { planNextAttempt, versionListsBinding, type NextAttemptPlan } from './retry-schedule.js';
 import {
   appendBotResult,
@@ -318,11 +319,17 @@ export class TaskQueue {
       if (!claimed.rows.length) return { handled: false };
       await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
       await persistRunMemoryReferences(connection, memory, this.now);
+      const scheduled = await loadRunContinuation(connection, {
+        id: task.id,
+        protocol: provider.protocol,
+        modelId: provider.modelId,
+      });
       await this.audit(connection, task, 'task.running', {
         protocol: provider.protocol,
         modelId: provider.modelId,
         connectionId: provider.connectionId,
         connectionRevision: provider.revision,
+        ...(scheduled ? { continuation: wireContinuation(scheduled) } : {}),
       });
       await appendRunningRunState(connection, task.id, this.now);
       return {

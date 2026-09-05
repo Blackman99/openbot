@@ -1,4 +1,5 @@
 import { parseRoutingSummary, type RoutingSummary } from './routing-contract.js';
+import { parseRunContinuation, type RunContinuation } from './server/task-contract.js';
 
 export interface ConversationStreamScope {
   workspaceId: string;
@@ -45,6 +46,7 @@ export interface ExecutionState {
   error: StreamTaskFailure | null;
   output: { messageId: string; eventId: string; sequence: number } | null;
   routing?: RoutingSummary;
+  continuation?: RunContinuation;
 }
 export interface StreamPreview {
   taskId: string;
@@ -240,6 +242,14 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
       !keys(
         value,
         'attempt,bot,createdAt,error,executionUser,finishedAt,output,provider,routing,runId,runStatus,startedAt,taskId,taskStatus,usage',
+      ) &&
+      !keys(
+        value,
+        'attempt,bot,continuation,createdAt,error,executionUser,finishedAt,output,provider,runId,runStatus,startedAt,taskId,taskStatus,usage',
+      ) &&
+      !keys(
+        value,
+        'attempt,bot,continuation,createdAt,error,executionUser,finishedAt,output,provider,routing,runId,runStatus,startedAt,taskId,taskStatus,usage',
       )) ||
     !uuid(value.taskId) ||
     !uuid(value.runId) ||
@@ -343,6 +353,11 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
   )
     return undefined;
   if (value.startedAt === null && (provider !== null || usage !== null)) return undefined;
+  let continuation: ExecutionState['continuation'];
+  if ('continuation' in value) {
+    continuation = parseRunContinuation(value.continuation);
+    if (!continuation) return undefined;
+  }
   return {
     taskId: value.taskId,
     runId: value.runId,
@@ -364,6 +379,7 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
     error: value.error,
     output,
     ...(routing ? { routing } : {}),
+    ...(continuation ? { continuation } : {}),
   };
 }
 function preview(value: unknown): StreamPreview | undefined {

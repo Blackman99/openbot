@@ -55,6 +55,15 @@ export interface ExecutionState {
   error: TaskFailure | null;
   output: { messageId: string; eventId: string; sequence: number } | null;
   routing?: RoutingSummary;
+  continuation?: {
+    origin: 'provider_retry' | 'model_fallback';
+    reason: 'provider_rate_limited' | 'provider_unavailable' | 'provider_connection_reset';
+    previousRunId: string;
+    previousProvider: { protocol: ProviderProtocol; modelId: string };
+    nextProvider: { protocol: ProviderProtocol; modelId: string };
+    dueAt: string;
+    admitted: boolean;
+  };
 }
 export interface AssistantDelta {
   taskId: string;
@@ -211,6 +220,25 @@ export function streamExecutionState(state: ExecutionState): ExecutionState {
       : null,
     ...(state.routing
       ? { routing: { algorithm: state.routing.algorithm, reason: state.routing.reason } }
+      : {}),
+    ...(state.continuation
+      ? {
+          continuation: {
+            origin: state.continuation.origin,
+            reason: state.continuation.reason,
+            previousRunId: state.continuation.previousRunId,
+            previousProvider: {
+              protocol: state.continuation.previousProvider.protocol,
+              modelId: state.continuation.previousProvider.modelId,
+            },
+            nextProvider: {
+              protocol: state.continuation.nextProvider.protocol,
+              modelId: state.continuation.nextProvider.modelId,
+            },
+            dueAt: state.continuation.dueAt,
+            admitted: state.continuation.admitted,
+          },
+        }
       : {}),
   };
 }

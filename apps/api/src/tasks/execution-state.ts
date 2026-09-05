@@ -4,6 +4,7 @@ import type { ExecutionState } from '../conversations/stream-protocol.js';
 import type { RoutingSummary } from '../routing/matcher.js';
 import type { TaskFailure } from './queue.js';
 import type { TaskStatus } from './service.js';
+import { loadRunContinuation, wireContinuation } from './continuation.js';
 
 // The caller already owns the conversation admission/lock. Select one retained
 // Run, with only fields permitted in a delivery snapshot or bounded bootstrap.
@@ -77,5 +78,11 @@ export async function readRunExecution(connection: SqlConnection, runId: string)
       ? { routing: { algorithm: row.routing_algorithm, reason: row.routing_reason } }
       : {}),
   };
+  const continuation = await loadRunContinuation(connection, {
+    id: row.id,
+    protocol: row.protocol,
+    modelId: row.model_id,
+  });
+  if (continuation) execution.continuation = wireContinuation(continuation);
   return { workspaceId: row.workspace_id, conversationId: row.conversation_id, execution };
 }

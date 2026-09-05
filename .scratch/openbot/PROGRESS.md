@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**2026-09-05 本轮：** 在 `aa8f410` 分类+Bot 配置切片之上继续 **COL-10** 有界调度器与唯一 next-attempt writer（TDD，未登记 0024）。`planNextAttempt` 只对封闭瞬时码排程，缺省政策仍是每模型 1 次、无回退；同模型退避 1s/2s + 一次抖动，回退等待 1s；链预算含 recovery。`writeNextAttempt` 在调用方事务里写入唯一后继，取消祖先优先，不伪造 `task_retry_commands`。`notBefore` 记在 `task.queued` 审计里，claim 只领取到期 Run；finish 在瞬时失败后最多续一次同一 Task。0022 守卫下的自动后继仍需 MEM-02 之后的真实迁移（typed receipt / 放宽 later-attempt）。回退事件 UI、Compose/原生守卫验收与工单 AC 勾选未关。MEM-02 / KNW-01 未动。
+**2026-09-05 本轮：** 在 `35143d0` 调度/writer 之上继续 **COL-10** 回退可见性切片（TDD，仍不登记 0024）。Current/history Task DTO、stream `ExecutionState` 与等待 UI 现携带安全的 previous/next protocol+model、封闭原因、`dueAt` 与 admitted/planned 区分；`task.running` 在成功 claim 时写下强制 fallback 事件。不暴露 connectionId/endpoint/凭证。工单 AC 仍未勾选；0022 原生守卫、typed receipt 与 Compose 仍待 MEM-02 之后的真实迁移。MEM-02 / KNW-01 未动。
 
 前序分类切片：仅 429/500/502/503/504 与带 `overloaded_error` 的 529、以及明确的临时网络错误可自动重试；Bot 版本可保存可选 `retryPolicy` 与至多 3 条同范围回退。仓库工单索引未改写 401 条原文；COL-07 仍保持 `complete-with-external-verification`，COL-07-E1 不在本轮关闭。
 
@@ -14,7 +14,7 @@ COL-07-E1 requires the 18 new actual PostgreSQL cancellation cases and the indep
 
 [Verify33965537394](VERIFY-33965537394.md) is the preceding all-green baseline: all 14 jobs passed on 2026-09-05 at 12:21:46 UTC, with 253 distinct native PostgreSQL cases, 14 storage cases and both Compose flows. It closed COL-05-E1, COL-06-E1, COL-09-E1 and MEM-01-E1. Remote `b2cfb656bbf88f8ee91cdbbe3f05c021f086715b` exactly matches local `64d17693d9c873c5cbe1452f45d6c22f06e6be63`, tree `89a71e230bac00504399752670ff7e19c1b58260`; its actual PR checkout `d83fa680e1b3bdb062bd9867731acd8ad00187de` has the same tree. Its full code gate passed 1,453 nonbrowser, 53 ordinary browser and one OIDC tests. The earlier failed run and narrow correction remain recorded in [CI fix evidence](STREAM-BATCH-CI-FIX.md); they are not reclassified as successes.
 
-COL-10 的封闭 Provider 分类、Bot 配置、有界调度器与唯一 next-attempt writer 已在本树落地；typed receipt / 0022 守卫放宽不得预占 0024，须等 MEM-02 登记真实 0024 后再取下一号。回退可见性、claim 对 version-listed binding 的守卫对齐、原生 PostgreSQL 与 Compose 仍待后续切片。MEM-02 的 domain/strict client/pending-command 切片此前已独立审查；其实际 0024 存储与确认 UI 仍须跟在真实 COL-07 后继之后。KNW-01 的文本提取与上传切片已独立审查，作用域晋升、检索与引用继续；其迁移必须跟在实际 0024 之后。这些前驱切片均不关闭整张工单。
+COL-10 的封闭 Provider 分类、Bot 配置、有界调度器、唯一 next-attempt writer 与安全回退可见性已在本树落地；typed receipt / 0022 守卫放宽不得预占 0024，须等 MEM-02 登记真实 0024 后再取下一号。claim 对 version-listed binding 的守卫对齐、原生 PostgreSQL 与 Compose 仍待后续切片。MEM-02 的 domain/strict client/pending-command 切片此前已独立审查；其实际 0024 存储与确认 UI 仍须跟在真实 COL-07 后继之后。KNW-01 的文本提取与上传切片已独立审查，作用域晋升、检索与引用继续；其迁移必须跟在实际 0024 之后。这些前驱切片均不关闭整张工单。
 
 COL-08 explicitly follows COL-07/COL-10 and consumes the single next-attempt writer; its [approved pause/resume handoff](COL-08-PREIMPLEMENTATION-HANDOFF.md) preserves typed checkpoints and immutable attempts. COL-11 shares that writer; MEM-03 follows real MEM-02 private storage. The [approved COL-12 handoff](COL-12-PREIMPLEMENTATION-HANDOFF.md) fixes hierarchical active-duration accounting, typed budget waiting/grants and bounded handoffs without claiming implementation. API-06 waits for its cancellation/budget/approval event producers. TPL-01 retains its MEM-02 blocker; the [approved template handoff](TPL-01-PREIMPLEMENTATION-HANDOFF.md) defines safe complete behavior export, explicit local model rebinding and independent import without private memory or object references. The complete 67-ticket graph remains acyclic.
 

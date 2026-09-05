@@ -25,6 +25,7 @@ import { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js'
 import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from './run-history.js';
 import type { TaskPartialOutput } from './partial-output.js';
 import { lockTaskAncestry } from './tree.js';
+import { loadRunContinuations, type RunContinuation } from './continuation.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -51,6 +52,7 @@ export interface TaskView {
     usage: Usage | null;
     error: TaskFailure | null;
     output: { messageId: string; eventId: string; sequence: number } | null;
+    continuation?: RunContinuation;
   }[];
 }
 type TaskRow = {
@@ -100,7 +102,7 @@ async function readRuns(
       window ? [id, limit, window.before, window.horizon] : [id, limit],
     )
   ).rows;
-  return runs.map((run) => ({
+  const views: TaskRunView[] = runs.map((run) => ({
     id: run.id,
     attempt: run.attempt,
     status: run.status,
@@ -117,6 +119,18 @@ async function readRuns(
       ? { messageId: run.message_id!, eventId: run.output_event_id, sequence: Number(run.sequence) }
       : null,
   }));
+  const continuations = await loadRunContinuations(
+    connection,
+    views.map((run) => ({
+      id: run.id,
+      protocol: run.provider?.protocol ?? null,
+      modelId: run.provider?.modelId ?? null,
+    })),
+  );
+  return views.map((run) => {
+    const continuation = continuations.get(run.id);
+    return continuation ? { ...run, continuation } : run;
+  });
 }
 async function readTask(connection: SqlConnection, id: string): Promise<TaskView> {
   const row = (

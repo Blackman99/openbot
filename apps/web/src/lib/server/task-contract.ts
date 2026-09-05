@@ -15,6 +15,26 @@ export const taskErrorCodes = [
   'worker_stopped',
 ] as const;
 export type TaskErrorCode = (typeof taskErrorCodes)[number];
+export const continuationReasons = [
+  'provider_rate_limited',
+  'provider_unavailable',
+  'provider_connection_reset',
+] as const;
+export type ContinuationReason = (typeof continuationReasons)[number];
+export type ContinuationOrigin = 'provider_retry' | 'model_fallback';
+export interface SafeModelSnapshot {
+  protocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
+  modelId: string;
+}
+export interface RunContinuation {
+  origin: ContinuationOrigin;
+  reason: ContinuationReason;
+  previousRunId: string;
+  previousProvider: SafeModelSnapshot;
+  nextProvider: SafeModelSnapshot;
+  dueAt: string;
+  admitted: boolean;
+}
 export interface TaskRun {
   id: string;
   attempt: number;
@@ -29,6 +49,7 @@ export interface TaskRun {
   usage: null | { inputTokens: number; outputTokens: number };
   error: TaskErrorCode | null;
   output: MessageReceipt | null;
+  continuation?: RunContinuation;
 }
 export interface TaskView {
   id: string;
@@ -94,12 +115,50 @@ function receipt(value: unknown): MessageReceipt | undefined {
       }
     : undefined;
 }
+export function parseSafeModelSnapshot(value: unknown): SafeModelSnapshot | undefined {
+  if (
+    !taskKeys(value, 'modelId,protocol') ||
+    !taskText(value.modelId, 256) ||
+    (value.protocol !== 'openai-chat' &&
+      value.protocol !== 'openai-responses' &&
+      value.protocol !== 'anthropic-messages')
+  )
+    return undefined;
+  return { protocol: value.protocol, modelId: value.modelId };
+}
+export function parseRunContinuation(value: unknown): RunContinuation | undefined {
+  if (
+    !taskKeys(value, 'admitted,dueAt,nextProvider,origin,previousProvider,previousRunId,reason') ||
+    (value.admitted !== true && value.admitted !== false) ||
+    (value.origin !== 'provider_retry' && value.origin !== 'model_fallback') ||
+    !isConversationUuid(value.previousRunId) ||
+    !taskDate(value.dueAt)
+  )
+    return undefined;
+  const reason = continuationReasons.find((code) => code === value.reason);
+  const previousProvider = parseSafeModelSnapshot(value.previousProvider),
+    nextProvider = parseSafeModelSnapshot(value.nextProvider);
+  if (!reason || !previousProvider || !nextProvider) return undefined;
+  return {
+    origin: value.origin,
+    reason,
+    previousRunId: value.previousRunId.toLowerCase(),
+    previousProvider,
+    nextProvider,
+    dueAt: value.dueAt,
+    admitted: value.admitted,
+  };
+}
 export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | undefined {
   if (
-    !taskKeys(
+    (!taskKeys(
       value,
       'attempt,createdAt,error,finishedAt,id,output,provider,startedAt,status,usage',
-    ) ||
+    ) &&
+      !taskKeys(
+        value,
+        'attempt,continuation,createdAt,error,finishedAt,id,output,provider,startedAt,status,usage',
+      )) ||
     !isConversationUuid(value.id) ||
     !taskInteger(value.attempt) ||
     value.attempt > 2147483647 ||
@@ -180,6 +239,11 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
   )
     return undefined;
   if (value.startedAt === null && (provider !== null || usage !== null)) return undefined;
+  let continuation: TaskRun['continuation'];
+  if ('continuation' in value) {
+    continuation = parseRunContinuation(value.continuation);
+    if (!continuation) return undefined;
+  }
   return {
     id: value.id.toLowerCase(),
     attempt: value.attempt,
@@ -191,6 +255,7 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     usage,
     error: value.error,
     output,
+    ...(continuation ? { continuation } : {}),
   };
 }
 export function parseTask(value: unknown, conversationId: string): TaskView | undefined {

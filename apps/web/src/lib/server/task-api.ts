@@ -12,7 +12,15 @@ import {
   type TaskRun,
 } from './task-contract.js';
 import { parseTaskPartialOutput, type TaskPartialOutput } from '../task-partial-output.js';
-export type { TaskPage, TaskView, TaskRun, TaskStatus, TaskErrorCode } from './task-contract.js';
+export type {
+  TaskPage,
+  TaskView,
+  TaskRun,
+  TaskStatus,
+  TaskErrorCode,
+  ContinuationReason,
+  RunContinuation,
+} from './task-contract.js';
 export interface TaskCommand {
   idempotencyKey: string;
   body: string;

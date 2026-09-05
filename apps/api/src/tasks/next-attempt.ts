@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { BotBinding } from '../bots/service.js';
 import { appendQueuedRunState } from '../conversations/append-event.js';
+import type { ProviderProtocol } from '../providers/model-events.js';
 import { lockTaskAncestry } from './tree.js';
+import { readSafeModelSnapshot, safeModelSnapshot } from './continuation.js';
 import { type AttemptOrigin, type ChainAttempt, type NextAttemptPlan } from './retry-schedule.js';
 
 const ORIGINS = new Set<AttemptOrigin>([
@@ -124,6 +126,17 @@ export async function writeNextAttempt(
     source.some((run) => run.attempt > input.sourceAttempt)
   )
     return { scheduled: false, reason: 'duplicate' };
+  const previous = (
+    await connection.query<{ protocol: ProviderProtocol | null; model_id: string | null }>(
+      'SELECT protocol, model_id FROM task_runs WHERE id=$1',
+      [input.sourceRunId],
+    )
+  ).rows[0];
+  const previousProvider = safeModelSnapshot({
+    protocol: previous?.protocol,
+    modelId: previous?.model_id,
+  });
+  const nextProvider = await readSafeModelSnapshot(connection, input.plan.binding);
   const runId = randomUUID();
   await connection.query(
     "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
@@ -150,6 +163,7 @@ export async function writeNextAttempt(
         notBefore: input.plan.notBefore.toISOString(),
         binding: input.plan.binding,
         previousBinding: input.plan.previousBinding,
+        ...(previousProvider && nextProvider ? { previousProvider, nextProvider } : {}),
         chainRootRunId: input.plan.chainRootRunId,
         chainAttemptOrdinal: input.plan.chainAttemptOrdinal,
         chainLimitSnapshot: input.plan.chainLimitSnapshot,
