@@ -169,14 +169,34 @@ try {
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION require_current_task_run() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION lock_task_ancestry(UUID) FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION protect_task_tree() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION protect_task_cancel_command() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION protect_task_run_cancellation() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION require_cancelled_task_tree() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION protect_task_partial_output() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION require_task_partial_checkpoint() FROM PUBLIC, openbot_runtime;
-    REVOKE ALL ON FUNCTION fence_cancelled_task_publication() FROM PUBLIC, openbot_runtime;
+    DO $revoke_optional_task_tree$
+    BEGIN
+      IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION lock_task_ancestry(UUID) FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_tree()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_tree() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_cancel_command()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_cancel_command() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_run_cancellation()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_run_cancellation() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('require_cancelled_task_tree()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION require_cancelled_task_tree() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_partial_output()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_partial_output() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('require_task_partial_checkpoint()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION require_task_partial_checkpoint() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('fence_cancelled_task_publication()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION fence_cancelled_task_publication() FROM PUBLIC, openbot_runtime;
+      END IF;
+    END
+    $revoke_optional_task_tree$;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -197,11 +217,19 @@ try {
       tasks,
       task_runs,
       task_retry_commands,
-      task_cancel_commands,
-      task_run_cancellations,
       instance_claims,
       sessions
     TO openbot_runtime;
+    DO $grant_optional_task_tree$
+    BEGIN
+      IF to_regclass('task_cancel_commands') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_cancel_commands, task_run_cancellations TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
+      END IF;
+    END
+    $grant_optional_task_tree$;
     GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime;
     GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime;
     GRANT UPDATE (name, description) ON workspaces TO openbot_runtime;
@@ -215,7 +243,6 @@ try {
     GRANT UPDATE (delivered_bytes) ON task_run_streams TO openbot_runtime;
     GRANT SELECT, INSERT, DELETE ON task_run_partial_outputs TO openbot_runtime;
     GRANT UPDATE (body, end_byte, updated_at) ON task_run_partial_outputs TO openbot_runtime;
-    GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
     GRANT UPDATE (status) ON tasks TO openbot_runtime;
     GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
       provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,

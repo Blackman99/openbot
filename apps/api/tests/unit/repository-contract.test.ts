@@ -209,6 +209,14 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime',
     );
+    expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid)')");
+    expect(grants).toContain("to_regclass('task_cancel_commands')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_cancel_commands, task_run_cancellations TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime',
+    );
     expect(grants).toContain('GRANT SELECT, INSERT ON api_tokens TO openbot_runtime');
     expect(grants).toContain(
       'GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime',

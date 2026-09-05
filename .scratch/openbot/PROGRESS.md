@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. Latest native Verify still failing automatic-continuation enqueue under runtime privileges and cancellation schema bootstrap (`root_task_id` / `task_cancel_commands`); see open Verify runs. Ticket 27 ACs unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. Verify `33971346917` on `165e56a` passed Compose and 14/16 jobs; `postgres-tasks` (43/45) and `postgres-task-cancellation` (0/18) failed. Product follow-up: savepoint-isolated queued-audit probes, VOLATILE DEFINER helpers, existence-safe 0023 grants, and native 0023 cancellation bootstrap that does not depend on the drain test. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 

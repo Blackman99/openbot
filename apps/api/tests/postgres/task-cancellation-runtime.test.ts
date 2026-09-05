@@ -40,7 +40,9 @@ import { cancelTask as cancelInTransaction } from '../../src/tasks/cancellation.
 import { createQueuedTaskChild } from '../helpers/task-tree-fixture.js';
 
 // Dedicated disposable database: this file installs real 0022, exercises the
-// drain preflight, then installs actual 0023 and provisions its narrow runtime role.
+// drain preflight, then installs actual 0023 and provisions its narrow runtime
+// role. The 0023 cases bootstrap that schema themselves so they do not lag
+// Compose or depend on the drain test succeeding.
 const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
 (databaseUrl ? describe : describe.skip)(
   'Task cancellation with deployed PostgreSQL guards',
@@ -102,6 +104,15 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
       url.username = 'openbot_runtime';
       url.password = password;
       runtime = new pg.Pool({ connectionString: url.toString(), statement_timeout: 15000 });
+    }
+    async function ensureDeployedCancellationSchema() {
+      await migrateDatabase(admin);
+      const versions = (await admin.query('SELECT version FROM openbot_schema_migrations')).rows.map(
+        (row) => row.version,
+      );
+      if (!versions.includes('0023_task_tree_cancellation'))
+        throw new Error('Cancellation suite requires deployed migration 0023');
+      if (runtime === admin) await provisionRuntime();
     }
     const conversations = (pool = runtime) =>
       new ConversationService(new PostgresConversationRepository(pool));
@@ -610,6 +621,11 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
       expect((await cancel(f, queued.id, queued.runId)).task.status).toBe('cancelled');
       expect((await new TaskQueue(runtime).claimNext()).handled).toBe(false);
     }, 30000);
+
+    describe('deployed 0023 cancellation schema', () => {
+    beforeAll(async () => {
+      await ensureDeployedCancellationSchema();
+    });
 
     it('rejects a forged queued claim even inside a valid cancellation receipt, marker, audit and delivery transaction', async () => {
       const f = await fixture('workspace', true),
@@ -1304,6 +1320,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
             code: pool === runtime ? '42501' : '55000',
           });
       expect(await snapshot(f)).toEqual(before);
+    });
     });
   },
 );
