@@ -2,13 +2,17 @@
 
 ## Current frontier (supersedes historical notes)
 
-Seventeen of67 tickets are fully complete; nineteen are implemented and independently reviewed. BOT-02's real S3/native/deployment gate closed on all-eight-jobs-green Verify33950565666. BOT-03 is integrated with813 code tests and25 browser scenarios passing, and published asbcd1f257 (exact tree6b952ea matches acceptedb71fa89); Verify33951244638 passed seven jobs but its native version suite passed10/11: a test lock-observer assumption is corrected in independently reviewed523dd2e, integrated as8ad6267 with867 tests and27 browsers passing; actual retry remains required. COL-02 is accepted as28ce290 with867 tests and27 browser scenarios passing; migration0015 and14 native cases remain explicit COL-02-E1 in REL-01 until actual CI. BOT-05 andBOT-06 are active in isolated worktrees under BOT-COPY-LIFECYCLE-HANDOFF. COL-04 API/worker and Web slices are active under EXECUTION-CONTRACT; ATT-01 is ready with ATTACHMENT-HANDOFF. Main remains unchanged andPR1 stays draft; continue all remaining tickets without resuming the paused CI automation. This section and issues/README.md define the current frontier; historical notes below retain chronological evidence.
+Seventeen of67 tickets are fully complete; twenty-one are implemented and independently reviewed. BOT-05 andBOT-06 are accepted together at0d641dba after both review axes passed. The dedicated combined pnpm verify passed969 unit/integration tests,32 ordinary browsers and one signed-OIDC journey, formatting, zero-error/zero-warning types and both builds. The reviewed CI-only follow-up4b4b553 aligns Compose's actual0016 migration and precise lifecycle grants; its scoped YAML/shell/schema/grant/format checks passed.
+
+BOT-03-E1, COL-02-E1, BOT-05-E1 andBOT-06-E1 remain explicit REL-01 gates. The previous published23d4199 snapshot's Verify33951835479 passed867 code tests but failed a cached-navigation browser form reset before native jobs could start. The exact race was reproduced with delayed navigation, fixed with an observable form-readiness assertion, and is included in the accepted32-browser gate. Actual native retries are still required; no new native or Compose pass is claimed.
+
+COL-04 API/worker and Web, ATT-01 attachments and API-02 public Bot endpoints are active in isolated worktrees. Actual0016 is immutable; COL-04 owns0017 andATT-01 owns0018. Main remains the previously verified baseline, PR1 stays draft, and the separate CI automation remains paused. Continue every remaining ticket through the dependency frontier; this section and issues/README.md supersede historical status notes.
 
 ## User constraints
 
 - Implement the approved 67-ticket backlog with TDD; no cloud-computer feature.
 - On2026-09-05, after the first publication and green CI, the user instructed “继续实现所有 tickets”. Implementation is active again. Progress continuously through all unblocked tickets; do not treat an automation turn as cancellation.
-- On 2026-09-05 the user paused implementation and authorized pushing the verified integration. Publish `feat/openbot-collaboration-system` to the initially empty remote `main`; keep the development branch available. The earlier no-push instruction is superseded for this push.
+- The initial verified baseline was published after user authorization. Subsequent accepted snapshots are published only to the development branch feat/openbot-collaboration-system and unified draft PR1; main remains unchanged during the full backlog implementation.
 - Repository tickets remain authoritative. The latest attempt to create GitHub issues was rejected with `403 Resource not accessible by integration`, despite repository read/admin access. No issue was created.
 
 ## First push status

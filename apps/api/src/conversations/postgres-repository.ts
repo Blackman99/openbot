@@ -3,7 +3,7 @@ import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js
 import { GroupAccessError, type GroupRole } from '../groups/service.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
-import { BotAccessError } from '../bots/service.js';
+import { BotAccessError, type BotLifecycleState } from '../bots/service.js';
 import { currentPage, messageVersion, readMessageEvents } from './projection.js';
 import { appendMessageEvent } from './append-event.js';
 import { encodeMessageCursor, messageCursor } from './cursor.js';
@@ -50,22 +50,24 @@ async function authorizeSubject(
   workspaceId: string,
   subject: ConversationSubject,
   permission: 'inspect' | 'use',
-): Promise<GroupRole | null> {
+): Promise<{ groupRole: GroupRole | null; botLifecycleState?: BotLifecycleState }> {
   try {
     if (subject.kind === 'group')
-      return (
-        await lockAuthorizedGroup(
-          connection,
-          { actorId: actorUserId, workspaceId, groupId: subject.id },
-          'content',
-        )
-      ).role;
-    await lockAuthorizedBot(
+      return {
+        groupRole: (
+          await lockAuthorizedGroup(
+            connection,
+            { actorId: actorUserId, workspaceId, groupId: subject.id },
+            'content',
+          )
+        ).role,
+      };
+    const bot = await lockAuthorizedBot(
       connection,
       { actorUserId, workspaceId, botId: subject.id },
       permission,
     );
-    return null;
+    return { groupRole: null, botLifecycleState: bot.lifecycle_state };
   } catch (error) {
     if (error instanceof GroupAccessError || error instanceof BotAccessError)
       throw new ConversationAccessError();
@@ -76,6 +78,7 @@ async function authorizeSubject(
 // The caller owns BEGIN/COMMIT/ROLLBACK. Holding this admission keeps the shared
 // workspace -> group -> conversation locks through any dependent write/audit.
 export class ConversationTransaction {
+  private readonly botLifecycleState: BotLifecycleState | undefined;
   private readonly subject: Readonly<ConversationSubject>;
   private readonly createdAt: number;
   private constructor(
@@ -87,6 +90,7 @@ export class ConversationTransaction {
     private readonly permission: 'inspect' | 'use',
   ) {
     this.subject = Object.freeze({ ...metadata.subject });
+    this.botLifecycleState = metadata.botLifecycleState;
     this.createdAt = metadata.createdAt.getTime();
   }
   get metadata(): Conversation {
@@ -96,6 +100,7 @@ export class ConversationTransaction {
       id: this.access.conversationId,
       workspaceId: this.access.workspaceId,
       subject: Object.freeze({ ...this.subject }),
+      ...(this.botLifecycleState ? { botLifecycleState: this.botLifecycleState } : {}),
       createdAt: new Date(this.createdAt),
     });
   }
@@ -119,7 +124,7 @@ export class ConversationTransaction {
     if (!subject) throw new ConversationAccessError();
     if (subject.bot_id && subject.creator_user_id !== access.actorUserId)
       throw new ConversationAccessError();
-    const role = await authorizeSubject(
+    const authority = await authorizeSubject(
       connection,
       access.actorUserId,
       access.workspaceId,
@@ -136,8 +141,11 @@ export class ConversationTransaction {
     return new ConversationTransaction(
       connection,
       access,
-      conversation(row),
-      role,
+      {
+        ...conversation(row),
+        ...(authority.botLifecycleState ? { botLifecycleState: authority.botLifecycleState } : {}),
+      },
+      authority.groupRole,
       now,
       permission,
     );
@@ -254,10 +262,13 @@ export class ConversationTransaction {
       this.access.actorUserId,
       moderator,
     );
+    const canWrite = this.botLifecycleState === undefined || this.botLifecycleState === 'active';
     return {
       conversation: this.metadata,
-      canWrite: true,
-      messages: page.messages,
+      canWrite,
+      messages: canWrite
+        ? page.messages
+        : page.messages.map((message) => ({ ...message, canEdit: false, canDelete: false })),
       nextCursor: page.hasMore
         ? encodeMessageCursor({ ...cursor, after: page.messages.at(-1)!.creationSequence })
         : null,
@@ -301,8 +312,24 @@ export class PostgresConversationRepository implements ConversationRepository {
     subject: ConversationSubject,
   ): Promise<Conversation> {
     return this.transaction(async (connection) => {
-      await authorizeSubject(connection, actorUserId, workspaceId, subject, 'inspect');
-      return openAdmittedConversation(connection, actorUserId, workspaceId, subject, this.now);
+      const authority = await authorizeSubject(
+        connection,
+        actorUserId,
+        workspaceId,
+        subject,
+        'inspect',
+      );
+      const opened = await openAdmittedConversation(
+        connection,
+        actorUserId,
+        workspaceId,
+        subject,
+        this.now,
+      );
+      return {
+        ...opened,
+        ...(authority.botLifecycleState ? { botLifecycleState: authority.botLifecycleState } : {}),
+      };
     });
   }
   append(access: ConversationAccess, command: MessageCommand): Promise<MessageReceipt> {
@@ -386,6 +413,8 @@ async function openAdmittedConversation(
     )
   ).rows[0];
   if (existing) return conversation(existing);
+  if (subject.kind === 'direct-bot')
+    await authorizeSubject(connection, actorUserId, workspaceId, subject, 'use');
   const id = randomUUID(),
     occurredAt = now();
   await connection.query(

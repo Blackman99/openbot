@@ -15,6 +15,7 @@ export const grant = {
   groupId: group.id,
   conversationId: 'edcc0832-ce23-4d77-9c72-fb4e9d01766c',
   bot: {
+    lifecycleState: 'active' as const,
     id: summary.id,
     name: summary.name,
     roleDescription: summary.roleDescription,

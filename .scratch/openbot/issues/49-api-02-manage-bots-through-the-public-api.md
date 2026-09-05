@@ -2,7 +2,7 @@
 sequence: 49
 id: API-02
 title: "Manage bots through the public API"
-status: blocked
+status: in-progress
 blocked_by:
   - API-01
   - BOT-03

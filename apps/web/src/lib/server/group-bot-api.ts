@@ -1,5 +1,5 @@
 import { SESSION_COOKIE_NAME } from './auth-api.js';
-import { isBotUuid } from './bot-api.js';
+import { isBotLifecycleState, type BotLifecycleState, isBotUuid } from './bot-api.js';
 import { isCommandKey, isConversationCursor, type MessageProjection } from './conversation-api.js';
 
 export type HistoryChoice =
@@ -13,6 +13,7 @@ export interface GroupBotGrant {
   groupId: string;
   conversationId: string;
   bot: {
+    lifecycleState: BotLifecycleState;
     id: string;
     name: string;
     roleDescription: string;
@@ -92,7 +93,8 @@ function parseGrant(value: unknown, groupId: string): GroupBotGrant | undefined 
     !isBotUuid(value.groupId) ||
     value.groupId.toLowerCase() !== groupId.toLowerCase() ||
     !isBotUuid(value.conversationId) ||
-    !keys(value.bot, 'canInspect,description,id,name,roleDescription') ||
+    !keys(value.bot, 'canInspect,description,id,lifecycleState,name,roleDescription') ||
+    !isBotLifecycleState(value.bot.lifecycleState) ||
     !isBotUuid(value.bot.id) ||
     !text(value.bot.name, 100) ||
     !text(value.bot.roleDescription, 200) ||
@@ -142,6 +144,7 @@ function parseGrant(value: unknown, groupId: string): GroupBotGrant | undefined 
     groupId: value.groupId.toLowerCase(),
     conversationId: value.conversationId.toLowerCase(),
     bot: {
+      lifecycleState: value.bot.lifecycleState,
       id: value.bot.id.toLowerCase(),
       name: value.bot.name,
       roleDescription: value.bot.roleDescription,

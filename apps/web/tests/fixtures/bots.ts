@@ -23,6 +23,7 @@ export const input = {
   limits: { maxTotalTokens: 32768, maxDurationSeconds: 300, maxTurns: 8, maxDelegationDepth: 2 },
 };
 export const summary = {
+  lifecycleState: 'active' as const,
   id: 'bdcc0832-ce23-4d77-9c72-fb4e9d01766c',
   workspaceId: workspace.id,
   visibility: 'private' as const,

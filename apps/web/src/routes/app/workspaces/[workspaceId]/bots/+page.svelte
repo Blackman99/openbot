@@ -15,6 +15,7 @@
 <main>
   <a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}`}>Back to {data.workspace.name}</a>
   <h1>Bots</h1>
+  <p><a href={`/app/workspaces/${data.workspace.id}/bots/deleted`}>Deleted Bots and recovery</a></p>
   <p>Create a persistent identity with instructions, a model and saved task defaults.</p>
   {#if data.bots.length === 0}<p>No Bots available yet.</p>{/if}
   <ul aria-label="Bots">
@@ -23,6 +24,7 @@
         <BotAvatar botId={bot.id} workspaceId={data.workspace.id} versionId={bot.avatarVersionId} name={bot.name} />
         <h2><a href={`/app/workspaces/${data.workspace.id}/bots/${bot.id}`}>{bot.name}</a></h2>
         <p>{bot.roleDescription}</p>
+        {#if bot.lifecycleState === 'archived'}<p>Archived · New work blocked</p>{/if}
         <p>{bot.description || 'No description yet.'}</p>
         <p>{bot.accessRole ? `Your Bot role: ${bot.accessRole}` : 'Metadata only · No Bot access'}</p>
         <BotBindingStatus status={bot.bindingStatus} />

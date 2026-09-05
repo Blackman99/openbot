@@ -133,6 +133,7 @@ describe('persistent Bot identity', () => {
     expect(response.statusCode).toBe(201);
     const { bot } = response.json();
     expect(bot).toEqual({
+      lifecycleState: 'active',
       id: expect.any(String),
       workspaceId: owner.workspace.id,
       visibility: 'private',

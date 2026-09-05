@@ -1,9 +1,11 @@
+import { isBotLifecycleState, type BotLifecycleState } from './bot-api.js';
 import { SESSION_COOKIE_NAME } from './auth-api.js';
 export interface ConversationSubject {
   kind: 'group' | 'direct-bot';
   id: string;
 }
 export interface Conversation {
+  botLifecycleState?: BotLifecycleState;
   id: string;
   workspaceId: string;
   subject: ConversationSubject;
@@ -111,20 +113,27 @@ function actor(value: unknown) {
 }
 function parseConversation(value: unknown, workspaceId: string): Conversation | undefined {
   if (
-    !keys(value, 'createdAt,id,subject,workspaceId') ||
+    (!keys(value, 'createdAt,id,subject,workspaceId') &&
+      !keys(value, 'botLifecycleState,createdAt,id,subject,workspaceId')) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.workspaceId) ||
     value.workspaceId.toLowerCase() !== workspaceId.toLowerCase() ||
     !keys(value.subject, 'id,kind') ||
     !isConversationUuid(value.subject.id) ||
     (value.subject.kind !== 'group' && value.subject.kind !== 'direct-bot') ||
-    !date(value.createdAt)
+    !date(value.createdAt) ||
+    (value.subject.kind === 'direct-bot'
+      ? !isBotLifecycleState(value.botLifecycleState)
+      : 'botLifecycleState' in value)
   )
     return undefined;
   return {
     id: value.id.toLowerCase(),
     workspaceId: value.workspaceId.toLowerCase(),
     subject: { kind: value.subject.kind, id: value.subject.id.toLowerCase() },
+    ...(isBotLifecycleState(value.botLifecycleState)
+      ? { botLifecycleState: value.botLifecycleState }
+      : {}),
     createdAt: value.createdAt,
   };
 }

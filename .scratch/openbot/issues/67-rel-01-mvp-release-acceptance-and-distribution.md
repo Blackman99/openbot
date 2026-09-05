@@ -212,3 +212,19 @@ BOT-03 integrated as `82d5d911fdcf1e7a9f17b62023f776fd694246af`, tree `ddd5bea85
 - [ ] Keep the dedicated postgres-group-bots job isolated from the other fixed-role database suites and retain the four serial Bot identity/ACL/avatar/version commands.
 
 COL-02 integrated as28ce290e994f769219eb16b17565eb589dc12e16, tree1cdf7746ad50b61500a3b9ccc657ebbc066f84b9. Both independent review axes are CLEAN at final source3a297f9a94e33aaf5830a1cb17a77d6edee103ad; author finalaa08422d8b501fd0944f3e2d3faaf8062ae8fd84 adds only evidence. Dedicated merger full pnpm verify exited0:867 unit/integration tests (API88+302,Web52+425),26 ordinary browsers and one signed OIDC, formatting, zero-error/zero-warning types and both builds. Four additive shared integration files were independently reviewed;34 other candidate paths match exactly. No feature correction was needed. Local14 native skips are not service evidence. This explicit release gate permits COL-04 andATT-01 implementation because their other prerequisites are satisfied.
+
+## Open external gate — BOT-05-E1
+
+- [ ] Execute all17 bot-copy-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role, including source CAS/current actor admission, private sole-owner creation, model replacement, retained avatar reference and cleanup ordering, audit rollback, and queued source deletion.
+- [ ] Preserve serial identity8, ACL9, avatar8, version11 and lifecycle24 native commands before copy.
+- [ ] Keep actual S3 and fresh/upgrade Compose checks green on the accepted copy/lifecycle snapshot.
+
+BOT-05 copy-only source4257bdf was independently CLEAN on Standards and Spec againstc389f993. It was integrated as0d641dba after accepted fullBOT-06. The dedicated combined pnpm verify passed969 unit/integration tests (API88+328, Web61+492),32 ordinary browser scenarios, one signed-OIDC journey, formatting, zero-error/zero-warning types and both builds. Root independently reviewed the exact two integration resolutions. Local17 native skips are not service evidence.
+
+## Open external gate — BOT-06-E1
+
+- [ ] Execute all24 bot-lifecycle-runtime.test.ts cases against actual PostgreSQL using the deployed restricted role: exact privileges, current owner/workspace admission, concurrent/no-op transitions, fixed grace deadline, post-provider-wait expiry, required audit rollback and historical direct/group boundaries.
+- [ ] Execute fresh/upgrade Compose through actual0016, checking exactly current_version_id, visibility and the four lifecycle UPDATE columns while all identity/creation/workspace and table-wide mutation guards remain denied.
+- [ ] Preserve existing native, S3 and application/runtime/outage checks; this lifecycle ticket does not physically purge retained records or objects.
+
+BOT-06 final source8392549 and author evidencef0e7731 were accepted asae567149 after both review axes were CLEAN. The combined full gate is pinned0d641dba/tree5b6bff829f4c12bc11ffe9c7963aba559dfef6d8. Reviewed CI-only follow-up4b4b553/tree6fde8ad53eedcb9b30def0b1b5a9297f7ff3f8be updates two missed Compose expectations; scoped YAML, affected shell scripts, full migration-list/schema/grant comparison, formatting and unchanged-negative-guard checks passed. Actual24 native cases and deployed Compose remain unexecuted in this local evidence.

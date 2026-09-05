@@ -32,13 +32,15 @@ export function registerBotRoutes(
         return reply.code(error.statusCode).send({ error: { code: 'invalid_bot_request' } });
       return reply.code(503).send({ error: { code: 'bot_unavailable' } });
     });
-    routes.get<{ Params: { workspaceId: string } }>(
+    routes.get<{ Params: { workspaceId: string }; Querystring: { view?: string } }>(
       '/api/v1/workspaces/:workspaceId/bots',
       async (request, reply) => {
         const token = readSessionToken(request.headers.cookie);
         const identity = token ? await auth.getSession(token) : undefined;
         if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
-        return { bots: await bots.list(identity.user.id, request.params.workspaceId) };
+        return {
+          bots: await bots.list(identity.user.id, request.params.workspaceId, request.query.view),
+        };
       },
     );
     routes.get<{ Params: { workspaceId: string; botId: string } }>(

@@ -224,7 +224,8 @@ export async function loadConversationsPage(context: PageContext, workspaceId: s
     if (group.role !== null)
       subjects.push({ kind: 'group', id: group.id.toLowerCase(), name: group.name });
   for (const bot of bots.value)
-    if (bot.accessRole !== null) subjects.push({ kind: 'direct-bot', id: bot.id, name: bot.name });
+    if (bot.accessRole !== null && bot.lifecycleState === 'active')
+      subjects.push({ kind: 'direct-bot', id: bot.id, name: bot.name });
   const ids = new Set<string>();
   for (const subject of subjects) {
     const key = `${subject.kind}:${subject.id}`;

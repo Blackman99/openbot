@@ -1,3 +1,4 @@
+import type { BotLifecycleState } from '../bots/service.js';
 import {
   conversationUuid,
   InvalidConversationInputError,
@@ -28,6 +29,7 @@ export interface GroupBotGrant {
   groupId: string;
   conversationId: string;
   bot: {
+    lifecycleState: BotLifecycleState;
     id: string;
     name: string;
     roleDescription: string;

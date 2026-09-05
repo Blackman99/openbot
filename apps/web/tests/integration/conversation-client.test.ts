@@ -284,3 +284,24 @@ describe('Conversation API client', () => {
     },
   );
 });
+it('preserves the stable deleted Bot identity on protected readonly conversation history', async () => {
+  const value = {
+    ...page,
+    conversation: {
+      ...conversation,
+      subject: { kind: 'direct-bot', id: message.id },
+      botLifecycleState: 'deleted',
+    },
+    canWrite: false,
+    messages: [{ ...message, canEdit: false, canDelete: false }],
+  };
+  const client = new ConversationApiClient(
+    vi.fn(async () => Response.json(value)),
+    'http://api:3001',
+    'http://localhost:3000',
+  );
+  expect(await client.get(token, workspace.id, conversation.id)).toEqual({
+    status: 'available',
+    value,
+  });
+});

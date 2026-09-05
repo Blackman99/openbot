@@ -1,6 +1,10 @@
+import { registerBotCopyRoutes } from './bots/copy-routes.js';
+import type { BotCopyService } from './bots/copy-service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
+import { registerBotLifecycleRoutes } from './bots/lifecycle-routes.js';
+import type { BotLifecycleService } from './bots/lifecycle-service.js';
 import { registerBotAclRoutes } from './bots/acl-routes.js';
 import type { BotAclService } from './bots/acl-service.js';
 import { registerBotAvatarRoutes } from './bots/avatar-routes.js';
@@ -59,9 +63,11 @@ export interface BuildAppOptions {
   groupBots?: GroupBotService;
   bots?: BotService;
   botAcl?: BotAclService;
+  botLifecycle?: BotLifecycleService;
   avatars?: BotAvatarService;
   conversations?: ConversationService;
   botVersions?: BotVersionService;
+  botCopies?: BotCopyService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -155,9 +161,11 @@ export function buildApp({
   groupBots,
   bots,
   botAcl,
+  botLifecycle,
   avatars,
   conversations,
   botVersions,
+  botCopies,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -200,12 +208,14 @@ export function buildApp({
 
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
+    if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
     if (botAcl) registerBotAclRoutes(app, auth, botAcl, webOrigin);
+    if (botLifecycle) registerBotLifecycleRoutes(app, auth, botLifecycle, webOrigin);
     if (groups) registerGroupRoutes(app, auth, groups, webOrigin);
     if (apiTokens) registerApiTokenRoutes(app, auth, apiTokens, webOrigin);
     if (members) registerWorkspaceMemberRoutes(app, auth, members, webOrigin);

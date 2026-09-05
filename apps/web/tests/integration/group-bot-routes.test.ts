@@ -13,7 +13,7 @@ import {
   grant,
   summary,
 } from '../fixtures/group-bots.js';
-function context() {
+function context(lifecycleState: 'active' | 'archived' = 'active') {
   const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith('/me')) return Response.json({ user, workspace: null });
@@ -23,7 +23,7 @@ function context() {
     if (path.endsWith('/bots'))
       return Response.json({
         bots: [
-          summary,
+          { ...summary, lifecycleState },
           {
             ...summary,
             id: workspace.id,
@@ -63,6 +63,11 @@ function request(values: Record<string, string>, origin = 'http://localhost:3000
   });
 }
 describe('Group Bot page boundary', () => {
+  it('excludes archived Bots from the invitation selector', async () => {
+    expect(
+      (await loadGroupBotsPage(context('archived'), workspace.id, group.id)).candidates,
+    ).toEqual([]);
+  });
   it('loads safe group membership and direct-use candidates without opening a conversation or loading configuration', async () => {
     const event = context();
     const page = await loadGroupBotsPage(event, workspace.id.toUpperCase(), group.id.toUpperCase());

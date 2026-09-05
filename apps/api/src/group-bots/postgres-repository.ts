@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
-import { BotAccessError, type BotConfiguration } from '../bots/service.js';
+import { BotAccessError, type BotConfiguration, type BotLifecycleState } from '../bots/service.js';
 import { GroupAccessError } from '../groups/service.js';
 import { openGroupMembershipConversation } from '../conversations/postgres-repository.js';
 import { appendBotJoined } from '../conversations/append-event.js';
@@ -29,6 +29,7 @@ type GrantRow = {
   granted_by_user_id: string;
   grantor_name: string;
   configuration: BotConfiguration;
+  lifecycle_state: BotLifecycleState;
   viewer_role: string | null;
   history_mode: GroupBotHistory['mode'];
   source_event_id: string | null;
@@ -48,7 +49,7 @@ export async function readGroupBotGrants(
 ): Promise<GroupBotGrant[]> {
   const rows = (
     await connection.query<GrantRow>(
-      `SELECT g.*,u.display_name AS grantor_name,v.configuration,a.role AS viewer_role FROM group_bot_grants g
+      `SELECT g.*,b.lifecycle_state,u.display_name AS grantor_name,v.configuration,a.role AS viewer_role FROM group_bot_grants g
      INNER JOIN users u ON u.id=g.granted_by_user_id INNER JOIN bots b ON b.id=g.bot_id
      INNER JOIN bot_versions v ON v.id=b.current_version_id AND v.bot_id=b.id
      LEFT JOIN bot_acl a ON a.bot_id=b.id AND a.user_id=$3
@@ -61,6 +62,7 @@ export async function readGroupBotGrants(
     groupId: row.group_id,
     conversationId: row.conversation_id,
     bot: {
+      lifecycleState: row.lifecycle_state,
       id: row.bot_id,
       name: row.configuration.name,
       roleDescription: row.configuration.roleDescription,

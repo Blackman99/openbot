@@ -26,7 +26,7 @@ const group = {
   createdAt: conversation.createdAt,
   updatedAt: conversation.createdAt,
 };
-function context() {
+function context(lifecycleState: 'active' | 'archived' = 'active') {
   const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith('/me')) return Response.json({ user, workspace: null });
@@ -48,7 +48,11 @@ function context() {
       const { currentVersion: _version, ...summary } = bot;
       return Response.json({
         bots: [
-          { ...summary, bindingStatus: { state: 'unavailable', reason: 'disabled' } },
+          {
+            ...summary,
+            lifecycleState,
+            bindingStatus: { state: 'unavailable', reason: 'disabled' },
+          },
           {
             ...summary,
             id: message.id,
@@ -79,6 +83,11 @@ function context() {
   };
 }
 describe('Conversation page boundary', () => {
+  it('excludes archived Bots from new conversation choices', async () => {
+    expect((await loadConversationsPage(context('archived'), workspace.id)).subjects).toEqual([
+      { kind: 'group', id: group.id, name: group.name },
+    ]);
+  });
   it('offers explicit group/Bot access, including unavailable models, without opening a thread on GET', async () => {
     const event = context();
     expect(await loadConversationsPage(event, workspace.id.toUpperCase())).toMatchObject({

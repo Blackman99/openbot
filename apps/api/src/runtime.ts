@@ -1,9 +1,11 @@
+import { BotCopyService } from './bots/copy-service.js';
 import { BotVersionService } from './bots/version-service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
 import { startAvatarCleanup } from './bots/avatar-cleanup.js';
 import { createObjectStore, type ObjectStorageConfig } from './objects/config.js';
 import { S3ObjectStore } from './objects/s3-store.js';
 import { BotService } from './bots/service.js';
+import { BotLifecycleService } from './bots/lifecycle-service.js';
 import { BotAclService } from './bots/acl-service.js';
 import { PostgresBotAclRepository } from './bots/postgres-bot-acl-repository.js';
 import { ConversationService } from './conversations/service.js';
@@ -106,8 +108,10 @@ export function buildProductionApp(options: ProductionAppOptions) {
     avatars,
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     botVersions: new BotVersionService(pool, avatars),
+    botCopies: new BotCopyService(pool),
     bots: new BotService(new PostgresBotRepository(pool)),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
+    botLifecycle: new BotLifecycleService(pool),
     groups: new GroupService(new PostgresGroupRepository(pool)),
     groupBots: new GroupBotService(new PostgresGroupBotRepository(pool)),
     apiTokens: new ApiTokenService(new PostgresApiTokenRepository(pool)),

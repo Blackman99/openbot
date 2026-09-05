@@ -63,13 +63,14 @@
     {#each data.membership.grants as grant (grant.id)}
       <article aria-label={`Membership for ${grant.bot.name}`}>
         <BotAvatar botId={grant.bot.id} workspaceId={data.workspace.id} name={grant.bot.name} />
-        <h3>{grant.bot.name}</h3><p>{grant.bot.roleDescription}</p><p>{grant.bot.description}</p>
+        <h3>{grant.bot.name}</h3>
+        {#if grant.bot.lifecycleState === 'deleted'}<p>Deleted Bot · Historical identity retained</p>{:else if grant.bot.lifecycleState === 'archived'}<p>Archived Bot · New work blocked</p>{/if}<p>{grant.bot.roleDescription}</p><p>{grant.bot.description}</p>
         <p>Invited by {grant.grantedBy.displayName} · <time datetime={grant.joined.at}>{grant.joined.at}</time></p>
         <p>History: {grant.history.mode === 'future-only' ? 'Future messages from this invitation' : grant.history.mode === 'all' ? 'All history explicitly shared' : grant.history.mode === 'since-event' ? `Since event ${grant.history.eventId}` : `Since ${grant.history.time}`}</p>
         {#if grant.closed}
           <p>Closed · {grant.closed.reason === 'removed' ? 'Removed from group' : grant.closed.reason === 'bot-access-revoked' ? 'Inviter lost direct Bot access' : 'Inviter lost workspace access'} · <time datetime={grant.closed.at}>{grant.closed.at}</time></p>
           <p>This membership no longer provides context. Reinvitation creates a separate history grant.</p>
-        {:else}<p>Active</p><p><a href={`${base}/${grant.id}/context`}>View allowed context</a></p>{/if}
+        {:else}<p>Membership retained{grant.bot.lifecycleState === 'active' ? ' · Active' : ' · Use blocked'}</p>{#if grant.bot.lifecycleState === 'active'}<p><a href={`${base}/${grant.id}/context`}>View allowed context</a></p>{/if}{/if}
         {#if grant.bot.canInspect}<p><a href={`/app/workspaces/${data.workspace.id}/bots/${grant.bot.id}`}>View Bot details</a> · Uses your separate Bot access.</p>{/if}
         {#if data.membership.canManage}
           {#if form?.action === 'remove' && form.values.grantId === grant.id && form.uncertain}

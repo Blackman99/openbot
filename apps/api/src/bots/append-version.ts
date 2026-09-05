@@ -64,34 +64,14 @@ export async function appendBotVersion(
   if (!restored && !differences.length) return botVersion(current);
   const avatarObjectId = configuration.avatarObjectId;
   if (avatarObjectId) {
-    const object = (
-      await connection.query<{ state: string; workspace_id: string; bot_id: string }>(
-        'SELECT state,workspace_id,bot_id FROM avatar_objects WHERE id=$1 FOR UPDATE',
-        [avatarObjectId],
-      )
-    ).rows[0];
-    if (
-      !object ||
-      object.workspace_id !== access.workspaceId ||
-      object.bot_id !== access.botId ||
-      object.state !== 'live'
-    )
-      throw new BotAvatarUnavailableError();
-    // Restore may reference only the retained object of the same Bot's source version.
-    // Configuration edits carry the current reference; public patches cannot introduce storage IDs.
-    const sourceVersionId =
-      restored?.id ?? (change.kind === 'configuration' ? current.version_id : undefined);
-    if (
-      sourceVersionId &&
-      !(
-        await connection.query(
-          'SELECT version_id FROM bot_avatar_references WHERE version_id=$1 AND object_id=$2',
-          [sourceVersionId, avatarObjectId],
-        )
-      ).rows[0]
-    )
-      throw new BotAvatarUnavailableError();
+    await validateBotAvatarReference(
+      connection,
+      access,
+      avatarObjectId,
+      restored?.id ?? (change.kind === 'configuration' ? current.version_id : undefined),
+    );
   }
+
   const id = randomUUID(),
     occurredAt = now(),
     number = current.version + 1;
@@ -151,4 +131,37 @@ export async function appendBotVersion(
     createdAt: occurredAt,
     rationale,
   };
+}
+
+// A retained same-Bot version grants reference authority after an authorized copy.
+// Without one, upload publication requires the object's originating Bot.
+export async function validateBotAvatarReference(
+  connection: SqlConnection,
+  access: BotAccess,
+  objectId: string,
+  retainedVersionId?: string,
+): Promise<void> {
+  const object = (
+    await connection.query<{ state: string; workspace_id: string; bot_id: string }>(
+      'SELECT state,workspace_id,bot_id FROM avatar_objects WHERE id=$1 FOR UPDATE',
+      [objectId],
+    )
+  ).rows[0];
+  if (
+    !object ||
+    object.workspace_id !== access.workspaceId ||
+    object.state !== 'live' ||
+    (!retainedVersionId && object.bot_id !== access.botId)
+  )
+    throw new BotAvatarUnavailableError();
+  if (
+    retainedVersionId &&
+    !(
+      await connection.query(
+        'SELECT r.version_id FROM bot_avatar_references r INNER JOIN bot_versions v ON v.id=r.version_id WHERE v.bot_id=$1 AND r.version_id=$2 AND r.object_id=$3',
+        [access.botId, retainedVersionId, objectId],
+      )
+    ).rows[0]
+  )
+    throw new BotAvatarUnavailableError();
 }

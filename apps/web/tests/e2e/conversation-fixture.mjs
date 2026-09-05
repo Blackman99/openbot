@@ -31,7 +31,13 @@ export function resetConversationFixture() {
 }
 
 function metadata(thread) {
-  return { id: thread.id, workspaceId, subject: thread.subject, createdAt: time };
+  return {
+    id: thread.id,
+    workspaceId,
+    subject: thread.subject,
+    createdAt: time,
+    ...(thread.subject.kind === 'direct-bot' ? { botLifecycleState: 'active' } : {}),
+  };
 }
 function actor(user) {
   return { id: user.id, displayName: user.displayName };
@@ -161,6 +167,7 @@ export function handleConversationFixture(request, response, context) {
       name: 'Researcher',
       roleDescription: 'Research assistant',
       description: '',
+      lifecycleState: 'active',
       bindingStatus: { state: 'unavailable', reason: 'disabled' },
     };
     sendJson(response, 200, {

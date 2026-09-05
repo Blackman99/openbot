@@ -1,8 +1,18 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
-import { BotAccessError, type BotConfiguration, type BotRole, type BotVersion } from './service.js';
+import {
+  BotAccessError,
+  type BotConfiguration,
+  type BotRole,
+  type BotVersion,
+  type BotLifecycleState,
+} from './service.js';
 
 export type BotRow = {
   id: string;
+  lifecycle_state: BotLifecycleState;
+  deleted_at: Date | null;
+  recovery_deadline: Date | null;
+  pre_deleted_state: 'active' | 'archived' | null;
   workspace_id: string;
   visibility: 'private' | 'workspace';
   role: BotRole | null;
@@ -44,7 +54,9 @@ export async function lockAuthorizedBot(
     row.role === 'owner' ||
     (row.role === 'editor' && ['inspect', 'use', 'edit'].includes(permission)) ||
     (row.role === 'user' && ['inspect', 'use'].includes(permission));
-  if (!allowed) throw new BotAccessError();
+  if (!allowed || (row.lifecycle_state === 'deleted' && row.role === null))
+    throw new BotAccessError();
+  if (permission === 'use' && row.lifecycle_state !== 'active') throw new BotAccessError();
   return row;
 }
 export async function lockBotWorkspace(
@@ -73,7 +85,7 @@ export async function readVisibleBots(
 ) {
   return (
     await connection.query<BotRow>(
-      `SELECT b.id,b.workspace_id,b.visibility,a.role,v.id AS version_id,v.version,v.configuration,v.author_user_id,u.display_name AS author_name,v.created_at AS version_created_at,v.rationale
+      `SELECT b.id,b.workspace_id,b.visibility,b.lifecycle_state,b.deleted_at,b.recovery_deadline,b.pre_deleted_state,a.role,v.id AS version_id,v.version,v.configuration,v.author_user_id,u.display_name AS author_name,v.created_at AS version_created_at,v.rationale
      FROM bots b INNER JOIN bot_versions v ON v.id=b.current_version_id AND v.bot_id=b.id INNER JOIN users u ON u.id=v.author_user_id
      LEFT JOIN bot_acl a ON a.bot_id=b.id AND a.user_id=$2
      WHERE b.workspace_id=$1 AND (b.visibility='workspace' OR a.user_id IS NOT NULL) ${botId ? 'AND b.id=$3' : ''} ORDER BY b.created_at,b.id`,

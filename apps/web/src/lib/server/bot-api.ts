@@ -24,7 +24,10 @@ export type BindingUnavailableReason =
 export type BindingStatus =
   | { state: 'ready'; chatOnly: boolean }
   | { state: 'unavailable'; reason: BindingUnavailableReason };
+export type BotLifecycleState = 'active' | 'archived' | 'deleted';
+export type BotListView = 'default' | 'deleted' | 'usable';
 export interface BotSummary {
+  lifecycleState: BotLifecycleState;
   avatarVersionId?: string;
   id: string;
   workspaceId: string;
@@ -84,7 +87,7 @@ function reason(value: unknown): value is BindingUnavailableReason {
     value === 'not-accessible'
   );
 }
-function bindingStatus(value: unknown): BindingStatus | undefined {
+export function bindingStatus(value: unknown): BindingStatus | undefined {
   if (
     keys(value, 'chatOnly,state') &&
     value.state === 'ready' &&
@@ -150,24 +153,25 @@ export function parseBotConfiguration(
     },
   };
 }
-function parseBot(
+export function parseBot(
   value: unknown,
   workspaceId: string,
   detail: boolean,
 ): BotSummary | BotDetail | undefined {
   const baseKeys =
-    'accessRole,bindingStatus,description,id,name,roleDescription,visibility,workspaceId';
+    'accessRole,bindingStatus,description,id,lifecycleState,name,roleDescription,visibility,workspaceId';
   const hasVersion =
     detail &&
     keys(
       value,
-      'accessRole,bindingStatus,currentVersion,description,id,name,roleDescription,visibility,workspaceId',
+      'accessRole,bindingStatus,currentVersion,description,id,lifecycleState,name,roleDescription,visibility,workspaceId',
       ['avatarVersionId'],
     );
   if (
     (!keys(value, baseKeys, ['avatarVersionId']) && !hasVersion) ||
     ('avatarVersionId' in value &&
       (!isBotUuid(value.avatarVersionId) || value.accessRole === null)) ||
+    !isBotLifecycleState(value.lifecycleState) ||
     !isBotUuid(value.id) ||
     !isBotUuid(value.workspaceId) ||
     value.workspaceId.toLowerCase() !== workspaceId.toLowerCase() ||
@@ -189,6 +193,7 @@ function parseBot(
     ...('avatarVersionId' in value
       ? { avatarVersionId: String(value.avatarVersionId).toLowerCase() }
       : {}),
+    lifecycleState: value.lifecycleState,
     id: value.id.toLowerCase(),
     workspaceId: value.workspaceId.toLowerCase(),
     name: value.name,
@@ -235,6 +240,9 @@ function parseBot(
     },
   };
 }
+export function isBotLifecycleState(value: unknown): value is BotLifecycleState {
+  return value === 'active' || value === 'archived' || value === 'deleted';
+}
 export function isBotDetail(bot: BotSummary | BotDetail): bot is BotDetail {
   return 'currentVersion' in bot;
 }
@@ -259,12 +267,18 @@ export class BotApiClient {
       isBotDetail(bot) &&
       bot.currentVersion.number === 1 &&
       bot.accessRole === 'owner' &&
-      bot.visibility === 'private'
+      bot.visibility === 'private' &&
+      bot.lifecycleState === 'active'
       ? { status: 'available', value: bot }
       : { status: 'unavailable' };
   }
-  async list(session: string | undefined, workspaceId: string): Promise<BotResult<BotSummary[]>> {
-    const result = await this.send(session, workspaceId);
+  async list(
+    session: string | undefined,
+    workspaceId: string,
+    view: BotListView = 'default',
+  ): Promise<BotResult<BotSummary[]>> {
+    if (view !== 'default' && view !== 'deleted' && view !== 'usable') return { status: 'invalid' };
+    const result = await this.send(session, workspaceId, undefined, undefined, view);
     if (result.status !== 'available') return result;
     if (
       result.value.status !== 200 ||
@@ -276,7 +290,16 @@ export class BotApiClient {
     const ids = new Set<string>();
     for (const value of result.value.payload.bots) {
       const bot = parseBot(value, workspaceId, false);
-      if (!bot || ids.has(bot.id)) return { status: 'unavailable' };
+      if (
+        !bot ||
+        ids.has(bot.id) ||
+        (view === 'deleted'
+          ? bot.lifecycleState !== 'deleted' || bot.accessRole !== 'owner'
+          : view === 'usable'
+            ? bot.lifecycleState !== 'active' || bot.accessRole === null
+            : bot.lifecycleState === 'deleted')
+      )
+        return { status: 'unavailable' };
       ids.add(bot.id);
       bots.push(bot);
     }
@@ -301,6 +324,7 @@ export class BotApiClient {
     workspaceId: string,
     botId?: string,
     input?: BotInput,
+    view: BotListView = 'default',
   ): Promise<BotResult<{ status: number; payload: unknown }>> {
     if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
     if (!isBotUuid(workspaceId) || (botId !== undefined && !isBotUuid(botId)))
@@ -309,7 +333,7 @@ export class BotApiClient {
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const response = await this.request(
-        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${workspaceId.toLowerCase()}/bots${botId === undefined ? '' : `/${botId.toLowerCase()}`}`,
+        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${workspaceId.toLowerCase()}/bots${botId === undefined ? '' : `/${botId.toLowerCase()}`}${view === 'default' ? '' : `?view=${view}`}`,
         {
           method: input === undefined ? 'GET' : 'POST',
           headers: {

@@ -1,3 +1,4 @@
+import { BotCopyService } from '../../src/bots/copy-service.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { SqlPool } from '../../src/auth/postgres-auth-repository.js';
@@ -5,6 +6,7 @@ import { buildApp } from '../../src/app.js';
 import { LocalAuthService } from '../../src/auth/service.js';
 import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
 import { BotService } from '../../src/bots/service.js';
+import { BotLifecycleService } from '../../src/bots/lifecycle-service.js';
 import { BotAclService } from '../../src/bots/acl-service.js';
 import { PostgresBotAclRepository } from '../../src/bots/postgres-bot-acl-repository.js';
 import { PostgresBotRepository } from '../../src/bots/postgres-bot-repository.js';
@@ -69,9 +71,11 @@ export async function botAclFixture(
   };
   const app = buildApp({
     auth,
+    botCopies: new BotCopyService(pool),
     providers,
     bots: new BotService(new PostgresBotRepository(pool)),
     botAcl: new BotAclService(new PostgresBotAclRepository(aclPool, options.now)),
+    botLifecycle: new BotLifecycleService(aclPool, options.now),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),
     readiness: { check: async () => ({ database: 'ready', migrations: 'current' }) },
   });

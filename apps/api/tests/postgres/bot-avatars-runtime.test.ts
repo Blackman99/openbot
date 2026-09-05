@@ -511,6 +511,10 @@ function gate() {
         { table_name: 'avatar_objects', column_name: 'lease_until' },
         { table_name: 'avatar_objects', column_name: 'state' },
         { table_name: 'bots', column_name: 'current_version_id' },
+        { table_name: 'bots', column_name: 'deleted_at' },
+        { table_name: 'bots', column_name: 'lifecycle_state' },
+        { table_name: 'bots', column_name: 'pre_deleted_state' },
+        { table_name: 'bots', column_name: 'recovery_deadline' },
         { table_name: 'bots', column_name: 'visibility' },
       ]);
       for (const query of [

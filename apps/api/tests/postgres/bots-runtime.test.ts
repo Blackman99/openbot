@@ -243,6 +243,10 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
     ).toEqual([
       { table_name: 'bot_acl', column_name: 'role', allowed: true },
       { table_name: 'bots', column_name: 'current_version_id', allowed: true },
+      { table_name: 'bots', column_name: 'deleted_at', allowed: true },
+      { table_name: 'bots', column_name: 'lifecycle_state', allowed: true },
+      { table_name: 'bots', column_name: 'pre_deleted_state', allowed: true },
+      { table_name: 'bots', column_name: 'recovery_deadline', allowed: true },
       { table_name: 'bots', column_name: 'visibility', allowed: true },
     ]);
     expect(

@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { BotApiClient } from '../../src/lib/server/bot-api.js';
 import { bot, input, summary, token, workspace } from '../fixtures/bots.js';
 describe('Bot API client', () => {
+  it('accepts the explicit lifecycle marker and rejects unknown lifecycle values', async () => {
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ bot: { ...bot, lifecycleState: 'deleted' } }))
+      .mockResolvedValueOnce(Response.json({ bot: { ...bot, lifecycleState: 'erased' } }));
+    const client = new BotApiClient(request, 'http://api:3001', 'http://localhost:3000');
+    expect(await client.get(token, workspace.id, bot.id)).toMatchObject({
+      status: 'available',
+      value: { id: bot.id, lifecycleState: 'deleted' },
+    });
+    expect(await client.get(token, workspace.id, bot.id)).toEqual({ status: 'unavailable' });
+  });
   it('accepts a scoped avatar version only for inspectable Bots and rejects mismatched avatar pointers', async () => {
     const objectId = 'b781b698-0122-4b2d-92bf-0036b947b188';
     const value = {

@@ -99,7 +99,10 @@ export function handleGroupBotFixture(request, response, context) {
     description: 'Find useful evidence',
     canInspect: manager,
   };
-  const safe = (grant) => ({ ...grant, bot: { ...grant.bot, canInspect: manager } });
+  const safe = (grant) => ({
+    ...grant,
+    bot: { lifecycleState: 'active', ...grant.bot, canInspect: manager },
+  });
   const group = {
     id: groupId,
     workspaceId,
@@ -139,6 +142,7 @@ export function handleGroupBotFixture(request, response, context) {
               workspaceId,
               visibility: 'private',
               accessRole: 'owner',
+              lifecycleState: 'active',
               bindingStatus: { state: 'ready', chatOnly: true },
             },
             {
@@ -148,6 +152,7 @@ export function handleGroupBotFixture(request, response, context) {
               workspaceId,
               visibility: 'workspace',
               accessRole: null,
+              lifecycleState: 'active',
               bindingStatus: { state: 'unavailable', reason: 'not-accessible' },
             },
           ]

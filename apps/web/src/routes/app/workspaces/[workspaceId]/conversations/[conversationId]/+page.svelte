@@ -31,7 +31,8 @@
 <main>
   <a href={`/app/workspaces/${data.workspace.id}/conversations`}>Back to conversations</a>
   <h1>{data.conversation.subject.kind === 'group' ? 'Group conversation' : 'Private Bot conversation'}</h1>
-  {#if data.conversation.subject.kind === 'direct-bot'}<p>This history is private to its human creator.</p>{/if}
+  {#if data.conversation.subject.kind === 'direct-bot'}<p>This history is private to its human creator.</p><p>Bot ID: {data.conversation.subject.id}</p>
+  {#if data.conversation.botLifecycleState === 'deleted'}<p>Deleted Bot · Historical identity retained</p>{:else if data.conversation.botLifecycleState === 'archived'}<p>Archived Bot · New work blocked</p>{/if}{/if}
   <nav aria-label="Message pages">
     <a href={`${base}?limit=${data.limit}`}>Refresh messages</a>
     {#if data.nextCursor}<a href={`${base}?cursor=${encodeURIComponent(data.nextCursor)}&limit=${data.limit}`}>Next page</a>{/if}

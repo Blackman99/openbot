@@ -149,6 +149,11 @@ jobs:
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-acl-runtime.test.ts
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-avatars-runtime.test.ts
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-versions-runtime.test.ts
+      - name: Verify Bot lifecycle with the restricted PostgreSQL role
+        run: |
+          : "${TEST_BOT_DATABASE_URL:?Bot lifecycle PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/bot-lifecycle-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-copy-runtime.test.ts
 
   object-storage:
     needs: code
@@ -324,7 +329,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -541,7 +546,7 @@ jobs:
           bot_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bots', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bots'")"
-          test "$bot_update_privileges" = 'created_at:false,created_by_user_id:false,current_version_id:true,id:false,visibility:true,workspace_id:false'
+          test "$bot_update_privileges" = 'created_at:false,created_by_user_id:false,current_version_id:true,deleted_at:true,id:false,lifecycle_state:true,pre_deleted_state:true,recovery_deadline:true,visibility:true,workspace_id:false'
           bot_acl_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bot_acl', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bot_acl'")"

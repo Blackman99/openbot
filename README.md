@@ -143,6 +143,16 @@ configuration and use require an explicit Bot grant. The last owner with current
 cannot be removed through Bot permissions. Workspace removal immediately disables access while
 retaining the grant; explicit Bot revocation removes it. Neither setting changes version history.
 
+Bot owners can open **Manage lifecycle** to archive a Bot, restore an archived Bot, or soft-delete it.
+Archived Bots keep their identity and history but cannot start new work. Soft-deleted Bots are
+hidden from the default list; their owners can open the deleted-Bot view and undo deletion during
+the fixed 30-day recovery period. Recovery preserves the state that preceded deletion and checks
+model access again before returning a Bot to active use.
+
+People with direct Bot access can open **Copy configuration**, review the source configuration and choose
+an accessible model. A copy starts as a new private active Bot with version 1 and only its creator
+as owner. It does not copy permissions, conversation history, private memory or credentials.
+
 ## Local development
 
 Node.js 24 and pnpm 11 are required.

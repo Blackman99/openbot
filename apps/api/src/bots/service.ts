@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { ConnectionScope } from '../providers/scope.js';
 
 export type BotRole = 'owner' | 'editor' | 'user';
+export type BotListView = 'default' | 'deleted' | 'usable';
+export type BotLifecycleState = 'active' | 'archived' | 'deleted';
 export type BindingStatus =
   | { state: 'ready'; chatOnly: boolean }
   | {
@@ -29,6 +31,7 @@ export interface BotConfiguration {
   limits: BotLimits;
 }
 export interface BotSummary {
+  lifecycleState: BotLifecycleState;
   avatarVersionId?: string;
   id: string;
   workspaceId: string;
@@ -58,7 +61,7 @@ export interface BotCreate {
 }
 export interface BotRepository {
   create(record: BotCreate): Promise<BotDetail>;
-  list(actorUserId: string, workspaceId: string): Promise<BotSummary[]>;
+  list(actorUserId: string, workspaceId: string, view?: BotListView): Promise<BotSummary[]>;
   get(actorUserId: string, workspaceId: string, botId: string): Promise<BotDetail>;
 }
 export class BotAccessError extends Error {}
@@ -164,9 +167,10 @@ export function parseBotConfiguration(input: unknown): BotConfiguration {
 }
 export class BotService {
   constructor(private readonly repository: BotRepository) {}
-  list(actorUserId: string, workspaceId: string): Promise<BotSummary[]> {
+  list(actorUserId: string, workspaceId: string, view: unknown = 'default'): Promise<BotSummary[]> {
     if (!uuid.test(workspaceId)) throw new BotAccessError();
-    return this.repository.list(actorUserId.toLowerCase(), workspaceId.toLowerCase());
+    if (view !== 'default' && view !== 'deleted' && view !== 'usable') throw new BotInputError();
+    return this.repository.list(actorUserId.toLowerCase(), workspaceId.toLowerCase(), view);
   }
   get(actorUserId: string, workspaceId: string, botId: string): Promise<BotDetail> {
     if (!uuid.test(workspaceId) || !uuid.test(botId)) throw new BotAccessError();

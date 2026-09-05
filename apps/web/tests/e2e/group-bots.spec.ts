@@ -113,6 +113,8 @@ test('supports explicit event/time choices and reports fresh cap and permission 
   await expect(page.getByLabel('Start time (ISO UTC)')).toHaveValue('2026-09-04T00:00:00.000Z');
   await request.post(`${api}/__group-bot/state`, { data: { limit: false } });
   await page.getByRole('link', { name: 'Refresh memberships' }).click();
+  // Client navigation clears the previous action's values before a new invitation is ready.
+  await expect(page.getByLabel('History access')).toHaveValue('future-only');
   await page.getByLabel('Bot', { exact: true }).selectOption(botId);
   await page.getByLabel('History access').selectOption('since-time');
   await page.getByLabel('Start time (ISO UTC)').fill('2026-09-04T00:00:00.000Z');

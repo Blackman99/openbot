@@ -125,6 +125,7 @@ export function handleBotAclFixture(request, response, context) {
     name: 'Researcher',
     roleDescription: 'Research assistant',
     description: 'Evidence and context',
+    lifecycleState: 'active',
     bindingStatus: { state: 'ready', chatOnly: true },
   };
   if (request.method === 'GET' && path === base) {

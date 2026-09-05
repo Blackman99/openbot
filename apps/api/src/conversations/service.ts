@@ -1,3 +1,4 @@
+import type { BotLifecycleState } from '../bots/service.js';
 export class ConversationAccessError extends Error {}
 export class InvalidConversationInputError extends Error {}
 export class ConversationConflictError extends Error {
@@ -6,6 +7,7 @@ export class ConversationConflictError extends Error {
   }
 }
 export interface Conversation {
+  botLifecycleState?: BotLifecycleState;
   id: string;
   workspaceId: string;
   subject: ConversationSubject;

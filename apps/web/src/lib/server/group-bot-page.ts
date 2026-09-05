@@ -65,7 +65,7 @@ export async function loadGroupBotsPage(context: Context, workspaceId: string, g
     );
     if (bots.status !== 'available') readFailure(bots.status, context);
     for (const bot of bots.value)
-      if (bot.accessRole !== null)
+      if (bot.accessRole !== null && bot.lifecycleState === 'active')
         candidates.push({ id: bot.id, name: bot.name, roleDescription: bot.roleDescription });
   }
   return {

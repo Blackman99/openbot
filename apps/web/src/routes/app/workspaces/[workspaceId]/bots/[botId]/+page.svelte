@@ -11,16 +11,18 @@
 <main>
   <a href={`/app/workspaces/${data.workspace.id}/bots`}>Back to Bots</a>
   <h1>{data.bot.name}</h1>
+  {#if data.bot.lifecycleState === 'deleted'}<p>Deleted Bot · Historical identity retained</p>{:else if data.bot.lifecycleState === 'archived'}<p>Archived Bot · New work blocked</p>{/if}
   <BotAvatar botId={data.bot.id} workspaceId={data.workspace.id} versionId={data.bot.avatarVersionId} name={data.bot.name} />
   <p>{data.bot.roleDescription}</p>
   <p>{data.bot.description || 'No description yet.'}</p>
   <p>{data.bot.visibility === 'private' ? 'Private' : 'Workspace discoverable'}</p>
   <BotBindingStatus status={data.bot.bindingStatus} />
   {#if data.bot.accessRole === 'owner'}
-    <p><a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/permissions`}>Manage permissions</a></p>
+    <p><a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/permissions`}>Manage permissions</a> · <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/lifecycle`}>Manage lifecycle</a></p>
   {/if}
   {#if version}
     <nav aria-label="Bot versions">
+      {#if data.bot.lifecycleState !== 'deleted'}<a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/copy`}>Copy configuration</a> ·{/if}
       <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/versions`}>Version history</a>
       {#if data.bot.accessRole === 'owner' || data.bot.accessRole === 'editor'}
         · <a href={`/app/workspaces/${data.workspace.id}/bots/${data.bot.id}/edit`}>Edit configuration</a>

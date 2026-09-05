@@ -1,4 +1,5 @@
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
+import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
 import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
 import {
   CONVERSATION_SCHEMA_STATEMENTS,
@@ -231,6 +232,11 @@ const MIGRATIONS = [
     version: '0015_group_bot_grants',
     statements: GROUP_BOT_SCHEMA_STATEMENTS,
     postgresStatements: GROUP_BOT_POSTGRES_GUARDS,
+  },
+  {
+    version: '0016_bot_lifecycle',
+    statements: BOT_LIFECYCLE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
   },
 ] as const;
 

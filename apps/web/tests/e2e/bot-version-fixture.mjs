@@ -22,6 +22,9 @@ const png = Buffer.from(
 let active = false;
 let versions = [];
 let attempts = [];
+let lifecycleState = 'active';
+let copies = [];
+let copyAttempts = [];
 let disabledCurrent = false;
 let refuseNextModel = false;
 let failAfterCommit = false;
@@ -32,6 +35,9 @@ export function resetBotVersionFixture() {
   active = false;
   versions = [];
   attempts = [];
+  lifecycleState = 'active';
+  copies = [];
+  copyAttempts = [];
   disabledCurrent = false;
   refuseNextModel = false;
   failAfterCommit = false;
@@ -163,6 +169,14 @@ export function handleBotVersionFixture(request, response, context) {
     readJson(request, (input) => {
       if (typeof input.disabledCurrent === 'boolean') disabledCurrent = input.disabledCurrent;
       if (typeof input.missingAvatar === 'boolean') missingAvatar = input.missingAvatar;
+      if (['active', 'archived', 'deleted'].includes(input.lifecycleState))
+        lifecycleState = input.lifecycleState;
+      if (input.changeSource)
+        append(
+          { ...versions.at(-1).configuration, name: 'Changed source' },
+          owner,
+          'Changed source',
+        );
       if (input.failAfterCommit) failAfterCommit = true;
       if (input.refuseNextModel) refuseNextModel = true;
       if (['user', 'editor', null].includes(input.viewerRole)) viewerRole = input.viewerRole;
@@ -172,12 +186,13 @@ export function handleBotVersionFixture(request, response, context) {
     return true;
   }
   if (request.method === 'GET' && path === '/__bot-version/state') {
-    sendJson(response, 200, { versions, attempts });
+    sendJson(response, 200, { versions, attempts, copies, copyAttempts });
     return true;
   }
   const base = `/api/v1/workspaces/${workspaceId}/bots/${botId}`;
   const shared = `/api/v1/workspaces/${workspaceId}/model-connections`;
   if (
+    !copies.some((copy) => path === `/api/v1/workspaces/${workspaceId}/bots/${copy.id}`) &&
     !path.startsWith(base) &&
     path !== `${base.slice(0, base.lastIndexOf('/'))}` &&
     path !== '/api/v1/model-connections' &&
@@ -230,6 +245,14 @@ export function handleBotVersionFixture(request, response, context) {
     else reject(404, 'connection_not_found');
     return true;
   }
+  const destination = copies.find(
+    (copy) => path === `/api/v1/workspaces/${workspaceId}/bots/${copy.id}`,
+  );
+  if (destination) {
+    if (destination.currentVersion.author.id !== user.id) reject(403, 'bot_forbidden');
+    else sendJson(response, 200, { bot: destination });
+    return true;
+  }
   const role = user.id === owner.id ? ownerRole : viewerRole;
   const current = versions.at(-1);
   const summary = {
@@ -240,6 +263,7 @@ export function handleBotVersionFixture(request, response, context) {
     name: current.configuration.name,
     roleDescription: current.configuration.roleDescription,
     description: current.configuration.description,
+    lifecycleState,
     bindingStatus: models().find(
       (model) => model.id === current.configuration.modelBinding.connectionId,
     )?.enabled
@@ -252,11 +276,83 @@ export function handleBotVersionFixture(request, response, context) {
     return true;
   }
   if (path === base.slice(0, base.lastIndexOf('/')) && request.method === 'GET') {
-    sendJson(response, 200, { bots: [summary] });
+    sendJson(response, 200, {
+      bots: [
+        summary,
+        ...copies
+          .filter((copy) => copy.currentVersion.author.id === user.id)
+          .map(({ currentVersion: _version, ...record }) => record),
+      ],
+    });
     return true;
   }
   if (!role) {
     reject(403, 'bot_forbidden');
+    return true;
+  }
+  if (lifecycleState === 'deleted' && [`${base}/copy-preview`, `${base}/copy`].includes(path)) {
+    reject(403, 'bot_forbidden');
+    return true;
+  }
+  if (path === `${base}/copy-preview` && request.method === 'GET') {
+    sendJson(response, 200, {
+      preview: {
+        sourceBotId: botId,
+        sourceVersionId: current.id,
+        sourceVersionNumber: current.number,
+        configuration: current.configuration,
+        bindingStatus: summary.bindingStatus,
+        included: [
+          'identity',
+          'instructions',
+          'executionLimits',
+          'avatarReference',
+          'modelBinding',
+        ],
+        excluded: ['credentials', 'acls', 'history', 'memory', 'fileContents', 'audits'],
+      },
+    });
+    return true;
+  }
+  if (path === `${base}/copy` && request.method === 'POST') {
+    readJson(request, (command) => {
+      copyAttempts.push(command);
+      if (command.expectedCurrentVersionId !== current.id) {
+        reject(409, 'bot_version_conflict');
+        return;
+      }
+      const binding = command.modelBinding ?? current.configuration.modelBinding;
+      const model = models().find(
+        (model) => model.id === binding.connectionId && model.modelId === binding.modelId,
+      );
+      if (!model?.enabled) {
+        reject(400, 'bot_model_unavailable', model ? 'disabled' : 'not-accessible');
+        return;
+      }
+      const version = {
+        id: randomUUID(),
+        number: 1,
+        author: { id: user.id, displayName: user.displayName },
+        createdAt: time,
+        rationale: 'Copied configuration',
+        configuration: { ...structuredClone(current.configuration), modelBinding: binding },
+      };
+      const copy = {
+        ...summary,
+        id: randomUUID(),
+        visibility: 'private',
+        lifecycleState: 'active',
+        accessRole: 'owner',
+        bindingStatus: { state: 'ready', chatOnly: true },
+        ...(version.configuration.avatarObjectId ? { avatarVersionId: version.id } : {}),
+        currentVersion: version,
+      };
+      copies.push(copy);
+      if (failAfterCommit) {
+        failAfterCommit = false;
+        reject(503, 'bot_copy_unavailable');
+      } else sendJson(response, 201, { bot: copy });
+    });
     return true;
   }
   if (path === `${base}/avatar`) {

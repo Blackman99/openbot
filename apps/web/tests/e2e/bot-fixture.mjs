@@ -19,12 +19,16 @@ let active = false;
 let disabled = false;
 let discoverable = false;
 let bots = [];
+let lifecycleNow = new Date('2030-01-02T00:00:00.000Z');
+let uncertainLifecycle = false;
 let avatars = new Map();
 export function resetBotFixture() {
   active = false;
   disabled = false;
   discoverable = false;
   bots = [];
+  lifecycleNow = new Date('2030-01-02T00:00:00.000Z');
+  uncertainLifecycle = false;
   avatars = new Map();
 }
 function models() {
@@ -124,6 +128,9 @@ export function handleBotFixture(request, response, context) {
   if (request.method === 'POST' && path === '/__bot/state') {
     readJson(request, (input) => {
       if (typeof input.disabled === 'boolean') disabled = input.disabled;
+      if (typeof input.now === 'string') lifecycleNow = new Date(input.now);
+      if (typeof input.uncertainLifecycle === 'boolean')
+        uncertainLifecycle = input.uncertainLifecycle;
       if (typeof input.discoverable === 'boolean') discoverable = input.discoverable;
       sendJson(response, 200, { count: bots.length });
     });
@@ -190,6 +197,7 @@ export function handleBotFixture(request, response, context) {
     name: bot.currentVersion.configuration.name,
     roleDescription: bot.currentVersion.configuration.roleDescription,
     description: bot.currentVersion.configuration.description,
+    lifecycleState: bot.lifecycle?.state ?? 'active',
     bindingStatus: disabled
       ? { state: 'unavailable', reason: 'disabled' }
       : { state: 'ready', chatOnly: true },
@@ -272,10 +280,86 @@ export function handleBotFixture(request, response, context) {
     });
     return true;
   }
+  const lifecycleMatch =
+    /^\/api\/v1\/workspaces\/[^/]+\/bots\/([^/]+)\/(lifecycle|archive|restore|delete|undo-delete)$/u.exec(
+      path,
+    );
+  if (lifecycleMatch) {
+    const bot = bots.find((value) => value.id === lifecycleMatch[1]);
+    if (!bot || user.id !== creator.id) {
+      reject(403, 'bot_forbidden');
+      return true;
+    }
+    const action = lifecycleMatch[2];
+    bot.lifecycle ??= {
+      botId: bot.id,
+      workspaceId,
+      state: 'active',
+      deletedAt: null,
+      recoveryDeadline: null,
+      preDeletedState: null,
+    };
+    const previous = bot.lifecycle.state;
+    if (request.method === 'GET' && action === 'lifecycle') {
+      sendJson(response, 200, { lifecycle: bot.lifecycle });
+      return true;
+    }
+    if (request.method !== 'POST' || request.headers.origin !== trustedOrigin) {
+      reject(403, 'invalid_origin');
+      return true;
+    }
+    if (previous === 'deleted' && (action === 'archive' || action === 'restore')) {
+      reject(409, 'bot_lifecycle_conflict');
+      return true;
+    }
+    if (
+      action === 'undo-delete' &&
+      previous === 'deleted' &&
+      lifecycleNow.getTime() >= Date.parse(bot.lifecycle.recoveryDeadline)
+    ) {
+      reject(409, 'bot_recovery_expired');
+      return true;
+    }
+    const target =
+      action === 'archive'
+        ? 'archived'
+        : action === 'restore'
+          ? 'active'
+          : action === 'delete'
+            ? 'deleted'
+            : previous === 'deleted'
+              ? bot.lifecycle.preDeletedState
+              : previous;
+    if (target !== previous) {
+      if (target === 'active' && disabled) {
+        sendJson(response, 400, { error: { code: 'bot_model_unavailable', reason: 'disabled' } });
+        return true;
+      }
+      bot.lifecycle = {
+        ...bot.lifecycle,
+        state: target,
+        deletedAt: target === 'deleted' ? lifecycleNow.toISOString() : null,
+        recoveryDeadline:
+          target === 'deleted' ? new Date(lifecycleNow.getTime() + 2592000000).toISOString() : null,
+        preDeletedState: target === 'deleted' ? previous : null,
+      };
+    }
+    if (uncertainLifecycle) {
+      uncertainLifecycle = false;
+      reject(503, 'bot_unavailable');
+      return true;
+    }
+    sendJson(response, 200, { lifecycle: bot.lifecycle });
+    return true;
+  }
   if (request.method === 'GET') {
     if (path === botBase)
       sendJson(response, 200, {
-        bots: user.id === creator.id || discoverable ? bots.map(summary) : [],
+        bots: (user.id === creator.id || discoverable ? bots.map(summary) : []).filter((bot) =>
+          new URL(request.url, 'http://fixture').searchParams.get('view') === 'deleted'
+            ? bot.lifecycleState === 'deleted' && bot.accessRole === 'owner'
+            : bot.lifecycleState !== 'deleted',
+        ),
       });
     else {
       const bot = bots.find((value) => path === `${botBase}/${value.id}`);

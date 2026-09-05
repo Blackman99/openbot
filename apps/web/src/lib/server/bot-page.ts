@@ -30,7 +30,7 @@ function readFailure(status: string, cookies: PageContext['cookies']): never {
     error(403, 'You cannot access this Bot or workspace');
   error(503, 'Bot service unavailable');
 }
-async function requireWorkspace(context: PageContext, workspaceId: string) {
+export async function requireWorkspace(context: PageContext, workspaceId: string) {
   if (!isBotUuid(workspaceId)) error(403, 'You cannot access this workspace');
   const session = readSessionCookie(context.cookies);
   const identity = await createAuthApiClient(context.fetch).getIdentity(session);

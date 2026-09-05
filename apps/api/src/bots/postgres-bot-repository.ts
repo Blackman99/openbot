@@ -10,6 +10,7 @@ import {
 import {
   BotModelError,
   type BotCreate,
+  type BotListView,
   type BotDetail,
   type BotRepository,
   type BindingStatus,
@@ -60,6 +61,7 @@ export class PostgresBotRepository implements BotRepository {
   }
   private summary(row: BotRow, bindingStatus: BindingStatus): BotSummary {
     return {
+      lifecycleState: row.lifecycle_state,
       ...(row.role && row.configuration.avatarObjectId ? { avatarVersionId: row.version_id } : {}),
       id: row.id,
       workspaceId: row.workspace_id,
@@ -71,12 +73,24 @@ export class PostgresBotRepository implements BotRepository {
       bindingStatus,
     };
   }
-  list(actorUserId: string, workspaceId: string): Promise<BotSummary[]> {
+  list(
+    actorUserId: string,
+    workspaceId: string,
+    view: BotListView = 'default',
+  ): Promise<BotSummary[]> {
     return this.read(actorUserId, workspaceId, async (connection) => {
       const rows = await readVisibleBots(connection, actorUserId, workspaceId);
       const statuses = new Map<string, BindingStatus>();
       const bots: BotSummary[] = [];
       for (const row of rows) {
+        if (
+          view === 'deleted'
+            ? row.lifecycle_state !== 'deleted' || row.role !== 'owner'
+            : view === 'usable'
+              ? row.lifecycle_state !== 'active' || !row.role
+              : row.lifecycle_state === 'deleted'
+        )
+          continue;
         const binding = row.configuration.modelBinding;
         const key = JSON.stringify([
           binding.scope.kind,
@@ -154,6 +168,7 @@ export class PostgresBotRepository implements BotRepository {
       );
       await connection.query('COMMIT');
       return {
+        lifecycleState: 'active',
         id: record.id,
         workspaceId: record.workspaceId,
         visibility: 'private',
