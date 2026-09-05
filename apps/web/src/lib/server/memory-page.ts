@@ -9,6 +9,7 @@ import {
   isConversationUuid,
 } from './conversation-api.js';
 import { createMemoryApiClient, type MemoryScope } from './memory-api.js';
+import { createBotApiClient } from './bot-api.js';
 import {
   clearSessionCookie,
   preventAuthenticationCaching,
@@ -116,12 +117,26 @@ export async function loadMemoryPage(
     memoryId,
   );
   if (result.status !== 'available') readFailure(result.status, context);
-  return { ...page, grantId: query.grantId, memory: result.value };
+  const bots = await createBotApiClient(context.fetch).list(
+    readSessionCookie(context.cookies),
+    workspaceId,
+  );
+  if (bots.status !== 'available') readFailure(bots.status, context);
+  return {
+    ...page,
+    grantId: query.grantId,
+    memory: result.value,
+    destinationBots: bots.value.filter(
+      (bot) =>
+        bot.lifecycleState === 'active' &&
+        (bot.accessRole === 'owner' || bot.accessRole === 'editor'),
+    ),
+  };
 }
 function actionFailure(
   status: string,
   context: Context,
-  action: 'saveMemory' | 'search',
+  action: 'saveMemory' | 'search' | 'previewPromotion' | 'confirmPromotion',
   values: Record<string, string>,
 ) {
   if (status === 'anonymous') readFailure(status, context);
@@ -259,4 +274,71 @@ export async function searchMemoryAction(
     error: '',
     memoryPage: result.value,
   };
+}
+export async function previewPromotionAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+  memoryId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request))
+    return actionFailure('forbidden', context, 'previewPromotion', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['destinationBotId']);
+  } catch {
+    return actionFailure('invalid', context, 'previewPromotion', {});
+  }
+  if (!isConversationUuid(values.destinationBotId))
+    return actionFailure('invalid', context, 'previewPromotion', values);
+  const result = await createMemoryApiClient(
+    context.fetch,
+    context.request.signal,
+  ).previewPromotion(
+    readSessionCookie(context.cookies),
+    { workspaceId, groupId },
+    memoryId,
+    values.destinationBotId,
+  );
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'previewPromotion', values);
+  return {
+    action: 'previewPromotion' as const,
+    values,
+    conflict: false,
+    error: '',
+    preview: result.value,
+  };
+}
+export async function confirmPromotionAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+  memoryId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request))
+    return actionFailure('forbidden', context, 'confirmPromotion', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['intentId', 'idempotencyKey']);
+  } catch {
+    return actionFailure('invalid', context, 'confirmPromotion', {});
+  }
+  if (!isConversationUuid(values.intentId) || !isCommandKey(values.idempotencyKey))
+    return actionFailure('invalid', context, 'confirmPromotion', values);
+  const result = await createMemoryApiClient(
+    context.fetch,
+    context.request.signal,
+  ).confirmPromotion(readSessionCookie(context.cookies), { workspaceId, groupId }, memoryId, {
+    intentId: values.intentId,
+    idempotencyKey: values.idempotencyKey,
+  });
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'confirmPromotion', values);
+  redirect(
+    303,
+    `/app/workspaces/${result.value.scope.workspaceId}/bots/${result.value.scope.botId}/private-memories`,
+  );
 }

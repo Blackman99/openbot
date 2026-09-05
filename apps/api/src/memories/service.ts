@@ -2,19 +2,27 @@ import {
   memoryRowColumns,
   memoryRowTables,
   projectCurrentMemory,
+  privateMemoryCurrentFrom,
+  privateMemoryCurrentWhere,
+  privateMemoryRowColumns,
+  projectPrivateMemory,
   selectCurrentMemoryRows,
+  selectCurrentPrivateMemoryRows,
+  type PrivateMemoryRow,
 } from './current.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { GroupAccessError } from '../groups/service.js';
 import { GroupBotTransaction } from '../group-bots/postgres-admission.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
 import { BotAccessError } from '../bots/service.js';
+import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
 import { ConversationTransaction } from '../conversations/postgres-repository.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import type { CurrentMessageSource } from '../conversations/message-source.js';
 import {
+  BOT_PRIVATE_VISIBILITY_SUMMARY,
   MemoryAccessError,
   MemoryConflictError,
   memoryAccess,
@@ -22,9 +30,15 @@ import {
   memoryCommandHash,
   memoryRead,
   memoryUuid,
+  privateMemoryAccess,
+  promotionConfirmInput,
+  promotionPreviewInput,
   type MemoryAccess,
   type MemoryProjection,
+  type MemoryPromotionPreview,
   type MemoryRow,
+  type PrivateMemoryAccess,
+  type PrivateMemoryProjection,
 } from './types.js';
 
 type Admission = {
@@ -32,7 +46,17 @@ type Admission = {
   lowerBound: number;
   source(messageId: string): Promise<CurrentMessageSource>;
 };
-type Operation = 'create' | 'read' | 'list' | 'search';
+type Operation =
+  | 'create'
+  | 'read'
+  | 'list'
+  | 'search'
+  | 'preview'
+  | 'promote'
+  | 'list-private'
+  | 'search-private'
+  | 'read-private';
+const PREVIEW_TTL_MS = 5 * 60 * 1000;
 function accessDenied(error: unknown) {
   return (
     error instanceof MemoryAccessError ||
@@ -66,7 +90,7 @@ export class MemoryService {
     connection: SqlConnection,
     access: MemoryAccess,
     operation: Operation,
-    refs: { messageId?: string; memoryId?: string } = {},
+    refs: { messageId?: string; memoryId?: string; botId?: string } = {},
   ) {
     await connection.query(
       'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
@@ -88,7 +112,7 @@ export class MemoryService {
   private async admitted<T>(
     access: MemoryAccess,
     operation: Operation,
-    refs: { messageId?: string; memoryId?: string },
+    refs: { messageId?: string; memoryId?: string; botId?: string },
     action: (connection: SqlConnection, admitted: Admission) => Promise<T>,
   ): Promise<T> {
     const result = await this.transaction(async (connection) => {
@@ -276,4 +300,302 @@ export class MemoryService {
       return { memories, nextAfter: rows.length > read.limit ? selected.at(-1)!.id : null };
     });
   }
+  async preview(
+    supplied: MemoryAccess,
+    id: string,
+    input: unknown,
+  ): Promise<{ preview: MemoryPromotionPreview }> {
+    const access = memoryAccess(supplied),
+      memoryId = memoryUuid(id),
+      requested = promotionPreviewInput(input);
+    return this.admitted(
+      access,
+      'preview',
+      { memoryId, botId: requested.destinationBotId },
+      async (connection, admitted) => {
+        if (access.grantId) throw new MemoryAccessError();
+        const visible = await this.visible(await this.row(connection, access, memoryId), admitted);
+        const destination = await lockAuthorizedBot(
+          connection,
+          {
+            actorUserId: access.actorUserId,
+            workspaceId: access.workspaceId,
+            botId: requested.destinationBotId,
+          },
+          'edit',
+        );
+        const lineage = lineageDigest(visible);
+        const contentHash = textHash(visible.text);
+        const createdAt = this.now(),
+          expiresAt = new Date(createdAt.getTime() + PREVIEW_TTL_MS),
+          intentId = randomUUID();
+        await connection.query(
+          'INSERT INTO memory_promotion_intents(id,workspace_id,actor_user_id,source_group_id,source_memory_id,destination_bot_id,content_hash,lineage_digest,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+          [
+            intentId,
+            access.workspaceId,
+            access.actorUserId,
+            access.groupId,
+            memoryId,
+            destination.id,
+            contentHash,
+            lineage,
+            expiresAt,
+            createdAt,
+          ],
+        );
+        return {
+          preview: {
+            id: intentId,
+            expiresAt,
+            source: {
+              groupId: access.groupId,
+              groupName: (
+                await connection.query<{ name: string }>('SELECT name FROM groups WHERE id=$1', [
+                  access.groupId,
+                ])
+              ).rows[0]!.name,
+              memoryId,
+              text: visible.text,
+            },
+            destinationBot: { id: destination.id, name: destination.configuration.name },
+            visibility: {
+              kind: 'bot-private',
+              botId: destination.id,
+              summary: BOT_PRIVATE_VISIBILITY_SUMMARY,
+            },
+            content: visible.text,
+          },
+        };
+      },
+    );
+  }
+  async confirm(supplied: MemoryAccess, id: string, input: unknown) {
+    const access = memoryAccess(supplied),
+      memoryId = memoryUuid(id),
+      command = promotionConfirmInput(input);
+    return this.admitted(
+      access,
+      'promote',
+      { memoryId, botId: command.intentId },
+      async (connection, admitted) => {
+        if (access.grantId) throw new MemoryAccessError();
+        const hash = promotionCommandHash(memoryId, command);
+        const prior = (
+          await connection.query<PrivateMemoryRow>(
+            `SELECT ${privateMemoryRowColumns} FROM ${privateMemoryCurrentFrom} WHERE ${privateMemoryCurrentWhere} AND p.approver_user_id=$1 AND p.idempotency_key=$2`,
+            [access.actorUserId, command.idempotencyKey],
+          )
+        ).rows[0];
+        if (prior) {
+          const stored = (
+            await connection.query<{ command_hash: string }>(
+              'SELECT command_hash FROM bot_private_memories WHERE id=$1',
+              [prior.id],
+            )
+          ).rows[0];
+          if (stored?.command_hash !== hash) throw new MemoryConflictError('idempotency_conflict');
+          return { memory: projectPrivateMemory(prior), replayed: true };
+        }
+        const visible = await this.visible(await this.row(connection, access, memoryId), admitted);
+        const intent = (
+          await connection.query<{
+            id: string;
+            destination_bot_id: string;
+            content_hash: string;
+            lineage_digest: string;
+            expires_at: Date;
+          }>(
+            'SELECT id,destination_bot_id,content_hash,lineage_digest,expires_at FROM memory_promotion_intents WHERE id=$1 AND workspace_id=$2 AND actor_user_id=$3 AND source_group_id=$4 AND source_memory_id=$5',
+            [command.intentId, access.workspaceId, access.actorUserId, access.groupId, memoryId],
+          )
+        ).rows[0];
+        if (!intent || intent.expires_at.getTime() <= this.now().getTime())
+          throw new MemoryAccessError();
+        if (
+          intent.content_hash !== textHash(visible.text) ||
+          intent.lineage_digest !== lineageDigest(visible)
+        )
+          throw new MemoryConflictError('source_version_conflict');
+        const destination = await lockAuthorizedBot(
+          connection,
+          {
+            actorUserId: access.actorUserId,
+            workspaceId: access.workspaceId,
+            botId: intent.destination_bot_id,
+          },
+          'edit',
+        );
+        const consumed = (
+          await connection.query<{ private_memory_id: string }>(
+            'SELECT private_memory_id FROM memory_promotion_confirmations WHERE intent_id=$1',
+            [intent.id],
+          )
+        ).rows[0];
+        if (consumed) {
+          const existing = await this.privateRow(
+            connection,
+            destination.id,
+            consumed.private_memory_id,
+          );
+          if (!existing) throw new MemoryAccessError();
+          return { memory: projectPrivateMemory(existing), replayed: true };
+        }
+        const row = await this.row(connection, access, memoryId);
+        if (!row) throw new MemoryAccessError();
+        const approvedAt = this.now(),
+          privateId = randomUUID(),
+          versionId = randomUUID();
+        await connection.query(
+          'INSERT INTO bot_private_memories(id,workspace_id,bot_id,source_group_id,source_memory_id,source_memory_version_id,source_event_id,approver_user_id,approved_at,version,version_id,idempotency_key,command_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$11,$12)',
+          [
+            privateId,
+            access.workspaceId,
+            destination.id,
+            access.groupId,
+            memoryId,
+            row.version_id,
+            row.source_event_id,
+            access.actorUserId,
+            approvedAt,
+            versionId,
+            command.idempotencyKey,
+            hash,
+          ],
+        );
+        await connection.query(
+          'INSERT INTO memory_promotion_confirmations(intent_id,private_memory_id,confirmed_at) VALUES($1,$2,$3)',
+          [intent.id, privateId, approvedAt],
+        );
+        await connection.query(
+          'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
+          [
+            randomUUID(),
+            'memory.promoted',
+            access.actorUserId,
+            approvedAt,
+            JSON.stringify({
+              workspaceId: access.workspaceId,
+              sourceGroupId: access.groupId,
+              sourceMemoryId: memoryId,
+              botId: destination.id,
+              privateMemoryId: privateId,
+              versionId,
+              intentId: intent.id,
+            }),
+          ],
+        );
+        const created = await this.privateRow(connection, destination.id, privateId);
+        if (!created) throw new Error('Private memory publication failed');
+        return { memory: projectPrivateMemory(created), replayed: false };
+      },
+    );
+  }
+  async listPrivate(supplied: PrivateMemoryAccess, input: unknown, search = false) {
+    const access = privateMemoryAccess(supplied),
+      read = memoryRead(input, search);
+    const result = await this.transaction(async (connection) => {
+      try {
+        await lockAuthorizedBot(
+          connection,
+          {
+            actorUserId: access.actorUserId,
+            workspaceId: access.workspaceId,
+            botId: access.botId,
+          },
+          'edit',
+        );
+        const rows = await selectCurrentPrivateMemoryRows(
+          connection,
+          { workspaceId: access.workspaceId, botId: access.botId },
+          { ...read, limit: read.limit + 1 },
+        );
+        const selected = rows.slice(0, read.limit);
+        return {
+          allowed: true as const,
+          value: {
+            memories: selected.map(projectPrivateMemory),
+            nextAfter: rows.length > read.limit ? selected.at(-1)!.id : null,
+          },
+        };
+      } catch (error) {
+        if (!accessDenied(error)) throw error;
+        await this.auditDenial(
+          connection,
+          { ...access, groupId: access.botId },
+          search ? 'search-private' : 'list-private',
+          { botId: access.botId },
+        );
+        return { allowed: false as const };
+      }
+    });
+    if (!result.allowed) throw new MemoryAccessError();
+    return result.value;
+  }
+  async getPrivate(supplied: PrivateMemoryAccess, id: string): Promise<PrivateMemoryProjection> {
+    const access = privateMemoryAccess(supplied),
+      memoryId = memoryUuid(id);
+    const result = await this.transaction(async (connection) => {
+      try {
+        await lockAuthorizedBot(
+          connection,
+          {
+            actorUserId: access.actorUserId,
+            workspaceId: access.workspaceId,
+            botId: access.botId,
+          },
+          'edit',
+        );
+        const row = await this.privateRow(connection, access.botId, memoryId);
+        if (!row) throw new MemoryAccessError();
+        return { allowed: true as const, value: projectPrivateMemory(row) };
+      } catch (error) {
+        if (!accessDenied(error)) throw error;
+        await this.auditDenial(connection, { ...access, groupId: access.botId }, 'read-private', {
+          memoryId,
+          botId: access.botId,
+        });
+        return { allowed: false as const };
+      }
+    });
+    if (!result.allowed) throw new MemoryAccessError();
+    return result.value;
+  }
+  private async privateRow(connection: SqlConnection, botId: string, memoryId: string) {
+    return (
+      await connection.query<PrivateMemoryRow>(
+        `SELECT ${privateMemoryRowColumns} FROM ${privateMemoryCurrentFrom} WHERE ${privateMemoryCurrentWhere} AND p.bot_id=$1 AND p.id=$2`,
+        [botId, memoryId],
+      )
+    ).rows[0];
+  }
+}
+
+function lineageDigest(memory: MemoryProjection): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        memoryId: memory.id,
+        versionId: memory.versionId,
+        sourceEventId: memory.source.eventId,
+      }),
+    )
+    .digest('hex');
+}
+function textHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
+}
+function promotionCommandHash(
+  sourceMemoryId: string,
+  command: { intentId: string; idempotencyKey: string },
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        type: 'memory.promote',
+        sourceMemoryId,
+        intentId: command.intentId,
+      }),
+    )
+    .digest('hex');
 }

@@ -113,7 +113,15 @@ try {
   assert.equal(rows.length, 1);
   assert.equal(JSON.stringify(rows).includes('cobalt'), false);
   stage = 'retained table privileges';
-  for (const table of ['group_memories', 'memory_versions', 'run_memory_references']) {
+  for (const table of [
+    'group_memories',
+    'memory_versions',
+    'run_memory_references',
+    'memory_promotion_intents',
+    'bot_private_memories',
+    'memory_promotion_confirmations',
+    'run_private_memory_references',
+  ]) {
     const privileges = (
       await pool.query(
         "SELECT has_table_privilege(current_user,$1,'SELECT') AS read,has_table_privilege(current_user,$1,'INSERT') AS append,has_table_privilege(current_user,$1,'UPDATE') AS mutate,has_table_privilege(current_user,$1,'DELETE') AS remove,has_table_privilege(current_user,$1,'TRUNCATE') AS truncate",

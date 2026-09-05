@@ -38,7 +38,7 @@ describe('identified memory context contribution', () => {
       await connection.query('BEGIN');
       const contribution = await selectRunMemoryContribution(connection, f.runId);
       expect(contribution.references).toEqual([
-        { memoryVersionId: f.saved.versionId, sourceEventId: f.source.eventId },
+        { kind: 'group', memoryVersionId: f.saved.versionId, sourceEventId: f.source.eventId },
       ]);
       expect(contribution.itemCount).toBe(1);
       expect(contribution.messages).toHaveLength(1);
@@ -111,9 +111,11 @@ describe('identified memory context contribution', () => {
           )
         ).rows,
       ).toEqual(
-        contribution.references.map((reference) => ({
-          memory_version_id: reference.memoryVersionId,
-        })),
+        contribution.references
+          .filter((reference) => reference.kind === 'group')
+          .map((reference) => ({
+            memory_version_id: reference.memoryVersionId,
+          })),
       );
       await assertRunMemoryReferencesCurrent(connection, f.runId);
       await connection.query('COMMIT');

@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0023_task_tree_cancellation');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0024_bot_private_memories');
   assert.deepEqual(
     (
       await pool.query(

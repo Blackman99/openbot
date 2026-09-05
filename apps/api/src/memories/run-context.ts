@@ -4,17 +4,29 @@ import { admitTaskTarget } from '../tasks/admission.js';
 import {
   memoryRowColumns,
   memoryRowTables,
+  privateMemoryCurrentFrom,
+  privateMemoryCurrentWhere,
+  privateMemoryRowColumns,
   projectCurrentMemory,
   selectCurrentMemoryRows,
+  selectCurrentPrivateMemoryRows,
+  type PrivateMemoryRow,
 } from './current.js';
 import { MemoryAccessError, type MemoryRow } from './types.js';
 
 export class MemoryContextLimitError extends Error {}
 export const MAX_RUN_MEMORIES = 100;
-interface MemoryReference {
+interface GroupMemoryReference {
+  readonly kind: 'group';
   readonly memoryVersionId: string;
   readonly sourceEventId: string;
 }
+interface PrivateMemoryReference {
+  readonly kind: 'bot-private';
+  readonly privateMemoryId: string;
+  readonly sourceEventId: string;
+}
+type MemoryReference = GroupMemoryReference | PrivateMemoryReference;
 export interface RunMemoryContribution {
   readonly runId: string;
   readonly messages: ReadonlyArray<{ readonly role: 'user'; readonly content: string }>;
@@ -62,10 +74,25 @@ async function runSource(connection: SqlConnection, runId: string, now: () => Da
   return { task, target };
 }
 type AdmittedRun = Awaited<ReturnType<typeof runSource>>;
+async function currentPrivateReference(
+  connection: SqlConnection,
+  run: AdmittedRun,
+  reference: PrivateMemoryReference,
+) {
+  const row = (
+    await connection.query<PrivateMemoryRow>(
+      `SELECT ${privateMemoryRowColumns} FROM ${privateMemoryCurrentFrom}
+      WHERE ${privateMemoryCurrentWhere} AND p.workspace_id=$1 AND p.bot_id=$2 AND p.id=$3 AND p.source_event_id=$4`,
+      [run.task.workspace_id, run.task.bot_id, reference.privateMemoryId, reference.sourceEventId],
+    )
+  ).rows[0];
+  if (!row) throw new ConversationAccessError();
+  return row;
+}
 async function currentReference(
   connection: SqlConnection,
   run: AdmittedRun,
-  reference: MemoryReference,
+  reference: GroupMemoryReference,
 ) {
   const { task, target } = run;
   if (!task.group_id || !task.group_grant_id) throw new ConversationAccessError();
@@ -118,21 +145,48 @@ export async function selectRunMemoryContribution(
           { limit: MAX_RUN_MEMORIES + 1 },
         )
       : [];
-  if (rows.length > MAX_RUN_MEMORIES) throw new MemoryContextLimitError();
-  const references = rows.map((row) =>
-    Object.freeze({ memoryVersionId: row.version_id, sourceEventId: row.source_event_id }),
+  const privateRows = await selectCurrentPrivateMemoryRows(
+    connection,
+    { workspaceId: task.workspace_id, botId: task.bot_id },
+    { limit: MAX_RUN_MEMORIES + 1 },
   );
+  if (rows.length + privateRows.length > MAX_RUN_MEMORIES) throw new MemoryContextLimitError();
+  const groupReferences = rows.map((row) =>
+    Object.freeze({
+      kind: 'group' as const,
+      memoryVersionId: row.version_id,
+      sourceEventId: row.source_event_id,
+    }),
+  );
+  const privateReferences = privateRows.map((row) =>
+    Object.freeze({
+      kind: 'bot-private' as const,
+      privateMemoryId: row.id,
+      sourceEventId: row.source_event_id,
+    }),
+  );
+  const references = [...groupReferences, ...privateReferences];
   const memories = [];
-  for (const reference of references)
+  for (const reference of groupReferences)
     memories.push(await currentReference(connection, run, reference));
-  const content = memories.length ? JSON.stringify({ kind: 'group_memories', memories }) : '';
-  const bytes = Buffer.byteLength(content);
+  const privateMemories = [];
+  for (const reference of privateReferences)
+    privateMemories.push(await currentPrivateReference(connection, run, reference));
+  const messages: Array<{ role: 'user'; content: string }> = [];
+  if (memories.length)
+    messages.push({ role: 'user', content: JSON.stringify({ kind: 'group_memories', memories }) });
+  if (privateMemories.length)
+    messages.push({
+      role: 'user',
+      content: JSON.stringify({ kind: 'bot_private_memories', memories: privateMemories }),
+    });
+  const bytes = messages.reduce((total, message) => total + Buffer.byteLength(message.content), 0);
   if (bytes > 1048576) throw new MemoryContextLimitError();
   return Object.freeze({
     runId: task.id,
     references: Object.freeze(references),
-    messages: Object.freeze(content ? [Object.freeze({ role: 'user' as const, content })] : []),
-    itemCount: memories.length,
+    messages: Object.freeze(messages.map((message) => Object.freeze(message))),
+    itemCount: memories.length + privateMemories.length,
     bytes,
   });
 }
@@ -144,11 +198,19 @@ export async function persistRunMemoryReferences(
   const run = await runSource(connection, contribution.runId, now);
   if (run.task.status !== 'running') throw new ConversationAccessError();
   for (const reference of contribution.references) {
-    await currentReference(connection, run, reference);
-    await connection.query(
-      'INSERT INTO run_memory_references(run_id,memory_version_id,source_event_id,selected_at) VALUES($1,$2,$3,$4)',
-      [run.task.id, reference.memoryVersionId, reference.sourceEventId, now()],
-    );
+    if (reference.kind === 'group') {
+      await currentReference(connection, run, reference);
+      await connection.query(
+        'INSERT INTO run_memory_references(run_id,memory_version_id,source_event_id,selected_at) VALUES($1,$2,$3,$4)',
+        [run.task.id, reference.memoryVersionId, reference.sourceEventId, now()],
+      );
+    } else {
+      await currentPrivateReference(connection, run, reference);
+      await connection.query(
+        'INSERT INTO run_private_memory_references(run_id,private_memory_id,source_event_id,selected_at) VALUES($1,$2,$3,$4)',
+        [run.task.id, reference.privateMemoryId, reference.sourceEventId, now()],
+      );
+    }
   }
 }
 export async function assertRunMemoryReferencesCurrent(
@@ -164,13 +226,22 @@ export async function assertRunMemoryReferencesCurrent(
       [run.task.id, MAX_RUN_MEMORIES + 1],
     )
   ).rows;
-  if (references.length > MAX_RUN_MEMORIES) throw new ConversationAccessError();
-  if (!references.length) return;
-  if (!run.task.group_id || !run.task.group_grant_id) throw new ConversationAccessError();
+  const privateReferences = (
+    await connection.query<{ private_memory_id: string; source_event_id: string }>(
+      'SELECT private_memory_id,source_event_id FROM run_private_memory_references WHERE run_id=$1 ORDER BY private_memory_id LIMIT $2',
+      [run.task.id, MAX_RUN_MEMORIES + 1],
+    )
+  ).rows;
+  if (references.length + privateReferences.length > MAX_RUN_MEMORIES)
+    throw new ConversationAccessError();
+  if (!references.length && !privateReferences.length) return;
+  if (references.length && (!run.task.group_id || !run.task.group_grant_id))
+    throw new ConversationAccessError();
   // Stream publication rechecks the bounded manifest in one query. It neither
   // rematerializes all source bodies nor adds memories saved after this claim.
-  const current = await connection.query(
-    `SELECT r.memory_version_id FROM run_memory_references r
+  if (references.length) {
+    const current = await connection.query(
+      `SELECT r.memory_version_id FROM run_memory_references r
       JOIN memory_versions v ON v.id=r.memory_version_id AND v.source_event_id=r.source_event_id
       JOIN group_memories m ON m.id=v.memory_id
       JOIN conversation_events e ON e.id=v.source_event_id AND e.conversation_id=m.conversation_id AND e.message_id=v.source_message_id
@@ -182,15 +253,32 @@ export async function assertRunMemoryReferencesCurrent(
         AND o.event_type IN ('message.created','bot.message.created')
         AND e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
         AND later.id IS NULL AND p.message_id IS NULL LIMIT $7`,
-    [
-      run.task.id,
-      run.task.workspace_id,
-      run.task.group_id,
-      run.task.conversation_id,
-      run.target.lowerBound,
-      Number(run.task.trigger_sequence),
-      MAX_RUN_MEMORIES + 1,
-    ],
-  );
-  if (current.rows.length !== references.length) throw new ConversationAccessError();
+      [
+        run.task.id,
+        run.task.workspace_id,
+        run.task.group_id,
+        run.task.conversation_id,
+        run.target.lowerBound,
+        Number(run.task.trigger_sequence),
+        MAX_RUN_MEMORIES + 1,
+      ],
+    );
+    if (current.rows.length !== references.length) throw new ConversationAccessError();
+  }
+  if (privateReferences.length) {
+    const currentPrivate = await connection.query(
+      `SELECT r.private_memory_id FROM run_private_memory_references r
+      JOIN bot_private_memories p ON p.id=r.private_memory_id AND p.source_event_id=r.source_event_id
+      JOIN memory_versions v ON v.id=p.source_memory_version_id AND v.memory_id=p.source_memory_id
+      JOIN group_memories m ON m.id=p.source_memory_id
+      JOIN conversation_events e ON e.id=v.source_event_id AND e.conversation_id=m.conversation_id AND e.message_id=v.source_message_id
+      JOIN conversation_events o ON o.id=v.source_creation_event_id AND o.conversation_id=m.conversation_id AND o.message_id=e.message_id
+      LEFT JOIN conversation_events later ON later.conversation_id=e.conversation_id AND later.message_id=e.message_id AND later.sequence>e.sequence
+      LEFT JOIN message_purges purge ON purge.workspace_id=m.workspace_id AND purge.conversation_id=m.conversation_id AND purge.message_id=e.message_id
+      WHERE r.run_id=$1 AND p.workspace_id=$2 AND p.bot_id=$3 AND ${privateMemoryCurrentWhere.replaceAll('\n        ', ' ')} LIMIT $4`,
+      [run.task.id, run.task.workspace_id, run.task.bot_id, MAX_RUN_MEMORIES + 1],
+    );
+    if (currentPrivate.rows.length !== privateReferences.length)
+      throw new ConversationAccessError();
+  }
 }

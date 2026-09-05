@@ -16,13 +16,16 @@ import {
   membership,
   token,
 } from '../fixtures/memories.js';
+import { summary as botSummary } from '../fixtures/bots.js';
 function context() {
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith('/me')) return Response.json({ user, workspace: null });
     if (path.endsWith('/workspaces')) return Response.json({ workspaces: [workspace] });
     if (path.endsWith(`/groups/${group.id}`)) return Response.json({ group });
-    if (path.endsWith('/bots')) return Response.json(membership);
+    if (path.endsWith(`/groups/${group.id}/bots`)) return Response.json(membership);
+    if (path.endsWith(`/workspaces/${workspace.id}/bots`))
+      return Response.json({ bots: [botSummary] });
     if (path.endsWith(`/conversations/${conversation.id}`))
       return Response.json({ conversation, messages: [message], nextCursor: null, canWrite: true });
     if (path.endsWith(`/memories/${memory.id}`)) return Response.json({ memory });

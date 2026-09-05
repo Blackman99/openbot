@@ -38,6 +38,27 @@ export interface MemoryPage {
   memories: Memory[];
   nextAfter: string | null;
 }
+export const BOT_PRIVATE_VISIBILITY_SUMMARY =
+  'This Bot can use this memory across its conversations and groups. Other Bots cannot list, search, or receive it.';
+export interface MemoryPromotionPreview {
+  id: string;
+  expiresAt: string;
+  source: { groupId: string; groupName: string; memoryId: string; text: string };
+  destinationBot: { id: string; name: string };
+  visibility: { kind: 'bot-private'; botId: string; summary: string };
+  content: string;
+}
+export interface PrivateMemory {
+  id: string;
+  versionId: string;
+  version: 1;
+  scope: { kind: 'bot-private'; workspaceId: string; botId: string };
+  sourceGroupId: string;
+  sourceMemoryId: string;
+  approver: { id: string; displayName: string };
+  approvedAt: string;
+  text: string;
+}
 export type MemoryResult<T> =
   | { status: 'available'; value: T }
   | {
@@ -164,6 +185,94 @@ function parseMemory(value: unknown, scope: MemoryScope): Memory | undefined {
     },
   };
 }
+function parsePreview(
+  value: unknown,
+  scope: MemoryScope,
+  memoryId: string,
+): MemoryPromotionPreview | undefined {
+  if (
+    !keys(value, 'content,destinationBot,expiresAt,id,source,visibility') ||
+    !isConversationUuid(value.id) ||
+    !date(value.expiresAt) ||
+    !text(value.content, 32000) ||
+    !keys(value.source, 'groupId,groupName,memoryId,text') ||
+    !isConversationUuid(value.source.groupId) ||
+    !isConversationUuid(value.source.memoryId) ||
+    !text(value.source.groupName, 200) ||
+    !text(value.source.text, 32000) ||
+    value.source.groupId.toLowerCase() !== scope.groupId.toLowerCase() ||
+    value.source.memoryId.toLowerCase() !== memoryId.toLowerCase() ||
+    value.source.text !== value.content ||
+    !keys(value.destinationBot, 'id,name') ||
+    !isConversationUuid(value.destinationBot.id) ||
+    !text(value.destinationBot.name, 200) ||
+    !keys(value.visibility, 'botId,kind,summary') ||
+    value.visibility.kind !== 'bot-private' ||
+    !isConversationUuid(value.visibility.botId) ||
+    value.visibility.summary !== BOT_PRIVATE_VISIBILITY_SUMMARY ||
+    value.visibility.botId.toLowerCase() !== value.destinationBot.id.toLowerCase()
+  )
+    return undefined;
+  return {
+    id: value.id.toLowerCase(),
+    expiresAt: value.expiresAt,
+    source: {
+      groupId: value.source.groupId.toLowerCase(),
+      groupName: value.source.groupName,
+      memoryId: value.source.memoryId.toLowerCase(),
+      text: value.source.text,
+    },
+    destinationBot: {
+      id: value.destinationBot.id.toLowerCase(),
+      name: value.destinationBot.name,
+    },
+    visibility: {
+      kind: 'bot-private',
+      botId: value.visibility.botId.toLowerCase(),
+      summary: BOT_PRIVATE_VISIBILITY_SUMMARY,
+    },
+    content: value.content,
+  };
+}
+function parsePrivateMemory(value: unknown, workspaceId: string): PrivateMemory | undefined {
+  if (
+    !keys(
+      value,
+      'approvedAt,approver,id,scope,sourceGroupId,sourceMemoryId,text,version,versionId',
+    ) ||
+    !isConversationUuid(value.id) ||
+    !isConversationUuid(value.versionId) ||
+    value.version !== 1 ||
+    !date(value.approvedAt) ||
+    !text(value.text, 32000) ||
+    !isConversationUuid(value.sourceGroupId) ||
+    !isConversationUuid(value.sourceMemoryId) ||
+    !keys(value.approver, 'displayName,id') ||
+    !isConversationUuid(value.approver.id) ||
+    !text(value.approver.displayName, 200) ||
+    !keys(value.scope, 'botId,kind,workspaceId') ||
+    value.scope.kind !== 'bot-private' ||
+    !isConversationUuid(value.scope.workspaceId) ||
+    !isConversationUuid(value.scope.botId) ||
+    value.scope.workspaceId.toLowerCase() !== workspaceId.toLowerCase()
+  )
+    return undefined;
+  return {
+    id: value.id.toLowerCase(),
+    versionId: value.versionId.toLowerCase(),
+    version: 1,
+    scope: {
+      kind: 'bot-private',
+      workspaceId: value.scope.workspaceId.toLowerCase(),
+      botId: value.scope.botId.toLowerCase(),
+    },
+    sourceGroupId: value.sourceGroupId.toLowerCase(),
+    sourceMemoryId: value.sourceMemoryId.toLowerCase(),
+    approver: { id: value.approver.id.toLowerCase(), displayName: value.approver.displayName },
+    approvedAt: value.approvedAt,
+    text: value.text,
+  };
+}
 type Read = { after?: string; limit?: number };
 function readValid(read: Read) {
   return (
@@ -240,6 +349,119 @@ export class MemoryApiClient {
     if (read.after) query.set('after', read.after.toLowerCase());
     if (read.limit !== undefined) query.set('limit', String(read.limit));
     return this.page(await this.send(session, scope, query.size ? `?${query}` : ''), scope, read);
+  }
+  async previewPromotion(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    destinationBotId: string,
+  ): Promise<MemoryResult<MemoryPromotionPreview>> {
+    if (scope.grantId || !isConversationUuid(memoryId) || !isConversationUuid(destinationBotId))
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      scope,
+      `/${memoryId.toLowerCase()}/promotion-previews`,
+      'POST',
+      { destinationBotId: destinationBotId.toLowerCase() },
+    );
+    if (result.status !== 'available') return result;
+    const preview = keys(result.value, 'preview')
+      ? parsePreview(result.value.preview, scope, memoryId)
+      : undefined;
+    return preview ? { status: 'available', value: preview } : { status: 'unavailable' };
+  }
+  async confirmPromotion(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    command: { intentId: string; idempotencyKey: string },
+  ): Promise<MemoryResult<PrivateMemory>> {
+    if (
+      scope.grantId ||
+      !isConversationUuid(memoryId) ||
+      !isConversationUuid(command.intentId) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      scope,
+      `/${memoryId.toLowerCase()}/promotions`,
+      'POST',
+      {
+        intentId: command.intentId.toLowerCase(),
+        idempotencyKey: command.idempotencyKey,
+        acknowledged: true,
+      },
+      true,
+    );
+    if (result.status !== 'available') return result;
+    const memory = keys(result.value, 'memory')
+      ? parsePrivateMemory(result.value.memory, scope.workspaceId)
+      : undefined;
+    return memory ? { status: 'available', value: memory } : { status: 'unavailable' };
+  }
+  async listPrivate(
+    session: string | undefined,
+    workspaceId: string,
+    botId: string,
+    read: Read = {},
+  ): Promise<MemoryResult<{ memories: PrivateMemory[]; nextAfter: string | null }>> {
+    if (!isConversationUuid(workspaceId) || !isConversationUuid(botId) || !readValid(read))
+      return { status: 'invalid' };
+    if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
+    const query = new URLSearchParams();
+    if (read.after) query.set('after', read.after.toLowerCase());
+    if (read.limit !== undefined) query.set('limit', String(read.limit));
+    const controller = new AbortController(),
+      timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await this.request(
+        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${workspaceId.toLowerCase()}/bots/${botId.toLowerCase()}/private-memories${query.size ? `?${query}` : ''}`,
+        {
+          method: 'GET',
+          headers: {
+            cookie: `${SESSION_COOKIE_NAME}=${session}`,
+            origin: new URL(this.webOrigin).origin,
+          },
+          signal: this.signal
+            ? AbortSignal.any([this.signal, controller.signal])
+            : controller.signal,
+        },
+      );
+      if (response.status === 401) return { status: 'anonymous' };
+      const payload: unknown = await response.json();
+      if (keys(payload, 'error') && keys(payload.error, 'code')) {
+        if (response.status === 403 && payload.error.code === 'memory_forbidden')
+          return { status: 'forbidden' };
+        if (response.status === 400 && payload.error.code === 'invalid_memory_request')
+          return { status: 'invalid' };
+      }
+      if (
+        response.status !== 200 ||
+        !keys(payload, 'memories,nextAfter') ||
+        !Array.isArray(payload.memories)
+      )
+        return { status: 'unavailable' };
+      const memories: PrivateMemory[] = [];
+      for (const item of payload.memories) {
+        const memory = parsePrivateMemory(item, workspaceId);
+        if (!memory || memory.scope.botId !== botId.toLowerCase()) return { status: 'unavailable' };
+        memories.push(memory);
+      }
+      return {
+        status: 'available',
+        value: {
+          memories,
+          nextAfter: payload.nextAfter === null ? null : String(payload.nextAfter).toLowerCase(),
+        },
+      };
+    } catch {
+      return { status: 'unavailable' };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   async search(
     session: string | undefined,

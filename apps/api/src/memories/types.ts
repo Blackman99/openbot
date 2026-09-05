@@ -41,6 +41,32 @@ export interface MemoryProjection {
     updatedAt: Date;
   };
 }
+export const BOT_PRIVATE_VISIBILITY_SUMMARY =
+  'This Bot can use this memory across its conversations and groups. Other Bots cannot list, search, or receive it.';
+export interface MemoryPromotionPreview {
+  id: string;
+  expiresAt: Date;
+  source: { groupId: string; groupName: string; memoryId: string; text: string };
+  destinationBot: { id: string; name: string };
+  visibility: { kind: 'bot-private'; botId: string; summary: string };
+  content: string;
+}
+export interface PrivateMemoryProjection {
+  id: string;
+  versionId: string;
+  version: 1;
+  scope: { kind: 'bot-private'; workspaceId: string; botId: string };
+  sourceGroupId: string;
+  sourceMemoryId: string;
+  approver: { id: string; displayName: string };
+  approvedAt: Date;
+  text: string;
+}
+export interface PrivateMemoryAccess {
+  actorUserId: string;
+  workspaceId: string;
+  botId: string;
+}
 export type MemoryRow = {
   id: string;
   version_id: string;
@@ -65,6 +91,13 @@ export function memoryUuid(input: unknown): string {
     throw new MemoryInputError();
   return input.toLowerCase();
 }
+export function privateMemoryAccess(supplied: PrivateMemoryAccess): Readonly<PrivateMemoryAccess> {
+  return Object.freeze({
+    actorUserId: memoryUuid(supplied.actorUserId),
+    workspaceId: memoryUuid(supplied.workspaceId),
+    botId: memoryUuid(supplied.botId),
+  });
+}
 export function memoryAccess(supplied: MemoryAccess): Readonly<MemoryAccess> {
   return Object.freeze({
     actorUserId: memoryUuid(supplied.actorUserId),
@@ -82,6 +115,28 @@ export function memoryObject(input: unknown, keys: string[]): Record<string, unk
   )
     throw new MemoryInputError();
   return input as Record<string, unknown>;
+}
+export function promotionPreviewInput(input: unknown): { destinationBotId: string } {
+  const value = memoryObject(input, ['destinationBotId']);
+  return { destinationBotId: memoryUuid(value.destinationBotId) };
+}
+export function promotionConfirmInput(input: unknown): {
+  intentId: string;
+  idempotencyKey: string;
+  acknowledged: true;
+} {
+  const value = memoryObject(input, ['intentId', 'idempotencyKey', 'acknowledged']);
+  if (
+    value.acknowledged !== true ||
+    typeof value.idempotencyKey !== 'string' ||
+    !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
+  )
+    throw new MemoryInputError();
+  return {
+    intentId: memoryUuid(value.intentId),
+    idempotencyKey: value.idempotencyKey,
+    acknowledged: true,
+  };
 }
 export function memoryCommand(input: unknown): MemoryCommand {
   const value = memoryObject(input, [

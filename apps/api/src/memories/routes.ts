@@ -8,7 +8,13 @@ import {
   MemoryInputError,
   type MemoryAccess,
 } from './types.js';
-type Params = { workspaceId: string; groupId: string; grantId?: string; memoryId?: string };
+type Params = {
+  workspaceId: string;
+  groupId?: string;
+  grantId?: string;
+  memoryId?: string;
+  botId?: string;
+};
 export function registerMemoryRoutes(
   app: FastifyInstance,
   auth: AuthService,
@@ -39,7 +45,7 @@ export function registerMemoryRoutes(
     });
     async function access(
       request: FastifyRequest<{ Params: Params }>,
-      operation: 'create' | 'read' | 'list' | 'search',
+      operation: 'create' | 'read' | 'list' | 'search' | 'preview' | 'promote',
     ): Promise<MemoryAccess | undefined> {
       const token = readSessionToken(request.headers.cookie),
         identity = token ? await auth.getSession(token) : undefined;
@@ -47,7 +53,7 @@ export function registerMemoryRoutes(
       const value = {
         actorUserId: identity.user.id,
         workspaceId: request.params.workspaceId,
-        groupId: request.params.groupId,
+        groupId: request.params.groupId ?? request.params.botId ?? '',
         ...(request.params.grantId ? { grantId: request.params.grantId } : {}),
       };
       if (request.method === 'POST' && request.headers.origin !== webOrigin)
@@ -91,5 +97,92 @@ export function registerMemoryRoutes(
         },
       );
     }
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/promotion-previews`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'preview');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return memories.preview(admitted, request.params.memoryId, request.body);
+      },
+    );
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/promotions`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'promote');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        const result = await memories.confirm(admitted, request.params.memoryId, request.body);
+        return reply.code(result.replayed ? 200 : 201).send({ memory: result.memory });
+      },
+    );
+    const privateBase = '/api/v1/workspaces/:workspaceId/bots/:botId/private-memories';
+    routes.get<{ Params: Params }>(privateBase, async (request, reply) => {
+      const token = readSessionToken(request.headers.cookie),
+        identity = token ? await auth.getSession(token) : undefined;
+      if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+      if (request.headers.origin !== webOrigin)
+        await memories.deny(
+          {
+            actorUserId: identity.user.id,
+            workspaceId: request.params.workspaceId,
+            groupId: request.params.botId ?? '',
+          },
+          'list-private',
+        );
+      return memories.listPrivate(
+        {
+          actorUserId: identity.user.id,
+          workspaceId: request.params.workspaceId,
+          botId: request.params.botId!,
+        },
+        request.query,
+      );
+    });
+    routes.post<{ Params: Params }>(
+      `${privateBase}/search`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const token = readSessionToken(request.headers.cookie),
+          identity = token ? await auth.getSession(token) : undefined;
+        if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        if (request.headers.origin !== webOrigin)
+          await memories.deny(
+            {
+              actorUserId: identity.user.id,
+              workspaceId: request.params.workspaceId,
+              groupId: request.params.botId ?? '',
+            },
+            'search-private',
+          );
+        return memories.listPrivate(
+          {
+            actorUserId: identity.user.id,
+            workspaceId: request.params.workspaceId,
+            botId: request.params.botId!,
+          },
+          request.body,
+          true,
+        );
+      },
+    );
+    routes.get<{ Params: Params & { memoryId: string } }>(
+      `${privateBase}/:memoryId`,
+      async (request, reply) => {
+        const token = readSessionToken(request.headers.cookie),
+          identity = token ? await auth.getSession(token) : undefined;
+        if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return {
+          memory: await memories.getPrivate(
+            {
+              actorUserId: identity.user.id,
+              workspaceId: request.params.workspaceId,
+              botId: request.params.botId!,
+            },
+            request.params.memoryId,
+          ),
+        };
+      },
+    );
   });
 }
