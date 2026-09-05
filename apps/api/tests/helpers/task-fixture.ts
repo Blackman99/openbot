@@ -6,8 +6,15 @@ import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import type { ModelAdapter } from '../../src/providers/model-events.js';
 
-export async function taskFixture(cleanup: Array<() => Promise<unknown>>, now = () => new Date()) {
-  const f = await botAclFixture(cleanup, { now });
+export async function taskFixture(
+  cleanup: Array<() => Promise<unknown>>,
+  now = () => new Date(),
+  options: {
+    retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
+    fallbackModel?: boolean;
+  } = {},
+) {
+  const f = await botAclFixture(cleanup, { now, ...options });
   const conversations = new ConversationService(new PostgresConversationRepository(f.pool, now));
   const conversation = await conversations.open(f.owner.user.id, f.owner.workspace.id, {
     subject: { kind: 'direct-bot', id: f.bot.id },

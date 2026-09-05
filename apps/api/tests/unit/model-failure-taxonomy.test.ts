@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyTransportFailure,
   httpStatusFailureCode,
+  isAutomaticRetryFailure,
   modelFailure,
 } from '../../src/providers/model-request.js';
 
 describe('COL-10 closed provider failure taxonomy', () => {
+  it('allows automatic retries only for the closed transient codes', () => {
+    expect(isAutomaticRetryFailure(modelFailure('provider_rate_limited'))).toBe(true);
+    expect(isAutomaticRetryFailure({ code: 'provider_failed', category: 'retryable' })).toBe(false);
+    expect(isAutomaticRetryFailure(modelFailure('provider_authentication_failed'))).toBe(false);
+  });
+
   it.each([
     ['provider_rate_limited', 'retryable'],
     ['provider_unavailable', 'retryable'],

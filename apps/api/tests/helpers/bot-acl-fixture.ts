@@ -21,7 +21,12 @@ import { newProviderDatabase } from './provider-database.js';
 
 export async function botAclFixture(
   cleanup: Array<() => Promise<unknown>>,
-  options: { onAclQuery?: (statement: string) => void; now?: () => Date } = {},
+  options: {
+    onAclQuery?: (statement: string) => void;
+    now?: () => Date;
+    retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
+    fallbackModel?: boolean;
+  } = {},
 ) {
   const database = newProviderDatabase();
   const pool: Pool = new (database.adapters.createPg().Pool)();
@@ -58,6 +63,16 @@ export async function botAclFixture(
     apiKey: 'never-return-provider-secret',
     headers: {},
   });
+  const fallback = options.fallbackModel
+    ? await providers.save(owner.user.id, {
+        name: 'Fallback Basic',
+        protocol: 'openai-chat',
+        baseUrl: 'https://models.example/v1',
+        modelId: 'fallback-model',
+        apiKey: 'never-return-fallback-secret',
+        headers: {},
+      })
+    : undefined;
   const aclPool: SqlPool = {
     connect: async () => {
       const connection = await pool.connect();
@@ -96,6 +111,18 @@ export async function botAclFixture(
         connectionId: model.id,
         modelId: model.modelId,
       },
+      ...(options.retryPolicy ? { retryPolicy: options.retryPolicy } : {}),
+      ...(fallback && options.retryPolicy
+        ? {
+            fallbackBindings: [
+              {
+                scope: { kind: 'personal' as const, id: owner.user.id },
+                connectionId: fallback.id,
+                modelId: fallback.modelId,
+              },
+            ],
+          }
+        : {}),
     },
   });
   if (created.statusCode !== 201)
@@ -126,5 +153,18 @@ export async function botAclFixture(
     });
     return { id, email, headers: { ...headers, cookie: `openbot_session=${token}` } };
   }
-  return { database, pool, app, auth, owner, headers, path, bot, addUser, providers, model };
+  return {
+    database,
+    pool,
+    app,
+    auth,
+    owner,
+    headers,
+    path,
+    bot,
+    addUser,
+    providers,
+    model,
+    fallback,
+  };
 }

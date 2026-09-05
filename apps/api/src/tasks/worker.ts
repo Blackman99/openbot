@@ -4,7 +4,7 @@ import type { ProviderSecretBox } from '../providers/secrets.js';
 import { withAbort } from '../providers/transport.js';
 import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
 import { TaskDeltaPublication } from './delta-publication.js';
-import type { ModelEvent } from '../providers/model-events.js';
+import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -90,6 +90,7 @@ export class TaskWorker {
       }
     };
     let failure: TaskFailure | undefined;
+    let modelFailure: ModelFailure | undefined;
     try {
       observation = observeClaim();
       await observation;
@@ -122,7 +123,10 @@ export class TaskWorker {
         ),
         combined,
       );
-      if (response.error) failure = 'provider_failed';
+      if (response.error) {
+        failure = 'provider_failed';
+        modelFailure = response.error;
+      }
       // Rebuild only the pure accumulator. The callback has already published
       // each delta; terminal response.events must never publish that text again.
       if (!failure) {
@@ -150,7 +154,16 @@ export class TaskWorker {
     else if (timedOut || this.now().getTime() >= claim.deadlineAt.getTime())
       failure = 'execution_timeout';
     else if (claimStopped || signal?.aborted) failure = 'worker_stopped';
-    await this.queue.finish(claim, failure ? { error: failure, usage } : { body, usage });
+    await this.queue.finish(
+      claim,
+      failure
+        ? {
+            error: failure,
+            usage,
+            ...(failure === 'provider_failed' && modelFailure ? { modelFailure } : {}),
+          }
+        : { body, usage },
+    );
     return true;
   }
 }

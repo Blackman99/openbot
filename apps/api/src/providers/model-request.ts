@@ -12,6 +12,7 @@ import { ProviderError, type ProviderUrlPolicy } from './url-policy.js';
 export {
   classifyTransportFailure,
   httpStatusFailureCode,
+  isAutomaticRetryFailure,
   modelFailure,
   upstreamErrorCode,
 } from './failure-taxonomy.js';

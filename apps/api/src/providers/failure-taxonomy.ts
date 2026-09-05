@@ -15,6 +15,10 @@ const TEMPORARY_NETWORK = new Set([
   'EHOSTUNREACH',
 ]);
 
+export function isAutomaticRetryFailure(failure?: ModelFailure): boolean {
+  return !!failure && RETRYABLE.has(failure.code);
+}
+
 export function modelFailure(code: string): ModelFailure {
   return {
     code,

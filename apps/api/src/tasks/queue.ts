@@ -2,11 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
-import { BotAccessError } from '../bots/service.js';
+import { BotAccessError, type BotBinding, type BotConfiguration } from '../bots/service.js';
 import { ProviderError } from '../providers/url-policy.js';
 import { admitExecutionModel, admitUsableModel } from '../providers/postgres-model-admission.js';
-import type { ModelInput } from '../providers/model-events.js';
+import type { ModelFailure, ModelInput } from '../providers/model-events.js';
 import { currentPage } from '../conversations/projection.js';
+import {
+  loadAttemptChain,
+  readPlannedBinding,
+  readPlannedNotBefore,
+  writeNextAttempt,
+} from './next-attempt.js';
+import { planNextAttempt, versionListsBinding, type NextAttemptPlan } from './retry-schedule.js';
 import {
   appendBotResult,
   appendAssistantDelta,
@@ -37,6 +44,15 @@ export interface Usage {
   inputTokens: number;
   outputTokens: number;
 }
+type LockedRun = {
+  status: string;
+  claim_token: string | null;
+  deadline_at: Date | null;
+  connection_id: string | null;
+  model_id: string | null;
+  provider_scope_kind: 'personal' | 'workspace' | null;
+  provider_scope_id: string | null;
+};
 type Candidate = {
   id: string;
   attempt: number;
@@ -97,23 +113,25 @@ export class TaskQueue {
     }
   }
   private async candidate(connection: SqlConnection, runId?: string) {
-    return (
+    const rows = (
       await connection.query<Candidate>(
         `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,e.sequence AS trigger_sequence FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversation_events e ON e.id=t.trigger_event_id
-       WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id LIMIT 1`,
+       WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id`,
         runId ? [runId] : [],
       )
-    ).rows[0];
+    ).rows;
+    if (runId) return rows[0];
+    const due = this.now().getTime();
+    for (const row of rows) {
+      const notBefore = await readPlannedNotBefore(connection, row.id);
+      if (!notBefore || notBefore.getTime() <= due) return row;
+    }
   }
   private async lockRun(connection: SqlConnection, task: Candidate) {
     if (!(await lockTaskAncestry(connection, task.task_id))) return undefined;
     return (
-      await connection.query<{
-        status: string;
-        claim_token: string | null;
-        deadline_at: Date | null;
-      }>(
-        'SELECT r.status,r.claim_token,r.deadline_at FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND r.task_id=$2 AND r.status=t.status AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2) FOR UPDATE',
+      await connection.query<LockedRun>(
+        'SELECT r.status,r.claim_token,r.deadline_at,r.connection_id,r.model_id,r.provider_scope_kind,r.provider_scope_id FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND r.task_id=$2 AND r.status=t.status AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2) FOR UPDATE',
         [task.id, task.task_id],
       )
     ).rows[0];
@@ -265,7 +283,7 @@ export class TaskQueue {
           if (!page.hasMore) break;
           after = page.messages.at(-1)!.creationSequence;
         }
-        const binding = target.configuration.modelBinding;
+        const binding = await this.selectedBinding(connection, task.id, target.configuration);
         provider = await admitExecutionModel(
           connection,
           { actorUserId: task.execution_user_id, scope: binding.scope },
@@ -337,7 +355,7 @@ export class TaskQueue {
         const run = await this.lockRun(connection, task);
         if (run?.status !== 'running' || run.claim_token !== claim.claimToken)
           throw new TaskPublicationError('worker_stopped');
-        const binding = target.configuration.modelBinding;
+        const binding = runBinding(run, target.configuration.modelBinding);
         await admitUsableModel(
           connection,
           { actorUserId: task.execution_user_id, scope: binding.scope },
@@ -363,7 +381,9 @@ export class TaskQueue {
   }
   async finish(
     claim: TaskClaim,
-    outcome: { body: string; usage: Usage | null } | { error: TaskFailure; usage: Usage | null },
+    outcome:
+      | { body: string; usage: Usage | null }
+      | { error: TaskFailure; usage: Usage | null; modelFailure?: ModelFailure },
   ): Promise<boolean> {
     try {
       return await this.finishTransaction(claim, outcome);
@@ -377,7 +397,9 @@ export class TaskQueue {
   }
   private finishTransaction(
     claim: TaskClaim,
-    outcome: { body: string; usage: Usage | null } | { error: TaskFailure; usage: Usage | null },
+    outcome:
+      | { body: string; usage: Usage | null }
+      | { error: TaskFailure; usage: Usage | null; modelFailure?: ModelFailure },
   ) {
     return this.transaction(async (connection) => {
       const task = await this.candidate(connection, claim.runId);
@@ -401,7 +423,7 @@ export class TaskQueue {
       if (run?.status !== 'running' || run.claim_token !== claim.claimToken) return false;
       if (target && !denied) {
         try {
-          const binding = target.configuration.modelBinding;
+          const binding = runBinding(run, target.configuration.modelBinding);
           await admitUsableModel(
             connection,
             { actorUserId: task.execution_user_id, scope: binding.scope },
@@ -421,6 +443,14 @@ export class TaskQueue {
         ('error' in outcome ? outcome.error : undefined);
       if (failure) {
         await this.fail(connection, task, failure, outcome.usage);
+        if (failure === 'provider_failed' && !denied && target && 'modelFailure' in outcome)
+          await this.continueAfterTransientFailure(
+            connection,
+            task,
+            target.configuration,
+            outcome.modelFailure,
+            claim,
+          );
         return true;
       }
       if (!('body' in outcome)) return false;
@@ -452,4 +482,82 @@ export class TaskQueue {
       return true;
     });
   }
+  private async selectedBinding(
+    connection: SqlConnection,
+    runId: string,
+    configuration: BotConfiguration,
+  ): Promise<BotBinding> {
+    const planned = await readPlannedBinding(connection, runId);
+    if (!planned) return configuration.modelBinding;
+    if (!versionListsBinding(configuration, planned))
+      throw new ProviderError('model_binding_changed');
+    return planned;
+  }
+  private async continueAfterTransientFailure(
+    connection: SqlConnection,
+    task: Candidate,
+    configuration: BotConfiguration,
+    failure: ModelFailure | undefined,
+    claim: TaskClaim,
+  ) {
+    const chain = await loadAttemptChain(connection, task.task_id, task.id);
+    const last = chain.attempts.at(-1);
+    if (last?.runId === task.id) {
+      last.connectionId = claim.provider.connectionId;
+      last.modelId = claim.provider.modelId;
+    } else if (!chain.attempts.some((attempt) => attempt.runId === task.id))
+      chain.attempts.push({
+        runId: task.id,
+        connectionId: claim.provider.connectionId,
+        modelId: claim.provider.modelId,
+        origin: chain.attempts.length ? 'provider_retry' : 'initial',
+      });
+    if (!failure) return;
+    const plan = planNextAttempt({
+      failure,
+      configuration,
+      chain,
+      now: this.now(),
+    });
+    if (!plan) return;
+    try {
+      await connection.query('SAVEPOINT col10_next_attempt');
+    } catch {
+      await writeNextAttempt(connection, this.nextAttemptInput(task, plan));
+      return;
+    }
+    try {
+      await writeNextAttempt(connection, this.nextAttemptInput(task, plan));
+      await connection.query('RELEASE SAVEPOINT col10_next_attempt');
+    } catch {
+      await connection.query('ROLLBACK TO SAVEPOINT col10_next_attempt');
+    }
+  }
+  private nextAttemptInput(task: Candidate, plan: NextAttemptPlan) {
+    return {
+      taskId: task.task_id,
+      sourceRunId: task.id,
+      workspaceId: task.workspace_id,
+      conversationId: task.conversation_id,
+      executionUserId: task.execution_user_id,
+      sourceAttempt: task.attempt,
+      plan,
+      now: this.now(),
+    };
+  }
+}
+
+function runBinding(run: LockedRun, fallback: BotBinding): BotBinding {
+  if (
+    run.connection_id &&
+    run.model_id &&
+    (run.provider_scope_kind === 'personal' || run.provider_scope_kind === 'workspace') &&
+    run.provider_scope_id
+  )
+    return {
+      scope: { kind: run.provider_scope_kind, id: run.provider_scope_id },
+      connectionId: run.connection_id,
+      modelId: run.model_id,
+    };
+  return fallback;
 }
