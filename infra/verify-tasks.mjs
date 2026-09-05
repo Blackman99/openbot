@@ -170,11 +170,12 @@ try {
         protocol: 'openai-chat',
         modelId: 'compose-fallback-model',
       });
-      const conversation = await request(
-        `${base}/conversations/${retryRow.conversation_id}`,
-        { cookie },
+      const conversation = await request(`${base}/conversations/${retryRow.conversation_id}`, {
+        cookie,
+      });
+      const botOutput = conversation.value.messages.find(
+        (message) => message.author.kind === 'bot',
       );
-      const botOutput = conversation.value.messages.find((message) => message.author.kind === 'bot');
       assert.equal(botOutput.body, 'Fallback after waiting.');
       assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM tasks')).rows[0].count, 3);
       assert.deepEqual((await stats()).calls, [
