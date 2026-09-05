@@ -281,6 +281,54 @@ describe('Task API client', () => {
     ).toEqual({ status: 'unavailable' });
   });
 
+  it('keeps fallback previous and next models and rejects secret continuation fields', async () => {
+    const continuation = {
+      origin: 'model_fallback' as const,
+      reason: 'provider_unavailable' as const,
+      previousRunId: task.runs[0]!.id,
+      previousProvider: { protocol: 'openai-chat' as const, modelId: 'primary-model' },
+      nextProvider: { protocol: 'openai-chat' as const, modelId: 'fallback-model' },
+      dueAt: '2026-09-05T00:00:01.000Z',
+      admitted: false,
+    };
+    const waiting = {
+      ...task,
+      runCount: 2,
+      olderRunsCursor: 'older_attempt',
+      runs: [{ ...task.runs[0], attempt: 2, continuation }],
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ task: waiting }))
+      .mockResolvedValueOnce(
+        Response.json({
+          task: {
+            ...waiting,
+            runs: [
+              {
+                ...waiting.runs[0],
+                continuation: {
+                  ...continuation,
+                  previousProvider: {
+                    ...continuation.previousProvider,
+                    connectionId: waiting.runs[0]!.id,
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      );
+    const client = new TaskApiClient(request, 'http://api:3001', 'http://localhost:3000');
+    expect(await client.get(token, workspace.id, conversation.id, task.id)).toEqual({
+      status: 'available',
+      value: waiting,
+    });
+    expect(await client.get(token, workspace.id, conversation.id, task.id)).toEqual({
+      status: 'unavailable',
+    });
+  });
+
   it('submits one durable task command and accepts the queued receipt', async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ task }, { status: 202 }));
     const client = new TaskApiClient(request, 'http://api:3001/', 'http://localhost:3000');

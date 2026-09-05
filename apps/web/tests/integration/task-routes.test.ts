@@ -103,6 +103,52 @@ describe('Task page boundary', () => {
     }
     expect(event.cookies.delete).not.toHaveBeenCalled();
   });
+  it('loads a planned fallback with previous model, next model and reason and drops secrets', async () => {
+    const event = context(),
+      original = event.fetch.getMockImplementation()!;
+    const continuation = {
+      origin: 'model_fallback',
+      reason: 'provider_unavailable',
+      previousRunId: task.runs[0]!.id,
+      previousProvider: { protocol: 'openai-chat', modelId: 'primary-model' },
+      nextProvider: { protocol: 'openai-chat', modelId: 'fallback-model' },
+      dueAt: '2026-09-05T00:00:01.000Z',
+      admitted: false,
+    };
+    event.fetch.mockImplementation(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith(`/tasks/${task.id}`))
+        return Response.json({
+          task: {
+            ...task,
+            runCount: 2,
+            olderRunsCursor: 'older_attempt',
+            runs: [{ ...task.runs[0], attempt: 2, continuation }],
+          },
+        });
+      return original(url, init);
+    });
+    expect(await loadTaskPage(event, workspace.id, conversation.id, task.id)).toMatchObject({
+      task: {
+        runCount: 2,
+        runs: [
+          {
+            attempt: 2,
+            continuation: {
+              origin: 'model_fallback',
+              reason: 'provider_unavailable',
+              previousProvider: { protocol: 'openai-chat', modelId: 'primary-model' },
+              nextProvider: { protocol: 'openai-chat', modelId: 'fallback-model' },
+              admitted: false,
+            },
+          },
+        ],
+      },
+      canRetry: false,
+    });
+    expect(JSON.stringify(event.fetch.mock.calls)).not.toMatch(/connectionId|baseUrl|apiKey/u);
+  });
+
   it('offers cancellation to a current group admin with inspect access even when writing is unavailable', async () => {
     const event = context(),
       original = event.fetch.getMockImplementation()!;

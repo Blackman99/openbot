@@ -80,6 +80,49 @@ export function handleTaskFixture(request, response, context) {
             },
           );
       }
+      if (record && input.scheduleFallback) {
+        const { task } = record;
+        const previous = record.runs.at(-1);
+        const continuation = {
+          origin: 'model_fallback',
+          reason: input.scheduleFallback.reason ?? 'provider_unavailable',
+          previousRunId: previous.id,
+          previousProvider: {
+            protocol: previous.provider?.protocol ?? 'openai-responses',
+            modelId: previous.provider?.modelId ?? 'actual-direct-model',
+          },
+          nextProvider: {
+            protocol: 'openai-chat',
+            modelId: 'fallback-model',
+          },
+          dueAt: input.scheduleFallback.dueAt ?? '2026-09-05T00:00:01.000Z',
+          admitted: false,
+        };
+        if (previous.status !== 'failed') {
+          previous.status = 'failed';
+          previous.error = 'provider_failed';
+          previous.finishedAt = previous.finishedAt ?? runTime(previous.attempt, 2000);
+          previous.provider = previous.provider ?? continuation.previousProvider;
+        }
+        const run = {
+          id: randomUUID(),
+          attempt: task.runCount + 1,
+          status: 'queued',
+          createdAt: runTime(task.runCount + 1, 0),
+          startedAt: null,
+          finishedAt: null,
+          provider: null,
+          usage: null,
+          error: null,
+          output: null,
+          continuation,
+        };
+        task.runCount = run.attempt;
+        task.status = 'queued';
+        task.runs = [run];
+        task.olderRunsCursor = historyCursor(task, run.attempt);
+        record.runs.push(run);
+      }
       sendJson(response, 200, { ok: true });
     });
     return true;

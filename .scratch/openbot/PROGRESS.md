@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. Verify `33972323411` on `257f8df` passed native cancellation (`root_task_id` / 0023 bootstrap) and failed `postgres-tasks`: automatic attempt 2 was rejected with `new Task Run must be the next queued attempt` when the worker clock was behind `tasks.created_at`. Successor `created_at` now clamps to the retained Task and failed Run timestamps. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33972675410](https://github.com/Blackman99/openbot/actions/runs/33972675410) on `d370d5f` is full green (16/16), including native `postgres-tasks` automatic retry/fallback under `openbot_runtime`. Unique next-attempt lock contention is already witnessed by the native competing-writer case. Compose restart-before-due is not added: the 1s `notBefore` window is shorter than a reliable Compose worker restart. Browser/BFF now cover the fallback previous/next/reason display. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 

@@ -401,3 +401,48 @@ test('conflicts require a ready refreshed form and a lost browser response repla
   await safePage(page, true);
   expect(errors).toEqual([]);
 });
+
+test('shows a planned fallback previous model, next model and reason before the next call', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await setup(page);
+  await page.getByLabel('Prompt', { exact: true }).fill('Need a compatible fallback model.');
+  await page.getByRole('button', { name: 'Run task', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Saved task', exact: true })).toBeVisible();
+  const taskId = (await taskState(page)).tasks[0].id;
+  await page.request.post(`${api}/__task/state`, {
+    data: { taskId, status: 'failed', usage: { inputTokens: 4, outputTokens: 0 } },
+  });
+  await page.request.post(`${api}/__task/state`, {
+    data: {
+      taskId,
+      scheduleFallback: {
+        reason: 'provider_unavailable',
+        dueAt: '2026-09-05T00:00:01.000Z',
+      },
+    },
+  });
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Researcher · Queued', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Attempt 2 · Queued', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Waiting to switch models', { exact: false })).toBeVisible();
+  await expect(
+    page.getByText('actual-direct-model · openai-responses', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('fallback-model · openai-chat', { exact: false })).toBeVisible();
+  await expect(
+    page.getByText('the previous model was temporarily unavailable', { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Planned model: fallback-model · openai-chat', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('A model has not been called.', { exact: true })).toBeVisible();
+  await safePage(page, true);
+  expect(errors).toEqual([]);
+});
