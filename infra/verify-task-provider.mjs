@@ -41,13 +41,24 @@ const server = createServer(async (request, response) => {
       if (text.length > 2 * 1024 * 1024) throw new Error('fixture input too large');
     }
     const input = JSON.parse(text);
+    const prompt = input.messages.at(-1)?.content;
     if (input.tools) {
       response.writeHead(400, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: { code: 'unsupported_parameter', param: 'tools' } }));
       return;
     }
+    if (prompt === 'compose-transient' && input.model !== 'compose-fallback-model') {
+      calls.push({ prompt, modelId: input.model });
+      response.writeHead(503);
+      response.end('temporarily unavailable');
+      return;
+    }
     response.writeHead(200, { 'content-type': 'text/event-stream' });
-    const prompt = input.messages.at(-1)?.content;
+    if (prompt === 'compose-transient') {
+      calls.push({ prompt, modelId: input.model });
+      complete(response, 'Fallback after waiting.');
+      return;
+    }
     if (prompt === 'compose-success' || prompt === 'compose-failure') {
       calls.push({ prompt, modelId: input.model });
       if (prompt === 'compose-failure') {

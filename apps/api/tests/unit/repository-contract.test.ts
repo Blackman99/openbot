@@ -336,5 +336,11 @@ describe('repository contract', () => {
     expect(workflow).toContain('"status":"unavailable"');
     expect(workflow).toContain('data-state="unavailable"');
     expect(workflow).toContain('docker compose down --volumes');
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-seed');
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-waiting');
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-due');
+    expect(readFileSync(`${repositoryRoot}/infra/compose-tasks.yaml`, 'utf8')).toContain(
+      "OPENBOT_COL10_RETRY_DELAY_MS: '60000'",
+    );
   });
 });

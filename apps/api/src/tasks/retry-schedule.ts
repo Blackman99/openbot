@@ -8,6 +8,17 @@ export const HARD_MAX_RUNS_PER_CHAIN = 4;
 export const MAX_JITTER_MS = 250;
 export const SAME_MODEL_RETRY_DELAYS_MS = [1_000, 2_000] as const;
 export const FALLBACK_DELAY_MS = 1_000;
+export const COL10_RETRY_DELAY_ENV = 'OPENBOT_COL10_RETRY_DELAY_MS';
+
+export function composeRetryDelayMs(
+  environment: NodeJS.ProcessEnv = process.env,
+): number | undefined {
+  const raw = environment[COL10_RETRY_DELAY_ENV];
+  if (raw === undefined || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < SAME_MODEL_RETRY_DELAYS_MS[0]) return undefined;
+  return value;
+}
 
 export type AttemptOrigin =
   'initial' | 'manual_retry' | 'provider_retry' | 'model_fallback' | 'worker_recovery';
@@ -94,6 +105,7 @@ export function planNextAttempt(input: {
     origin = 'provider_retry';
     binding = currentBinding;
     delayMs =
+      composeRetryDelayMs() ??
       SAME_MODEL_RETRY_DELAYS_MS[
         Math.min(Math.max(usedCurrent - 1, 0), SAME_MODEL_RETRY_DELAYS_MS.length - 1)
       ]!;
@@ -114,7 +126,7 @@ export function planNextAttempt(input: {
     if (!selected) return undefined;
     origin = 'model_fallback';
     binding = selected;
-    delayMs = FALLBACK_DELAY_MS;
+    delayMs = composeRetryDelayMs() ?? FALLBACK_DELAY_MS;
     modelAttemptOrdinal = selectedUsed + 1;
   }
   return {

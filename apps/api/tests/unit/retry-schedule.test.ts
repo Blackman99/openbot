@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import {
+  COL10_RETRY_DELAY_ENV,
+  composeRetryDelayMs,
   DEFAULT_MAX_ATTEMPTS_PER_MODEL,
   DEFAULT_MAX_RUNS_PER_CHAIN,
   effectiveRetryPolicy,
@@ -226,5 +228,30 @@ describe('COL-10 bounded retry scheduler', () => {
       binding: fallback,
       chainAttemptOrdinal: 4,
     });
+  });
+
+  it('lets Compose lengthen notBefore without shortening the production delays', () => {
+    const previous = process.env[COL10_RETRY_DELAY_ENV];
+    try {
+      expect(composeRetryDelayMs({})).toBeUndefined();
+      expect(composeRetryDelayMs({ [COL10_RETRY_DELAY_ENV]: '500' })).toBeUndefined();
+      expect(composeRetryDelayMs({ [COL10_RETRY_DELAY_ENV]: '60000' })).toBe(60_000);
+      process.env[COL10_RETRY_DELAY_ENV] = '60000';
+      expect(plan({ jitterMs: 0 })?.delayMs).toBe(60_000);
+      expect(
+        plan({
+          configuration: {
+            modelBinding: primary,
+            retryPolicy: { maxAttemptsPerModel: 1, maxRunsPerChain: 4 },
+            fallbackBindings: [fallback],
+          },
+          jitterMs: 0,
+        })?.delayMs,
+      ).toBe(60_000);
+    } finally {
+      if (previous === undefined) delete process.env[COL10_RETRY_DELAY_ENV];
+      else process.env[COL10_RETRY_DELAY_ENV] = previous;
+    }
+    expect(plan({ jitterMs: 0 })?.delayMs).toBe(SAME_MODEL_RETRY_DELAYS_MS[0]);
   });
 });

@@ -1343,6 +1343,25 @@ jobs:
           test "$ready" = true
           docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-tasks.mjs
           docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-conversation-stream.mjs
+      - name: Persist a waiting fallback and restart the worker before it is due
+        run: |
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-seed api node --input-type=module < infra/verify-tasks.mjs
+          before=$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)
+          docker compose restart worker
+          ready=false
+          for attempt in {1..60}; do
+            now=$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)
+            if [ "${now:-0}" -gt "${before:-0}" ]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-waiting api node --input-type=module < infra/verify-tasks.mjs
+      - name: Claim the persisted fallback only after its due time
+        run: |
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-due api node --input-type=module < infra/verify-tasks.mjs
       - if: always()
         run: |
           docker compose logs

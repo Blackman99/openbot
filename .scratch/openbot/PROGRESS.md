@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974792544](https://github.com/Blackman99/openbot/actions/runs/33974792544) on `b47b78f` is full green (16/16), including Playwright exact fallback locators and the public-Bot `pg_locks` observer. Adapter-to-worker cases now prove HTTP/SSE authentication and validation fail the same Task without a retry or fallback, while a real HTTP 503 schedules one same-model retry. Native lock contention remains witnessed. Compose restart-before-due is not added. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. [Verify 33974792544](https://github.com/Blackman99/openbot/actions/runs/33974792544) on `b47b78f` is full green (16/16). Compose `compose-tasks` now persists a waiting fallback, restarts the worker before due, and claims only after the compose-only 60s `notBefore`. Production delays stay 1s/2s; the overlay may only lengthen them. Adapter-to-worker auth/validation and native lock contention remain witnessed. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 

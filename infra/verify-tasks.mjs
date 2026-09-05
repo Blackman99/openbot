@@ -21,8 +21,8 @@ async function request(path, { cookie, method = 'GET', body, setup = false } = {
   });
   return { response, value: response.status === 204 ? undefined : await response.json() };
 }
-async function until(check) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+async function until(check, attempts = 100) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     if (await check()) return;
     await setTimeout(100);
   }
@@ -31,6 +31,10 @@ async function until(check) {
 const stats = async () =>
   (await fetch('http://task-provider:3100/stats', { signal: AbortSignal.timeout(2000) })).json();
 try {
+  async function latestTask() {
+    return (await pool.query('SELECT * FROM tasks ORDER BY created_at DESC,id DESC LIMIT 1'))
+      .rows[0];
+  }
   if (mode === 'seed') {
     const setup = await request('/api/v1/setup', {
       method: 'POST',
@@ -45,6 +49,144 @@ try {
   assert.ok(cookie);
   const workspaceId = signIn.value.workspace.id;
   const base = `/api/v1/workspaces/${workspaceId}`;
+  if (mode === 'retry-seed' || mode === 'retry-waiting' || mode === 'retry-due') {
+    const retryRow = mode === 'retry-seed' ? undefined : await latestTask();
+    const retryPath = retryRow
+      ? `${base}/conversations/${retryRow.conversation_id}/tasks`
+      : undefined;
+    const readRetry = async (id) => (await request(`${retryPath}/${id}`, { cookie })).value.task;
+    if (mode === 'retry-seed') {
+      stage = 'configured fallback and a waiting automatic successor';
+      const primary = await request('/api/v1/model-connections', {
+        cookie,
+        method: 'POST',
+        body: {
+          name: 'Compose retry primary',
+          protocol: 'openai-chat',
+          baseUrl: 'http://task-provider:3100/v1',
+          modelId: 'compose-model',
+          apiKey: 'compose-private-provider-key',
+          headers: {},
+        },
+      });
+      assert.equal(primary.response.status, 201);
+      const fallback = await request('/api/v1/model-connections', {
+        cookie,
+        method: 'POST',
+        body: {
+          name: 'Compose retry fallback',
+          protocol: 'openai-chat',
+          baseUrl: 'http://task-provider:3100/v1',
+          modelId: 'compose-fallback-model',
+          apiKey: 'compose-private-provider-key',
+          headers: {},
+        },
+      });
+      assert.equal(fallback.response.status, 201);
+      const created = await request(`${base}/bots`, {
+        cookie,
+        method: 'POST',
+        body: {
+          name: 'Compose retry Bot',
+          roleDescription: 'Retry smoke',
+          instructions: 'Use the durable worker.',
+          modelBinding: {
+            scope: { kind: 'personal', id: signIn.value.user.id },
+            connectionId: primary.value.id,
+            modelId: 'compose-model',
+          },
+          retryPolicy: { maxAttemptsPerModel: 1, maxRunsPerChain: 4 },
+          fallbackBindings: [
+            {
+              scope: { kind: 'personal', id: signIn.value.user.id },
+              connectionId: fallback.value.id,
+              modelId: 'compose-fallback-model',
+            },
+          ],
+        },
+      });
+      assert.equal(created.response.status, 201);
+      const opened = await request(`${base}/conversations`, {
+        cookie,
+        method: 'POST',
+        body: { subject: { kind: 'direct-bot', id: created.value.bot.id } },
+      });
+      assert.equal(opened.response.status, 200);
+      const taskPath = `${base}/conversations/${opened.value.conversation.id}/tasks`;
+      const submitted = await request(taskPath, {
+        cookie,
+        method: 'POST',
+        body: { idempotencyKey: 'compose-transient', body: 'compose-transient' },
+      });
+      assert.equal(submitted.response.status, 202);
+      await until(async () => {
+        const task = (await request(`${taskPath}/${submitted.value.task.id}`, { cookie })).value
+          .task;
+        return task.status === 'queued' && task.runCount === 2;
+      });
+      const waiting = (await request(`${taskPath}/${submitted.value.task.id}`, { cookie })).value
+        .task;
+      assert.equal(waiting.runs[0].status, 'queued');
+      assert.equal(waiting.runs[0].provider, null);
+      assert.equal(waiting.runs[0].continuation.origin, 'model_fallback');
+      assert.equal(waiting.runs[0].continuation.reason, 'provider_unavailable');
+      assert.equal(waiting.runs[0].continuation.previousProvider.modelId, 'compose-model');
+      assert.equal(waiting.runs[0].continuation.nextProvider.modelId, 'compose-fallback-model');
+      assert.equal(waiting.runs[0].continuation.admitted, false);
+      const dueAt = Date.parse(waiting.runs[0].continuation.dueAt);
+      assert.ok(dueAt - Date.now() > 30_000);
+      assert.deepEqual((await stats()).calls, [
+        { prompt: 'compose-success', modelId: 'compose-model' },
+        { prompt: 'compose-failure', modelId: 'compose-model' },
+        { prompt: 'compose-transient', modelId: 'compose-model' },
+      ]);
+    } else if (mode === 'retry-waiting') {
+      stage = 'restart before due does not dispatch the fallback';
+      const task = await readRetry(retryRow.id);
+      assert.equal(task.status, 'queued');
+      assert.equal(task.runCount, 2);
+      assert.equal(task.runs[0].continuation.origin, 'model_fallback');
+      assert.equal(task.runs[0].continuation.admitted, false);
+      assert.equal(task.runs[0].continuation.nextProvider.modelId, 'compose-fallback-model');
+      const dueAt = Date.parse(task.runs[0].continuation.dueAt);
+      assert.ok(dueAt > Date.now(), 'worker restart exceeded the compose-only notBefore window');
+      assert.deepEqual((await stats()).calls, [
+        { prompt: 'compose-success', modelId: 'compose-model' },
+        { prompt: 'compose-failure', modelId: 'compose-model' },
+        { prompt: 'compose-transient', modelId: 'compose-model' },
+      ]);
+    } else {
+      stage = 'due fallback call uses the configured model';
+      const dueAt = Date.parse((await readRetry(retryRow.id)).runs[0].continuation.dueAt);
+      const waitMs = dueAt - Date.now() + 2000;
+      if (waitMs > 0) await setTimeout(waitMs);
+      await until(async () => (await readRetry(retryRow.id)).status === 'completed', 150);
+      const task = await readRetry(retryRow.id);
+      assert.equal(task.runCount, 2);
+      assert.equal(task.runs[0].status, 'completed');
+      assert.equal(task.runs[0].continuation.origin, 'model_fallback');
+      assert.equal(task.runs[0].continuation.admitted, true);
+      assert.deepEqual(task.runs[0].provider, {
+        protocol: 'openai-chat',
+        modelId: 'compose-fallback-model',
+      });
+      const conversation = await request(
+        `${base}/conversations/${retryRow.conversation_id}`,
+        { cookie },
+      );
+      const botOutput = conversation.value.messages.find((message) => message.author.kind === 'bot');
+      assert.equal(botOutput.body, 'Fallback after waiting.');
+      assert.equal((await pool.query('SELECT COUNT(*)::int AS count FROM tasks')).rows[0].count, 3);
+      assert.deepEqual((await stats()).calls, [
+        { prompt: 'compose-success', modelId: 'compose-model' },
+        { prompt: 'compose-failure', modelId: 'compose-model' },
+        { prompt: 'compose-transient', modelId: 'compose-model' },
+        { prompt: 'compose-transient', modelId: 'compose-fallback-model' },
+      ]);
+    }
+    console.info(`task_smoke_${mode}_passed`);
+    return;
+  }
   if (mode === 'seed') {
     stage = 'configured provider and durable submission with idle worker';
     const model = await request('/api/v1/model-connections', {

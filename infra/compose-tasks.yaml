@@ -12,6 +12,8 @@ services:
       OPENBOT_PROVIDER_ALLOWED_HOSTS: task-provider
       OPENBOT_PROVIDER_ALLOWED_SCHEMES: http
       OPENBOT_PROVIDER_PRIVATE_CIDRS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # Compose-only: lengthen notBefore so a worker restart finishes before due.
+      OPENBOT_COL10_RETRY_DELAY_MS: '60000'
   task-provider:
     image: openbot-api:local
     command: [node, /app/verify-task-provider.mjs]
