@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **29**
-- Fully complete: **28**
+- Implemented and independently reviewed: **30**
+- Fully complete: **29**
 - Complete with external verification pending: **1**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -48,7 +48,7 @@ This directory contains the approved implementation backlog for the open-source 
 | 24 | [COL-07 — Cancel Task trees safely](24-col-07-cancel-task-trees-safely.md) | complete-with-external-verification | [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md), [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md) |
 | 25 | [COL-08 — Pause and resume Tasks from checkpoints](25-col-08-pause-and-resume-tasks-from-checkpoints.md) | blocked | [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
 | 26 | [COL-09 — Retry failed Tasks with immutable attempts](26-col-09-retry-failed-tasks-with-immutable-attempts.md) | complete | [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
-| 27 | [COL-10 — Add bounded retries and explicit model fallback](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) | in-progress | [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
+| 27 | [COL-10 — Add bounded retries and explicit model fallback](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) | complete | [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 28 | [COL-11 — Recover Runs after worker failure](28-col-11-recover-runs-after-worker-failure.md) | blocked | [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
 | 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | blocked | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
 | 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | blocked | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |

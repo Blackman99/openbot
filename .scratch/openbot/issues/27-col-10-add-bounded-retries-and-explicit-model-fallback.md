@@ -2,7 +2,7 @@
 sequence: 27
 id: COL-10
 title: "Add bounded retries and explicit model fallback"
-status: in-progress
+status: complete
 blocked_by:
   - COL-09
   - PROV-05
@@ -27,14 +27,25 @@ Transient failures receive bounded retries before an explicit, capability-compat
 
 ## Acceptance criteria
 
-- [ ] Only transient errors are retried; authentication and validation errors are not.
-- [ ] Automatic retries stop at the configured attempt limit.
-- [ ] After retry exhaustion, only a Bot-configured fallback with required capabilities is eligible.
-- [ ] Each fallback event shows the previous and next provider and model and the reason.
-- [ ] Without an eligible fallback, the Task fails without duplicate Tasks or user messages.
+- [x] Only transient errors are retried; authentication and validation errors are not.
+- [x] Automatic retries stop at the configured attempt limit.
+- [x] After retry exhaustion, only a Bot-configured fallback with required capabilities is eligible.
+- [x] Each fallback event shows the previous and next provider and model and the reason.
+- [x] Without an eligible fallback, the Task fails without duplicate Tasks or user messages.
 
 ## Non-goals
 
 - Silent provider substitution
 - Global unconfigured fallbacks
 - Cost-based model brokering
+
+
+## Completion evidence
+
+Closed on 2026-09-05 against HEAD `f6b3f24` with Tester stamps and Verify `33976310825` (16/16).
+
+1. Transient-only: `model-failure-taxonomy` + `adapter-next-attempt` (401/validation schedule none).
+2. Attempt limit: `retry-schedule` / `next-attempt` stop at per-model and chain ceilings.
+3. Configured fallback only: listed-binding claims under runtime PG; unlisted/exhausted never selected.
+4. Previous/next/reason: Task/stream DTOs + BFF/browser exact locators (Verify green).
+5. No eligible fallback: same Task fails; no duplicate Task/trigger; Compose restart-before-due for waiting interval.
