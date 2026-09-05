@@ -12,10 +12,7 @@ import {
   CANDIDATE_SCHEMA_STATEMENTS,
   CANDIDATE_POSTGRES_GUARDS,
 } from '../memories/candidate-schema.js';
-import {
-  REVIEW_SCHEMA_STATEMENTS,
-  REVIEW_POSTGRES_GUARDS,
-} from '../memories/review-schema.js';
+import { REVIEW_SCHEMA_STATEMENTS, REVIEW_POSTGRES_GUARDS } from '../memories/review-schema.js';
 import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';

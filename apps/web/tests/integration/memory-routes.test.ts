@@ -328,7 +328,12 @@ describe('Memory Web boundary', () => {
       if (path.endsWith('/me')) return Response.json({ user, workspace: null });
       if (path.endsWith('/workspaces')) return Response.json({ workspaces: [ownerWorkspace] });
       if (path.endsWith(`/conversations/${conversation.id}`))
-        return Response.json({ conversation, messages: [message], nextCursor: null, canWrite: true });
+        return Response.json({
+          conversation,
+          messages: [message],
+          nextCursor: null,
+          canWrite: true,
+        });
       if (path.endsWith(`/workspaces/${workspace.id}/groups`))
         return Response.json({ groups: [group] });
       if (path.endsWith(`/workspaces/${workspace.id}/bots`))
@@ -425,8 +430,9 @@ describe('Memory Web boundary', () => {
     expect(
       JSON.parse(
         String(
-          fetch.mock.calls.find((entry) => String(entry[0]).endsWith('/approval-confirmations'))?.[1]
-            ?.body,
+          fetch.mock.calls.find((entry) =>
+            String(entry[0]).endsWith('/approval-confirmations'),
+          )?.[1]?.body,
         ),
       ),
     ).toEqual({

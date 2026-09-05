@@ -98,7 +98,11 @@ describe('candidate review inbox', () => {
       expectedRevision: revision,
       body: 'keep the edited evidence.',
     });
-    expect(edited).toMatchObject({ revision: 2, body: 'keep the edited evidence.', status: 'pending' });
+    expect(edited).toMatchObject({
+      revision: 2,
+      body: 'keep the edited evidence.',
+      status: 'pending',
+    });
     const approved = await base.memories.approveCandidate(access, candidateId, {
       expectedRevision: 2,
       destination: { kind: 'group', id: base.group.id },
@@ -248,10 +252,12 @@ describe('candidate review inbox', () => {
       headers: base.headers,
     });
     expect(inbox.statusCode).toBe(200);
-    expect(inbox.json().candidates.map((row: { status: string }) => row.status).sort()).toEqual([
-      'approved',
-      'rejected',
-    ]);
+    expect(
+      inbox
+        .json()
+        .candidates.map((row: { status: string }) => row.status)
+        .sort(),
+    ).toEqual(['approved', 'rejected']);
   });
 
   it('requires confirmation for cross-group and Bot destinations and hides source from destination-only readers', async () => {
@@ -396,7 +402,9 @@ describe('candidate review inbox', () => {
     };
     expect(
       (await base.memories.list(groupAccess, { query: 'lineage must stay' }, true)).memories,
-    ).toEqual([expect.objectContaining({ kind: 'approved_fact', text: 'lineage must stay current.' })]);
+    ).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'lineage must stay current.' }),
+    ]);
     await base.conversations.edit(
       base.owner.user.id,
       base.owner.workspace.id,
@@ -404,9 +412,9 @@ describe('candidate review inbox', () => {
       base.source.messageId,
       { expectedVersion: 1, body: 'Changed bound source', idempotencyKey: 'stale-source' },
     );
-    expect((await base.memories.list(groupAccess, { query: 'lineage must stay' }, true)).memories).toEqual(
-      [],
-    );
+    expect(
+      (await base.memories.list(groupAccess, { query: 'lineage must stay' }, true)).memories,
+    ).toEqual([]);
     let captured: string[] = [];
     await tasks.submit(base.owner.user.id, base.owner.workspace.id, base.conversation.id, {
       body: 'Use reviewed facts after the source changed.',

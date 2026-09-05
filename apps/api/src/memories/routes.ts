@@ -150,7 +150,13 @@ export function registerMemoryRoutes(
       async (request, reply) => {
         const admitted = await candidateActor(request);
         if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
-        return { candidate: await memories.editCandidate(admitted, request.params.candidateId, request.body) };
+        return {
+          candidate: await memories.editCandidate(
+            admitted,
+            request.params.candidateId,
+            request.body,
+          ),
+        };
       },
     );
     routes.post<{ Params: Params & { candidateId: string } }>(

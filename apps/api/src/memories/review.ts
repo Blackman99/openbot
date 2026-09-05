@@ -121,7 +121,11 @@ export function requiresSeparateConfirmation(
   originGroupId: string | null,
   destination: CandidateDestination,
 ): boolean {
-  return !(destination.kind === 'group' && originGroupId !== null && destination.id === originGroupId);
+  return !(
+    destination.kind === 'group' &&
+    originGroupId !== null &&
+    destination.id === originGroupId
+  );
 }
 
 export function destinationAudience(destination: CandidateDestination): {
@@ -328,7 +332,11 @@ export async function replayDecision(
   hash: string,
 ): Promise<{ replayed: true; candidate: MemoryCandidate; fact?: ApprovedFact } | undefined> {
   const prior = (
-    await connection.query<{ candidate_id: string; command_hash: string; approved_fact_id: string | null }>(
+    await connection.query<{
+      candidate_id: string;
+      command_hash: string;
+      approved_fact_id: string | null;
+    }>(
       'SELECT candidate_id,command_hash,approved_fact_id FROM memory_candidate_decisions WHERE workspace_id=$1 AND actor_user_id=$2 AND idempotency_key=$3',
       [access.workspaceId, access.actorUserId, idempotencyKey],
     )
@@ -455,9 +463,10 @@ export async function publishApprovedFact(
     confidence: input.confidence,
     approver_user_id: input.access.actorUserId,
     approver_name: (
-      await connection.query<{ display_name: string }>('SELECT display_name FROM users WHERE id=$1', [
-        input.access.actorUserId,
-      ])
+      await connection.query<{ display_name: string }>(
+        'SELECT display_name FROM users WHERE id=$1',
+        [input.access.actorUserId],
+      )
     ).rows[0]!.display_name,
     approved_at: input.now,
   });

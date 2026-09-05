@@ -4,7 +4,15 @@ import MemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[
 import MemoryPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[groupId]/memories/[memoryId]/+page.svelte';
 import PrivateMemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/bots/[botId]/private-memories/+page.svelte';
 import CandidatesPage from '../../src/routes/app/workspaces/[workspaceId]/conversations/[conversationId]/memory-candidates/+page.svelte';
-import { candidate, conversation, memory, group, grant, user, workspace } from '../fixtures/memories.js';
+import {
+  candidate,
+  conversation,
+  memory,
+  group,
+  grant,
+  user,
+  workspace,
+} from '../fixtures/memories.js';
 import { WORKSPACE_FACT_VISIBILITY_SUMMARY } from '../../src/lib/server/memory-api.js';
 import { summary } from '../fixtures/bots.js';
 const data = {

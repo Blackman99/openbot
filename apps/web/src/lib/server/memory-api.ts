@@ -684,11 +684,7 @@ export class MemoryApiClient {
     const query = new URLSearchParams();
     if (read.after) query.set('after', read.after.toLowerCase());
     if (read.limit !== undefined) query.set('limit', String(read.limit));
-    const result = await this.sendConversation(
-      session,
-      scope,
-      query.size ? `?${query}` : '',
-    );
+    const result = await this.sendConversation(session, scope, query.size ? `?${query}` : '');
     if (result.status !== 'available') return result;
     const value = result.value;
     if (
@@ -875,7 +871,10 @@ export class MemoryApiClient {
     destination?: CandidateDestination,
   ): MemoryResult<{ candidate: MemoryCandidate; fact: ApprovedFact }> {
     if (result.status !== 'available') return result;
-    if (!keys(result.value, 'candidate,fact,replayed') || typeof result.value.replayed !== 'boolean')
+    if (
+      !keys(result.value, 'candidate,fact,replayed') ||
+      typeof result.value.replayed !== 'boolean'
+    )
       return { status: 'unavailable' };
     return this.parsedDecision(result.value, workspaceId, candidateId, destination);
   }
@@ -891,8 +890,7 @@ export class MemoryApiClient {
       candidate.status === 'approved' &&
       fact?.candidateId === candidate.id &&
       fact.text === candidate.body &&
-      (!destination ||
-        (fact.scope.kind === destination.kind && fact.scope.id === destination.id))
+      (!destination || (fact.scope.kind === destination.kind && fact.scope.id === destination.id))
       ? { status: 'available', value: { candidate, fact } }
       : { status: 'unavailable' };
   }

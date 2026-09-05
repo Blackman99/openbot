@@ -178,11 +178,7 @@ export function candidateEditInput(input: unknown): { expectedRevision: number; 
   )
     throw new MemoryInputError();
   const body = value.body.normalize('NFC').replace(/\r\n/gu, '\n').trim();
-  if (
-    !body ||
-    [...body].length > 1000 ||
-    Buffer.byteLength(body) > 4096
-  )
+  if (!body || [...body].length > 1000 || Buffer.byteLength(body) > 4096)
     throw new MemoryInputError();
   return { expectedRevision: value.expectedRevision, body };
 }

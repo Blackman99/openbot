@@ -1,6 +1,10 @@
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { createBotApiClient } from './bot-api.js';
-import { createConversationApiClient, isCommandKey, isConversationUuid } from './conversation-api.js';
+import {
+  createConversationApiClient,
+  isCommandKey,
+  isConversationUuid,
+} from './conversation-api.js';
 import { createGroupApiClient } from './group-api.js';
 import {
   createMemoryApiClient,
@@ -12,7 +16,12 @@ import { requireConversationWorkspace } from './conversation-page.js';
 import { readSessionCookie } from './session-cookie.js';
 
 type Context = Pick<RequestEvent, 'cookies' | 'fetch' | 'setHeaders'>;
-type ReviewAction = 'editCandidate' | 'rejectCandidate' | 'approveCandidate' | 'previewCandidate' | 'confirmCandidate';
+type ReviewAction =
+  | 'editCandidate'
+  | 'rejectCandidate'
+  | 'approveCandidate'
+  | 'previewCandidate'
+  | 'confirmCandidate';
 
 function readFailure(status: string, context: Context): never {
   if (status === 'anonymous') {
@@ -79,9 +88,10 @@ export function destinationFrom(
   workspaceId: string,
 ): CandidateDestination | undefined {
   const raw = values.destination ?? '';
-  const match = /^(group|bot|workspace):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.exec(
-    raw,
-  );
+  const match =
+    /^(group|bot|workspace):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.exec(
+      raw,
+    );
   if (!match) return undefined;
   const kind = match[1] as CandidateDestination['kind'];
   const id = match[2]!.toLowerCase();
@@ -129,8 +139,7 @@ export async function loadCandidatesPage(
         bot.lifecycleState === 'active' &&
         (bot.accessRole === 'owner' || bot.accessRole === 'editor'),
     ),
-    canApproveWorkspace:
-      page.workspace.role === 'owner' || page.workspace.role === 'administrator',
+    canApproveWorkspace: page.workspace.role === 'owner' || page.workspace.role === 'administrator',
   };
 }
 
@@ -139,7 +148,8 @@ export async function editCandidateAction(
   workspaceId: string,
   conversationId: string,
 ) {
-  if (!validOrigin(context.request)) return actionFailure('forbidden', context, 'editCandidate', {});
+  if (!validOrigin(context.request))
+    return actionFailure('forbidden', context, 'editCandidate', {});
   let values: Record<string, string>;
   try {
     values = await formValues(context.request, ['candidateId', 'expectedRevision', 'body']);
@@ -244,7 +254,10 @@ export async function approveCandidateAction(
     return actionFailure(conversation.status, context, 'approveCandidate', values);
   if (!sameOriginGroup(conversation.value.conversation.subject, destination))
     return actionFailure('invalid', context, 'approveCandidate', values);
-  const result = await createMemoryApiClient(context.fetch, context.request.signal).approveCandidate(
+  const result = await createMemoryApiClient(
+    context.fetch,
+    context.request.signal,
+  ).approveCandidate(
     readSessionCookie(context.cookies),
     { workspaceId, conversationId },
     values.candidateId,
@@ -291,7 +304,10 @@ export async function previewCandidateAction(
     confidence > 1
   )
     return actionFailure('invalid', context, 'previewCandidate', values);
-  const result = await createMemoryApiClient(context.fetch, context.request.signal).previewCandidate(
+  const result = await createMemoryApiClient(
+    context.fetch,
+    context.request.signal,
+  ).previewCandidate(
     readSessionCookie(context.cookies),
     { workspaceId, conversationId },
     values.candidateId,
@@ -327,7 +343,10 @@ export async function confirmCandidateAction(
     !isCommandKey(values.idempotencyKey)
   )
     return actionFailure('invalid', context, 'confirmCandidate', values);
-  const result = await createMemoryApiClient(context.fetch, context.request.signal).confirmCandidate(
+  const result = await createMemoryApiClient(
+    context.fetch,
+    context.request.signal,
+  ).confirmCandidate(
     readSessionCookie(context.cookies),
     { workspaceId, conversationId },
     values.candidateId,

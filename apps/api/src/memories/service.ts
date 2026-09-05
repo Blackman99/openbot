@@ -1000,7 +1000,11 @@ export class MemoryService {
         if (!accessDenied(error)) throw error;
         await this.auditDenial(
           connection,
-          { actorUserId: access.actorUserId, workspaceId: access.workspaceId, groupId: access.conversationId },
+          {
+            actorUserId: access.actorUserId,
+            workspaceId: access.workspaceId,
+            groupId: access.conversationId,
+          },
           operation,
           { conversationId: access.conversationId, ...refs },
         );

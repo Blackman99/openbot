@@ -107,7 +107,9 @@ async function currentApprovedFact(
     includeWorkspace: true,
     limit: MAX_RUN_MEMORIES + 1,
   });
-  const row = rows.find((fact) => fact.id === reference.factId && fact.version_id === reference.versionId);
+  const row = rows.find(
+    (fact) => fact.id === reference.factId && fact.version_id === reference.versionId,
+  );
   if (!row) throw new ConversationAccessError();
   return row;
 }
