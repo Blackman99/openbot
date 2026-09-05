@@ -164,10 +164,20 @@ BOT-01 integrated as `ccda8d5ce10527e71ad0fd7c879d29b862589cb7`, tree `83b454999
 
 BOT-01-E1 closed by [Verify33947013084](https://github.com/Blackman99/openbot/actions/runs/33947013084), all six jobs successful on remote `6d5f6fc6be367546591228681fd975fb94448c5c`, completed2026-09-05 at05:24:36 UTC. The published tree `88d4a39ad4ff129d7ff032ea7e64c90a075d23af` exactly matches local `47553b1e5331aeaa869d44e96537b38d53d9fd2b`, verified by fetch and tree diff. The dedicated `postgres-bots` job101255004109 executed all8 cases successfully against PostgreSQL17 with the real restricted role. Compose job101255004094 passed fresh/upgrade migration0012, exact Bot table/column/function privileges and every prior application/outage check. Code, postgres-auth, postgres-providers and postgres-oidc also passed. This actual evidence supersedes earlier pending notes; no skipped test is counted as passed.
 
-## Open external gate — BOT-04-E1
+## Closed external gate — BOT-04-E1
 
-- [ ] Execute all nine `bot-acl-runtime.test.ts` cases with the deployed restricted role, including concurrent eligible-owner changes, current membership/ACL admission and required audit rollback.
-- [ ] Keep the existing eight Bot identity cases green in the preceding separate command; do not run fixed-role provisioning files concurrently.
-- [ ] Execute fresh/upgrade Compose with the precise visibility and ACL role/delete privileges, keeping all earlier database and application checks green.
+- [x] Execute all nine `bot-acl-runtime.test.ts` cases with the deployed restricted role, including concurrent eligible-owner changes, current membership/ACL admission and required audit rollback.
+- [x] Keep the existing eight Bot identity cases green in the preceding separate command; do not run fixed-role provisioning files concurrently.
+- [x] Execute fresh/upgrade Compose with the precise visibility and ACL role/delete privileges, keeping all earlier database and application checks green.
 
 BOT-04 integrated as `8d1933f51ff43c1c01616e8d885cf9ae75e41995` without source fixes. Both independent review axes are clean at `bd3ba9db5a0463fb52ff4711144c6db235142ca4`, author final `ee7adb1aaa062d37cf676421d17a9b75c41d7da3` is evidence-only. Dedicated integrated `pnpm verify` passed651 unit/integration tests,17 ordinary browsers,one signed-OIDC journey,formatting/types/builds. YAML/27 shell steps and MJS syntax also passed. Native nine-case local skips are not PostgreSQL evidence; this explicit release exception allows dependent implementation only when its other ticket prerequisites are also satisfied.
+
+BOT-04-E1 closed by [Verify33948405362](https://github.com/Blackman99/openbot/actions/runs/33948405362), all six jobs successful on remote `fa79a3dd85baf0dd2acf888d5f39a2a071d83fd8`, completed2026-09-05 at05:57:03 UTC. The published tree `040312fdf38cea26574dddc06a343b46d417d977` exactly matches local `86bdf75fa7b5b392f41af85e856b01e775991185`, verified by fetch and pinned diff. The dedicated postgres-bots job101258691651 executed the eight identity and nine ACL cases in separate successful commands. Compose job101258691734 passed fresh/upgrade startup, precise visibility and ACL role/delete privileges, and all prior application/outage checks; code, postgres-auth, postgres-providers and postgres-oidc also passed. This closes the external gate without counting local skips as execution; fifteen tickets are fully complete.
+
+## Open external gate — BOT-02-E1
+
+- [ ] Execute the eight `bot-avatars-runtime.test.ts` cases against actual PostgreSQL using the deployed restricted role, preserving the preceding identity and ACL suites in separate serial commands.
+- [ ] Execute the shared local/S3 immutable save/read/replace/delete contract and unsigned-read denial against the private S3-compatible fixture (six actual S3 cases).
+- [ ] Execute fresh/upgrade Compose through0013, exact object/reference privileges, the runtime-user private-volume roundtrip and actual Alpine Sharp decoder; preserve all earlier checks.
+
+BOT-02 integrated as `9eb8f89c78afdca995280f2cbbb53784e2901027`, tree `4c1c7aaca906a9c0122c75bb6ee229b8c6473b26`. Both independent review axes are CLEAN at final `7466346f3b45ff1857f3d7d5de6fdebd2af22265`; the sole P3 unknown-outcome message was fixed and independently rechecked. The dedicated merged full `pnpm verify` exited0:704 unit/integration tests (API88unit+260integration, Web35unit+321integration),18 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the three-file additive integration delta preserving both route families, exact BOT-04 grants, three serial Bot native commands and the S3 job. Frozen install, YAML/34 Bash steps/two embedded JS blocks/MJS syntax passed. Native PostgreSQL eight cases, actual S3 six cases and Compose remain the explicit BOT-02-E1 release gate; local skips are not execution evidence.

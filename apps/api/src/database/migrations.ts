@@ -1,4 +1,5 @@
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
+import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
 import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
 import {
   PERSONAL_MODEL_CONNECTION_STATEMENTS,
@@ -210,6 +211,11 @@ const MIGRATIONS = [
     version: '0012_bot_identity',
     statements: BOT_SCHEMA_STATEMENTS,
     postgresStatements: BOT_POSTGRES_GUARD_STATEMENTS,
+  },
+  {
+    version: '0013_bot_avatar_objects',
+    statements: AVATAR_SCHEMA_STATEMENTS,
+    postgresStatements: AVATAR_POSTGRES_GUARDS,
   },
 ] as const;
 

@@ -51,7 +51,7 @@ can perform the application queries required by authentication, but cannot chang
 schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
 
 Stop the stack with `docker compose down`. Add `--volumes` only when you intentionally want to
-remove local PostgreSQL data.
+remove local PostgreSQL data and avatar objects.
 
 ## Optional OIDC
 
@@ -209,3 +209,32 @@ The `postgres-auth` CI job runs OIDC callback/invitation concurrency, transactio
 session-revocation checks. The `postgres-oidc` job verifies link, sign-in, invited registration,
 last-credential protection, and rollback using the restricted runtime role. These real PostgreSQL
 checks supplement the in-memory SQL browser fixture and must pass before release.
+
+## Bot avatars
+
+Bot owners and editors can upload or remove an avatar from the Bot detail page. Static PNG and
+JPEG files are limited to 2 MiB, 4096 pixels per side and 4,194,304 pixels total. The server fully
+decodes the image, applies orientation, removes metadata, and writes a PNG fitted inside 512 × 512. Other formats, animation, malformed data and oversized images are rejected.
+
+Each successful change appends an immutable Bot version. Concurrent stale edits return a conflict;
+reload before retrying. Earlier versions retain their avatar objects. Workspace discovery shows a
+default image; reading uploaded bytes requires current workspace membership and Bot inspection
+access. Images are served through authenticated same-origin routes with private no-store headers.
+
+Compose stores private objects in the `object-data` volume mounted at `/var/lib/openbot/objects`,
+owned by the non-root API user. Back up that volume with PostgreSQL. For local `pnpm dev`, create
+an absolute directory owned by the API user, restrict it to mode 0700, and set
+`OBJECT_STORAGE_LOCAL_PATH`. The Web adapter requires `BODY_SIZE_LIMIT=3M` to accept a 2 MiB
+image plus multipart overhead; downstream image limits remain unchanged.
+
+For S3-compatible storage set `OBJECT_STORAGE_BACKEND=s3`, bucket, region, access key ID and
+secret; set the endpoint for a compatible service and session token when required. The operator
+must provision a private bucket and keep public access disabled. The service uses scoped immutable
+keys, conditional writes and bounded I/O; it does not issue public URLs or ACL grants. Credential
+rotation preserves object identity. Changing the local path, endpoint, bucket or region requires
+an explicit data migration: existing objects fail closed rather than silently switching stores.
+
+A bounded minute-based cleanup worker retries abandoned uploads and failed deletes. Historical
+version references prevent deletion; tombstones reconcile late remote writes. Physical deletion
+of retained Bot history awaits the data-retention lifecycle. Native PostgreSQL and real S3 contract
+tests run as separate CI gates; local wire mocks do not replace those checks.

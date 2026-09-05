@@ -46,6 +46,7 @@ describe('database migrations', () => {
       '0010_scoped_api_tokens',
       '0011_model_capability_policies',
       '0012_bot_identity',
+      '0013_bot_avatar_objects',
     ]);
 
     const database: DatabaseClient = {
@@ -82,7 +83,9 @@ describe('database migrations', () => {
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
       'api_tokens',
       'audit_events',
+      'avatar_objects',
       'bot_acl',
+      'bot_avatar_references',
       'bot_versions',
       'bots',
       'group_memberships',
@@ -111,7 +114,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0012_bot_identity' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0013_bot_avatar_objects' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -293,7 +296,11 @@ describe('database migrations', () => {
         if (statement.includes('ADD CONSTRAINT bots_current_version_same_bot'))
           throw new Error('native constraint installation failed');
         return statement.startsWith('SELECT version FROM openbot_schema_migrations')
-          ? { rows: MIGRATION_VERSIONS.slice(0, -1).map((version) => ({ version })) }
+          ? {
+              rows: MIGRATION_VERSIONS.filter((version) => version < '0012_bot_identity').map(
+                (version) => ({ version }),
+              ),
+            }
           : { rows: [] };
       },
       release: () => undefined,

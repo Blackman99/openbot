@@ -1,5 +1,6 @@
 <script lang="ts">
   import BotBindingStatus from '$lib/BotBindingStatus.svelte';
+  import BotAvatar from '$lib/BotAvatar.svelte';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
   const limits = [
@@ -19,6 +20,7 @@
   <ul aria-label="Bots">
     {#each data.bots as bot (bot.id)}
       <li>
+        <BotAvatar botId={bot.id} workspaceId={data.workspace.id} versionId={bot.avatarVersionId} name={bot.name} />
         <h2><a href={`/app/workspaces/${data.workspace.id}/bots/${bot.id}`}>{bot.name}</a></h2>
         <p>{bot.roleDescription}</p>
         <p>{bot.description || 'No description yet.'}</p>

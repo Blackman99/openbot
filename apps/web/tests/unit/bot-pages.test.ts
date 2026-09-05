@@ -55,7 +55,10 @@ describe('Bot identity pages', () => {
     expect(html).toContain('Cite sources.');
     expect(html).toContain('32768');
     expect(html).toContain('Chat-only — unsuitable for reliable delegation');
-    expect(html).not.toContain('<form');
+    expect(html).toContain('Upload avatar');
+    expect(html).toContain('multipart/form-data');
+    expect(html).toContain(`value="${bot.currentVersion.id}"`);
+    expect(html).toContain('Default avatar for Researcher');
     expect(html).not.toContain('Run task');
   });
   it('shows only metadata for discovery and replaces stale capability claims when unavailable', () => {
@@ -79,6 +82,8 @@ describe('Bot identity pages', () => {
     expect(html).not.toContain(input.modelBinding.connectionId);
     expect(html).not.toContain('Chat-only');
     expect(html).not.toContain('Collaboration-capable');
+    expect(html).not.toContain('Upload avatar');
+    expect(html).toContain('Default avatar for Researcher');
     const promoted = render(BotPage, {
       props: {
         form: null,

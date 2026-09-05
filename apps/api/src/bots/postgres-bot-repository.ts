@@ -60,6 +60,7 @@ export class PostgresBotRepository implements BotRepository {
   }
   private summary(row: BotRow, bindingStatus: BindingStatus): BotSummary {
     return {
+      ...(row.role && row.configuration.avatarObjectId ? { avatarVersionId: row.version_id } : {}),
       id: row.id,
       workspaceId: row.workspace_id,
       visibility: row.visibility,

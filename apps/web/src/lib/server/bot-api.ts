@@ -7,6 +7,7 @@ export interface BotLimits {
   maxDelegationDepth: number;
 }
 export interface BotConfiguration {
+  avatarObjectId?: string | null;
   name: string;
   roleDescription: string;
   description: string;
@@ -14,7 +15,7 @@ export interface BotConfiguration {
   modelBinding: { scope: BotScope; connectionId: string; modelId: string };
   limits: BotLimits;
 }
-export type BotInput = Omit<BotConfiguration, 'description' | 'limits'> & {
+export type BotInput = Omit<BotConfiguration, 'description' | 'limits' | 'avatarObjectId'> & {
   description?: string;
   limits?: Partial<BotLimits>;
 };
@@ -24,6 +25,7 @@ export type BindingStatus =
   | { state: 'ready'; chatOnly: boolean }
   | { state: 'unavailable'; reason: BindingUnavailableReason };
 export interface BotSummary {
+  avatarVersionId?: string;
   id: string;
   workspaceId: string;
   visibility: 'private' | 'workspace';
@@ -53,12 +55,19 @@ export function isBotUuid(value: unknown): value is string {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)
   );
 }
-function keys(value: unknown, expected: string): value is Record<string, unknown> {
+function keys(
+  value: unknown,
+  expected: string,
+  optional: string[] = [],
+): value is Record<string, unknown> {
   return (
     typeof value === 'object' &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.keys(value).sort().join(',') === expected
+    Object.keys(value)
+      .filter((key) => !optional.includes(key))
+      .sort()
+      .join(',') === expected
   );
 }
 function bounded(value: unknown, min: number, max: number): value is string {
@@ -86,9 +95,17 @@ function bindingStatus(value: unknown): BindingStatus | undefined {
     return { state: 'unavailable', reason: value.reason };
   return undefined;
 }
-function configuration(value: unknown, workspaceId: string): BotConfiguration | undefined {
+export function parseBotConfiguration(
+  value: unknown,
+  workspaceId: string,
+): BotConfiguration | undefined {
   if (
-    !keys(value, 'description,instructions,limits,modelBinding,name,roleDescription') ||
+    !keys(value, 'description,instructions,limits,modelBinding,name,roleDescription', [
+      'avatarObjectId',
+    ]) ||
+    ('avatarObjectId' in value &&
+      value.avatarObjectId !== null &&
+      !isBotUuid(value.avatarObjectId)) ||
     !bounded(value.name, 1, 100) ||
     !bounded(value.roleDescription, 1, 200) ||
     !bounded(value.description, 0, 2000) ||
@@ -110,6 +127,12 @@ function configuration(value: unknown, workspaceId: string): BotConfiguration | 
   )
     return undefined;
   return {
+    ...('avatarObjectId' in value
+      ? {
+          avatarObjectId:
+            value.avatarObjectId === null ? null : String(value.avatarObjectId).toLowerCase(),
+        }
+      : {}),
     name: value.name,
     roleDescription: value.roleDescription,
     description: value.description,
@@ -139,9 +162,12 @@ function parseBot(
     keys(
       value,
       'accessRole,bindingStatus,currentVersion,description,id,name,roleDescription,visibility,workspaceId',
+      ['avatarVersionId'],
     );
   if (
-    (!keys(value, baseKeys) && !hasVersion) ||
+    (!keys(value, baseKeys, ['avatarVersionId']) && !hasVersion) ||
+    ('avatarVersionId' in value &&
+      (!isBotUuid(value.avatarVersionId) || value.accessRole === null)) ||
     !isBotUuid(value.id) ||
     !isBotUuid(value.workspaceId) ||
     value.workspaceId.toLowerCase() !== workspaceId.toLowerCase() ||
@@ -160,6 +186,9 @@ function parseBot(
   const status = bindingStatus(value.bindingStatus);
   if (!status) return undefined;
   const summary: BotSummary = {
+    ...('avatarVersionId' in value
+      ? { avatarVersionId: String(value.avatarVersionId).toLowerCase() }
+      : {}),
     id: value.id.toLowerCase(),
     workspaceId: value.workspaceId.toLowerCase(),
     name: value.name,
@@ -183,9 +212,12 @@ function parseBot(
     !bounded(version.rationale, 1, 2000)
   )
     return undefined;
-  const config = configuration(version.configuration, summary.workspaceId);
+  const config = parseBotConfiguration(version.configuration, summary.workspaceId);
   if (
     !config ||
+    (config.avatarObjectId
+      ? summary.avatarVersionId !== version.id.toLowerCase()
+      : summary.avatarVersionId !== undefined) ||
     config.name !== summary.name ||
     config.roleDescription !== summary.roleDescription ||
     config.description !== summary.description

@@ -1,3 +1,4 @@
+import { readObjectStorageConfig, type ObjectStorageConfig } from './objects/config.js';
 import { readOidcConfig, type OidcConfig } from './oidc/config.js';
 import { createHash } from 'node:crypto';
 
@@ -14,6 +15,7 @@ export type DatabaseConnectionOptions =
     }>;
 
 export interface ApiConfig {
+  objectStorage: ObjectStorageConfig;
   oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
@@ -132,6 +134,7 @@ export function readApiConfig(environment: Environment): ApiConfig {
   return {
     ...(oidc ? { oidc } : {}),
     database: readDatabaseConfig(environment),
+    objectStorage: readObjectStorageConfig(environment),
     databaseConnectionTimeoutMs: readInteger(
       environment,
       'DATABASE_CONNECTION_TIMEOUT_MS',

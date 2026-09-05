@@ -1,6 +1,8 @@
 import { registerBotRoutes } from './bots/routes.js';
 import { registerBotAclRoutes } from './bots/acl-routes.js';
 import type { BotAclService } from './bots/acl-service.js';
+import { registerBotAvatarRoutes } from './bots/avatar-routes.js';
+import type { BotAvatarService } from './bots/avatar-service.js';
 import type { BotService } from './bots/service.js';
 import { registerOidcRoutes } from './oidc/routes.js';
 import type { OidcService } from './oidc/service.js';
@@ -50,6 +52,7 @@ export interface BuildAppOptions {
   groups?: GroupService;
   bots?: BotService;
   botAcl?: BotAclService;
+  avatars?: BotAvatarService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -142,6 +145,7 @@ export function buildApp({
   groups,
   bots,
   botAcl,
+  avatars,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -184,6 +188,7 @@ export function buildApp({
 
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
+    if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);
     if (botAcl) registerBotAclRoutes(app, auth, botAcl, webOrigin);
     if (groups) registerGroupRoutes(app, auth, groups, webOrigin);

@@ -7,6 +7,7 @@ try {
   const { buildProductionApp } = await import('./runtime.js');
   const app = buildProductionApp({
     database: config.database,
+    objectStorage: config.objectStorage,
     ...(config.oidc ? { oidc: config.oidc } : {}),
     databaseConnectionTimeoutMs: config.databaseConnectionTimeoutMs,
     databaseQueryTimeoutMs: config.databaseQueryTimeoutMs,

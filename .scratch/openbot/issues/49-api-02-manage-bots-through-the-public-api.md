@@ -7,6 +7,7 @@ blocked_by:
   - API-01
   - BOT-03
   - BOT-04
+  - BOT-06
 labels:
   - area:api
   - area:bots
@@ -25,6 +26,7 @@ External clients can create, retrieve, paginate, update, inspect versions of, an
 - [API-01](48-api-01-scoped-api-token-lifecycle.md)
 - [BOT-03](14-bot-03-edit-compare-and-restore-bot-versions.md)
 - [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md)
+- [BOT-06](17-bot-06-archive-restore-and-soft-delete-bots.md)
 
 ## Acceptance criteria
 
@@ -40,3 +42,7 @@ External clients can create, retrieve, paginate, update, inspect versions of, an
 - Public template marketplace
 - Sharing live bots across workspaces
 - Reading model-connection secrets through the API
+
+## Discovered implementation dependency
+
+The archive acceptance criterion consumes BOT-06 lifecycle rules and UI. Adding BOT-06 prevents a second archive implementation; no acceptance criterion or ticket sequence changes. See [public API handoff](../PUBLIC-API-HANDOFF.md).

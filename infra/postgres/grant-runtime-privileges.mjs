@@ -185,6 +185,8 @@ try {
     GRANT SELECT, INSERT, DELETE ON oidc_identities, oidc_transactions TO openbot_runtime;
     GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;
     GRANT DELETE ON group_memberships TO openbot_runtime;
+    GRANT SELECT, INSERT ON avatar_objects, bot_avatar_references TO openbot_runtime;
+    GRANT UPDATE (state, lease_until, cleanup_after, attempts, cleanup_token) ON avatar_objects TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT ON api_tokens TO openbot_runtime;
     GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;

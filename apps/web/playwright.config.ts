@@ -40,6 +40,7 @@ export default defineConfig({
       env: {
         API_BASE_URL: 'http://127.0.0.1:4399',
         HOST: '127.0.0.1',
+        BODY_SIZE_LIMIT: '3M',
         ORIGIN: 'http://127.0.0.1:4173',
         PORT: '4173',
         WEB_ORIGIN: 'http://127.0.0.1:4173',

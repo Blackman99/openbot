@@ -2,6 +2,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { BotApiClient } from '../../src/lib/server/bot-api.js';
 import { bot, input, summary, token, workspace } from '../fixtures/bots.js';
 describe('Bot API client', () => {
+  it('accepts a scoped avatar version only for inspectable Bots and rejects mismatched avatar pointers', async () => {
+    const objectId = 'b781b698-0122-4b2d-92bf-0036b947b188';
+    const value = {
+      ...bot,
+      avatarVersionId: bot.currentVersion.id,
+      currentVersion: {
+        ...bot.currentVersion,
+        configuration: { ...bot.currentVersion.configuration, avatarObjectId: objectId },
+      },
+    };
+    const request = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ bot: value }))
+      .mockResolvedValueOnce(
+        Response.json({ bots: [{ ...summary, avatarVersionId: value.avatarVersionId }] }),
+      )
+      .mockResolvedValueOnce(Response.json({ bot: { ...value, avatarVersionId: objectId } }))
+      .mockResolvedValueOnce(
+        Response.json({
+          bots: [
+            {
+              ...summary,
+              visibility: 'workspace',
+              accessRole: null,
+              avatarVersionId: value.avatarVersionId,
+            },
+          ],
+        }),
+      );
+    const client = new BotApiClient(request, 'http://api:3001', 'http://localhost:3000');
+    expect(await client.get(token, workspace.id, bot.id)).toEqual({ status: 'available', value });
+    expect(await client.list(token, workspace.id)).toMatchObject({
+      status: 'available',
+      value: [{ avatarVersionId: value.avatarVersionId }],
+    });
+    expect(await client.get(token, workspace.id, bot.id)).toEqual({ status: 'unavailable' });
+    expect(await client.list(token, workspace.id)).toEqual({ status: 'unavailable' });
+  });
   it('creates a private owned version and reads scoped summaries and detail without leaking transport data', async () => {
     const request = vi
       .fn<typeof fetch>()

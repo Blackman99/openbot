@@ -17,6 +17,7 @@ describe('readApiConfig', () => {
       database: {
         connectionString: 'postgresql://openbot:openbot@localhost:5432/openbot',
       },
+      objectStorage: { backend: 'local', rootDirectory: '/var/lib/openbot/objects' },
       databaseConnectionTimeoutMs: 250,
       databaseQueryTimeoutMs: 1_000,
       host: '127.0.0.1',

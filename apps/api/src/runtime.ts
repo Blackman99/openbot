@@ -1,3 +1,7 @@
+import { BotAvatarService } from './bots/avatar-service.js';
+import { startAvatarCleanup } from './bots/avatar-cleanup.js';
+import { createObjectStore, type ObjectStorageConfig } from './objects/config.js';
+import { S3ObjectStore } from './objects/s3-store.js';
 import { BotService } from './bots/service.js';
 import { BotAclService } from './bots/acl-service.js';
 import { PostgresBotAclRepository } from './bots/postgres-bot-acl-repository.js';
@@ -39,6 +43,7 @@ import {
 const { Pool } = pg;
 
 export interface ProductionAppOptions {
+  objectStorage?: ObjectStorageConfig;
   oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
@@ -66,6 +71,10 @@ export function buildProductionApp(options: ProductionAppOptions) {
     },
   };
   const readiness = new PostgresReadinessProbe(database, MIGRATION_VERSIONS);
+  const objectStore = createObjectStore(
+    options.objectStorage ?? { backend: 'local', rootDirectory: '/var/lib/openbot/objects' },
+  );
+  const avatars = new BotAvatarService(pool, objectStore);
   const auth = new LocalAuthService(new PostgresAuthRepository(pool));
   const providerOptions = options.providers;
   const policy = providerOptions ? new ProviderUrlPolicy(providerOptions.network) : undefined;
@@ -89,6 +98,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   };
   const app = buildApp({
     auth,
+    avatars,
     bots: new BotService(new PostgresBotRepository(pool)),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     groups: new GroupService(new PostgresGroupRepository(pool)),
@@ -118,7 +128,16 @@ export function buildProductionApp(options: ProductionAppOptions) {
   pool.on('error', () => {
     app.log.error('Idle PostgreSQL connection failed');
   });
+  let stopCleanup: (() => Promise<void>) | undefined;
+  app.addHook('onReady', async () => {
+    stopCleanup = startAvatarCleanup(
+      () => avatars.cleanup(5),
+      () => app.log.error('Avatar object cleanup failed'),
+    );
+  });
   app.addHook('onClose', async () => {
+    await stopCleanup?.();
+    if (objectStore instanceof S3ObjectStore) objectStore.destroy();
     await pool.end();
   });
 

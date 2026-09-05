@@ -20,6 +20,7 @@ export interface BotBinding {
   modelId: string;
 }
 export interface BotConfiguration {
+  avatarObjectId?: string | null;
   name: string;
   roleDescription: string;
   description: string;
@@ -28,6 +29,7 @@ export interface BotConfiguration {
   limits: BotLimits;
 }
 export interface BotSummary {
+  avatarVersionId?: string;
   id: string;
   workspaceId: string;
   visibility: 'private' | 'workspace';

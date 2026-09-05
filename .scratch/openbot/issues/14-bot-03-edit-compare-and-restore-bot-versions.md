@@ -2,7 +2,7 @@
 sequence: 14
 id: BOT-03
 title: "Edit, compare, and restore bot versions"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-01
   - BOT-02

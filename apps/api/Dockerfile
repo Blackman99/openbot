@@ -26,6 +26,8 @@ COPY --from=build --chown=node:node /runtime/package.json ./package.json
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/api/dist ./dist
 
+RUN mkdir -p /var/lib/openbot/objects && chown node:node /var/lib/openbot/objects && chmod 0700 /var/lib/openbot/objects
+
 USER node
 
 EXPOSE 3001

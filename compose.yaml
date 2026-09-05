@@ -71,6 +71,14 @@ services:
     environment:
       API_HOST: 0.0.0.0
       API_PORT: 3001
+      OBJECT_STORAGE_BACKEND: ${OBJECT_STORAGE_BACKEND:-local}
+      OBJECT_STORAGE_LOCAL_PATH: /var/lib/openbot/objects
+      OBJECT_STORAGE_S3_ENDPOINT: ${OBJECT_STORAGE_S3_ENDPOINT:-}
+      OBJECT_STORAGE_S3_BUCKET: ${OBJECT_STORAGE_S3_BUCKET:-}
+      OBJECT_STORAGE_S3_REGION: ${OBJECT_STORAGE_S3_REGION:-us-east-1}
+      OBJECT_STORAGE_S3_ACCESS_KEY_ID: ${OBJECT_STORAGE_S3_ACCESS_KEY_ID:-}
+      OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_S3_SECRET_ACCESS_KEY:-}
+      OBJECT_STORAGE_S3_SESSION_TOKEN: ${OBJECT_STORAGE_S3_SESSION_TOKEN:-}
       DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-1000}
       DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-1000}
       OPENBOT_SETUP_TOKEN: ${OPENBOT_SETUP_TOKEN:?set OPENBOT_SETUP_TOKEN in .env}
@@ -93,6 +101,8 @@ services:
       migrate:
         condition: service_completed_successfully
     networks: [data, frontend]
+    volumes:
+      - object-data:/var/lib/openbot/objects
     init: true
     read_only: true
     cap_drop: [ALL]
@@ -117,6 +127,7 @@ services:
     environment:
       API_BASE_URL: http://api:3001
       HOST: 0.0.0.0
+      BODY_SIZE_LIMIT: 3M
       ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       PORT: 3000
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
@@ -143,6 +154,7 @@ services:
       retries: 20
 
 volumes:
+  object-data:
   postgres-data:
 
 networks:

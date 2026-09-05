@@ -30,6 +30,15 @@ describe('repository contract', () => {
     );
 
     expect(environment).toEqual({
+      OBJECT_STORAGE_BACKEND: 'local',
+      OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
+      OBJECT_STORAGE_S3_ENDPOINT: '',
+      OBJECT_STORAGE_S3_BUCKET: '',
+      OBJECT_STORAGE_S3_REGION: 'us-east-1',
+      OBJECT_STORAGE_S3_ACCESS_KEY_ID: '',
+      OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: '',
+      OBJECT_STORAGE_S3_SESSION_TOKEN: '',
+      BODY_SIZE_LIMIT: '3M',
       OIDC_ISSUER_URL: '',
       OIDC_CLIENT_ID: '',
       OIDC_CLIENT_SECRET: '',

@@ -147,6 +147,82 @@ jobs:
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bots-runtime.test.ts
       # Each suite closes its pools before the next one reprovisions the fixed role.
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-acl-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-avatars-runtime.test.ts
+
+  object-storage:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TEST_S3_BUCKET: openbot-avatars-ci
+      TEST_S3_REGION: us-east-1
+      TEST_S3_ACCESS_KEY_ID: openbot-ci
+      TEST_S3_SECRET_ACCESS_KEY: ci-only-object-password
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start the isolated S3-compatible test service
+        run: |
+          # Fixed upstream image, used only as this disposable loopback CI fixture.
+          docker run --detach --name openbot-s3-ci \
+            --publish 127.0.0.1:9000:9000 \
+            --env MINIO_ROOT_USER="$TEST_S3_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$TEST_S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data --console-address :9001
+          ready=false
+          for attempt in $(seq 1 30); do
+            # This probe checks write quorum; /ready alone only checks liveness.
+            if curl --fail --silent --output /dev/null --connect-timeout 2 --max-time 3 \
+              "$TEST_S3_ENDPOINT/minio/health/cluster"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo 'S3 test service did not become ready.' >&2
+            exit 1
+          fi
+      - name: Create the private test bucket
+        run: |
+          pnpm --filter @openbot/api exec node --input-type=module <<'NODE'
+          import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
+          const client = new S3Client({
+            endpoint: process.env.TEST_S3_ENDPOINT,
+            region: process.env.TEST_S3_REGION,
+            forcePathStyle: true,
+            maxAttempts: 1,
+            credentials: {
+              accessKeyId: process.env.TEST_S3_ACCESS_KEY_ID,
+              secretAccessKey: process.env.TEST_S3_SECRET_ACCESS_KEY,
+            },
+          });
+          const options = { abortSignal: AbortSignal.timeout(10000) };
+          const input = { Bucket: process.env.TEST_S3_BUCKET };
+          try {
+            await client.send(new CreateBucketCommand(input), options);
+            await client.send(new HeadBucketCommand(input), options);
+          } catch {
+            throw new Error('Unable to initialize the private S3 test bucket.');
+          } finally {
+            client.destroy();
+          }
+          NODE
+      - name: Verify local and real S3 object-storage contracts
+        run: pnpm --filter @openbot/api exec vitest run tests/integration/local-object-store.test.ts tests/s3/object-store.test.ts --maxWorkers=1
+      - name: Collect S3 fixture failure logs
+        if: failure()
+        run: docker logs openbot-s3-ci
+      - name: Remove the disposable S3 fixture
+        if: always()
+        run: docker rm --force --volumes openbot-s3-ci
 
   compose:
     needs: code
@@ -187,7 +263,23 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects'
+
+          # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
+          docker compose exec -T api node --input-type=module <<'JS'
+          import sharp from 'sharp';
+          import { stat } from 'node:fs/promises';
+          import { randomUUID } from 'node:crypto';
+          import { LocalObjectStore } from './dist/objects/local-store.js';
+          const store = new LocalObjectStore('/var/lib/openbot/objects');
+          const key = { workspaceId: randomUUID(), objectId: randomUUID() };
+          const bytes = await sharp({create:{width:1,height:1,channels:3,background:'red'}}).png().toBuffer();
+          await store.save(key, bytes);
+          if (!(await store.read(key, 2097152)).equals(bytes)) throw new Error('avatar volume roundtrip failed');
+          const info = await stat('/var/lib/openbot/objects');
+          if ((info.mode & 0o777) !== 0o700 || info.uid !== process.getuid()) throw new Error('avatar volume privacy failed');
+          await store.delete(key);
+          JS
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
