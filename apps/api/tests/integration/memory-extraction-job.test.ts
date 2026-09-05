@@ -4,6 +4,7 @@ import { memoryFixture } from '../helpers/memory-fixture.js';
 import { TaskService } from '../../src/tasks/service.js';
 import { TaskQueue } from '../../src/tasks/queue.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
+import { ExtractionWorker } from '../../src/memories/extraction-worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import {
   LOCAL_EXTRACTOR_VERSION,
@@ -216,6 +217,48 @@ describe('successful-Run extraction enqueue', () => {
       { run_id: first.claim!.runId, status: 'completed' },
       { run_id: later.runs[0]!.id, status: 'completed' },
     ]);
+  });
+
+  it('lets only one leftover extraction produce a candidate when two workers race', async () => {
+    const f = await taskFixture(cleanup);
+    const queue = new TaskQueue(f.pool);
+    const first = await queue.claimNext();
+    expect(first.claim).toBeDefined();
+    expect(
+      await queue.finish(first.claim!, {
+        body: 'Remember: dual worker evidence.',
+        usage: null,
+      }),
+    ).toBe(true);
+    expect(
+      (
+        await f.pool.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+          first.claim!.runId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'queued' }]);
+    const raced = await Promise.all([
+      new ExtractionWorker(f.pool).runOnce(),
+      new ExtractionWorker(f.pool).runOnce(),
+    ]);
+    expect(raced.some(Boolean)).toBe(true);
+    expect(
+      (
+        await f.pool.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+          first.claim!.runId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'completed' }]);
+    expect(
+      (
+        await f.pool.query(
+          `SELECT c.status,r.body FROM memory_candidates c
+           JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+           WHERE c.run_id=$1`,
+          [first.claim!.runId],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending', body: 'dual worker evidence.' }]);
   });
 
   it('does not enqueue an extraction job when the Run fails', async () => {

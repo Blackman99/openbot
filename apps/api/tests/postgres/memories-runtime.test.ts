@@ -36,6 +36,7 @@ import { ProviderConnections } from '../../src/providers/connections.js';
 import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { ProviderUrlPolicy } from '../../src/providers/url-policy.js';
+import { ExtractionWorker } from '../../src/memories/extraction-worker.js';
 import { TaskQueue, type TaskClaim } from '../../src/tasks/queue.js';
 import { TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
@@ -1530,5 +1531,44 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       ).rows,
     ).toEqual([]);
     expect(otherExec.task.id).toBeTruthy();
+  });
+  it('lets only one native extraction worker complete a leftover job and candidate', async () => {
+    const f = await fixture();
+    await execution(f);
+    const queue = new TaskQueue(runtime);
+    const claim = (await queue.claimNext()).claim!;
+    expect(claim).toBeDefined();
+    expect(
+      await queue.finish(claim, { body: 'Remember: native dual worker evidence.', usage: null }),
+    ).toBe(true);
+    expect(
+      (
+        await admin.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+          claim.runId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'queued' }]);
+    const raced = await Promise.all([
+      new ExtractionWorker(runtime).runOnce(),
+      new ExtractionWorker(runtime).runOnce(),
+    ]);
+    expect(raced.some(Boolean)).toBe(true);
+    expect(
+      (
+        await admin.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+          claim.runId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'completed' }]);
+    expect(
+      (
+        await admin.query(
+          `SELECT c.status,r.body FROM memory_candidates c
+           JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+           WHERE c.run_id=$1`,
+          [claim.runId],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending', body: 'native dual worker evidence.' }]);
   });
 });
