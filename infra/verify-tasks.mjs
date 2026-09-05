@@ -184,6 +184,43 @@ try {
         { prompt: 'compose-transient', modelId: 'compose-model' },
         { prompt: 'compose-transient', modelId: 'compose-fallback-model' },
       ]);
+      stage = 'local extraction does not add a provider call';
+      const beforeExtract = (await stats()).calls;
+      const extracted = await request(retryPath, {
+        cookie,
+        method: 'POST',
+        body: { idempotencyKey: 'compose-remember', body: 'compose-remember' },
+      });
+      assert.equal(extracted.response.status, 202);
+      await until(async () => (await readRetry(extracted.value.task.id)).status === 'completed');
+      const extractedRunId = (await readRetry(extracted.value.task.id)).runs[0].id;
+      await until(async () => {
+        const job = (
+          await pool.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [
+            extractedRunId,
+          ])
+        ).rows[0];
+        return job?.status === 'completed';
+      });
+      assert.deepEqual(
+        (
+          await pool.query(
+            `SELECT c.status,r.body
+             FROM memory_candidates c
+             JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+             WHERE c.run_id=$1`,
+            [extractedRunId],
+          )
+        ).rows,
+        [{ status: 'pending', body: 'keep the compose evidence.' }],
+      );
+      const afterExtract = (await stats()).calls;
+      assert.deepEqual(afterExtract, [
+        ...beforeExtract,
+        { prompt: 'compose-remember', modelId: 'compose-model' },
+      ]);
+      await setTimeout(500);
+      assert.deepEqual((await stats()).calls, afterExtract);
     }
   } else if (mode === 'seed') {
     stage = 'configured provider and durable submission with idle worker';

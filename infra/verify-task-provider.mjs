@@ -59,6 +59,11 @@ const server = createServer(async (request, response) => {
       complete(response, 'Fallback after waiting.');
       return;
     }
+    if (prompt === 'compose-remember') {
+      calls.push({ prompt, modelId: input.model });
+      complete(response, 'Remember: keep the compose evidence.');
+      return;
+    }
     if (prompt === 'compose-success' || prompt === 'compose-failure') {
       calls.push({ prompt, modelId: input.model });
       if (prompt === 'compose-failure') {

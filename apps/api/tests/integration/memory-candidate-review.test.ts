@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { memoryFixture } from '../helpers/memory-fixture.js';
+import { AttachmentService } from '../../src/attachments/service.js';
 import { TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
@@ -526,6 +527,75 @@ describe('candidate review inbox', () => {
     );
     expect(
       (await base.memories.list(groupAccess, { query: 'tombstone must hide' }, true)).memories,
+    ).toEqual([]);
+  });
+
+  it('drops an approved fact after a bound source purge', async () => {
+    const base = await memoryFixture(cleanup);
+    const objects = new Map<string, Buffer>();
+    const attachments = new AttachmentService(base.pool, {
+      identity: 'test-review-objects',
+      save: async (key, bytes) => {
+        objects.set(key.objectId, Buffer.from(bytes));
+      },
+      read: async (key) => objects.get(key.objectId)!,
+      delete: async (key) => {
+        objects.delete(key.objectId);
+      },
+    });
+    const bytes = Buffer.from('Bound attachment source');
+    const uploaded = await attachments.upload(
+      {
+        actorUserId: base.owner.user.id,
+        workspaceId: base.owner.workspace.id,
+        conversationId: base.conversation.id,
+      },
+      {
+        body: 'Bound attachment source',
+        idempotencyKey: 'review-upload',
+        filename: 'source.txt',
+        mediaType: 'text/plain',
+        bytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      },
+      bytes,
+    );
+    const { candidateId, revision } = await extractedGroupCandidate(
+      base,
+      'Remember: purge must hide the fact.',
+      'purge',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: revision,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.6,
+      idempotencyKey: 'approve-purge',
+    });
+    const groupAccess = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      groupId: base.group.id,
+    };
+    expect(
+      (await base.memories.list(groupAccess, { query: 'purge must hide' }, true)).memories,
+    ).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'purge must hide the fact.' }),
+    ]);
+    await attachments.purge(
+      {
+        actorUserId: base.owner.user.id,
+        workspaceId: base.owner.workspace.id,
+        conversationId: base.conversation.id,
+      },
+      uploaded.messageId,
+    );
+    expect(
+      (await base.memories.list(groupAccess, { query: 'purge must hide' }, true)).memories,
     ).toEqual([]);
   });
 

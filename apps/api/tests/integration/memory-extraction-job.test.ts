@@ -233,6 +233,36 @@ describe('successful-Run extraction enqueue', () => {
     expect((await f.pool.query('SELECT run_id FROM memory_extraction_jobs')).rows).toEqual([]);
   });
 
+  it('extracts pending candidates without a second provider generation', async () => {
+    const f = await taskFixture(cleanup);
+    let generations = 0;
+    const worker = f.worker(async () => {
+      generations += 1;
+      return {
+        events: [
+          { type: 'text', text: 'Remember: keep the local evidence.' },
+          { type: 'complete', stopReason: 'stop' },
+        ],
+        raw: '',
+      };
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(generations).toBe(1);
+    expect(await worker.runOnce()).toBe(false);
+    expect(generations).toBe(1);
+    const completed = await f.read();
+    expect(
+      (
+        await f.pool.query(
+          `SELECT c.status,r.body FROM memory_candidates c
+           JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+           WHERE c.run_id=$1`,
+          [completed.runs[0]!.id],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending', body: 'keep the local evidence.' }]);
+  });
+
   it('keeps pending candidates out of group memory search', async () => {
     const base = await memoryFixture(cleanup);
     const grant = await base.grants.invite(
