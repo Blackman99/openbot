@@ -1,10 +1,13 @@
 # OpenBot
 
 OpenBot is an AGPL-licensed, self-hosted multi-bot collaboration system. The current
-implementation includes the deployable foundation, local-owner authentication, and isolated
-workspaces with creation, switching, settings, and audit records: a SvelteKit web app, a Fastify
+implementation includes local and optional OIDC authentication, workspace membership, groups,
+scoped API tokens, and persistent Bot identities: a SvelteKit web app, a Fastify
 API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat Completions, Responses, and Anthropic Messages-compatible
 model connections support credential-safe settings and live text/action compatibility probes.
+
+Workspace model connections support shared use without sharing credentials. Capability settings
+record verified evidence, explicit overrides, and compatible fallback chains.
 
 The approved implementation backlog lives in
 [`.scratch/openbot/issues/`](.scratch/openbot/issues/README.md).
@@ -125,6 +128,14 @@ API keys and all custom header values use AES-256-GCM encryption with per-save r
 owner/connection binding. Reads expose only configured markers and header names. Personal
 connections are available exclusively to their owner. The authenticated API is rooted at
 `/api/v1/model-connections`; mutations require the configured web Origin and a session cookie.
+
+## Bot identities
+
+Select **Bots** in a workspace to create a private Bot with a name, role, description,
+instructions, an available model, and default execution limits. Creation records immutable
+version 1 and makes the creator its owner. The detail page shows the saved configuration and
+the model's current availability. Basic-only models are labeled chat-only. Workspace
+administration does not grant access to another user's private Bot.
 
 ## Local development
 

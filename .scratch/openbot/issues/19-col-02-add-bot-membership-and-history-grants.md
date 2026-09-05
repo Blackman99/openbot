@@ -6,6 +6,7 @@ status: blocked
 blocked_by:
   - COL-01
   - BOT-04
+  - COL-03
 labels:
   - area:collaboration
   - area:groups
@@ -24,6 +25,7 @@ Authorized users can add or remove Bots with auditable future-only, since, or al
 
 - [COL-01](18-col-01-add-group-lifecycle-and-human-membership.md)
 - [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md)
+- [COL-03](20-col-03-store-conversations-in-an-immutable-event-ledger.md)
 
 ## Acceptance criteria
 
@@ -40,3 +42,7 @@ Authorized users can add or remove Bots with auditable future-only, since, or al
 - Cross-group memory sharing
 - Bot ownership and ACL changes
 - Unlimited Bot membership
+
+## Discovered implementation dependency
+
+COL-02 joins, removals and history boundaries consume the single COL-03 ledger/sequence allocator. The explicit COL-03 prerequisite avoids provisional timestamps, duplicate counters and unreviewed ledger fragments. It introduces no cycle and changes no acceptance criterion; ticket sequence identifiers stay stable. Follow [the ledger contract](../CONVERSATION-LEDGER-CONTRACT.md).

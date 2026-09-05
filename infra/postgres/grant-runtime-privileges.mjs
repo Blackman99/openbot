@@ -152,6 +152,8 @@ try {
     REVOKE ALL ON audit_events FROM openbot_runtime;
     REVOKE ALL ON FUNCTION reject_audit_event_mutation() FROM PUBLIC;
     REVOKE ALL ON FUNCTION reject_audit_event_mutation() FROM openbot_runtime;
+    REVOKE ALL ON FUNCTION reject_bot_version_mutation() FROM PUBLIC;
+    REVOKE ALL ON FUNCTION reject_bot_version_mutation() FROM openbot_runtime;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -163,12 +165,16 @@ try {
       workspace_invitations,
       groups,
       group_memberships,
+      bots,
+      bot_versions,
+      bot_acl,
       instance_claims,
       sessions
     TO openbot_runtime;
     GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime;
     GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime;
     GRANT UPDATE (name, description) ON workspaces TO openbot_runtime;
+    GRANT UPDATE (current_version_id) ON bots TO openbot_runtime;
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;
     GRANT UPDATE (role) ON group_memberships TO openbot_runtime;

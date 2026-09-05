@@ -2,7 +2,7 @@
 sequence: 20
 id: COL-03
 title: "Store conversations in an immutable event ledger"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-01
   - BOT-01
@@ -39,3 +39,7 @@ Group and direct-Bot conversations support idempotent writes, stable ordering, v
 - Memory extraction and knowledge promotion
 - Full-text and vector retrieval
 - Real-time event delivery
+
+## Implementation contract
+
+Follow [CONVERSATION-LEDGER-CONTRACT](../CONVERSATION-LEDGER-CONTRACT.md) for direct-thread privacy, current permissions, idempotency/CAS, creation-horizon pagination with current projections, and the shared transaction-owned sequence allocator. COL-02 is an explicit downstream consumer; no temporary second ledger is needed.

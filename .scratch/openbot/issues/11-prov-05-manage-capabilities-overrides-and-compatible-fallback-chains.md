@@ -2,7 +2,7 @@
 sequence: 11
 id: PROV-05
 title: "Manage capabilities, overrides, and compatible fallback chains"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - PROV-02
   - PROV-03
@@ -72,3 +72,7 @@ regressions, independent review evidence and integration seams, and
 ## Integrated gate
 
 Integrated075a191 with the reviewed group CI response-contract fix85f8686. Full verification passed539 unit/integration tests (77 API unit,27 Web unit,204 API integration,231 Web integration),14 ordinary browsers and one real signed-IdP journey, formatting/types with zero Web warnings, and both builds. Root independently reviewed the additive fixture registration, ordered0011 ledger and narrow policy grants. Actual PROV-05-E1 remains an explicit REL-01 gate.
+
+## Closed external evidence — PROV-05-E1
+
+PROV-05-E1 closed by [Verify33945439831](https://github.com/Blackman99/openbot/actions/runs/33945439831), all five jobs successful on remote `4429ccdc8a61d6771b954c70dc0d6a1ab7b43873`, completed2026-09-05 at04:49:16 UTC. Published tree514ec8f9b70b5a760154171957ba566b0bf28242 exactly matches localf3d3671. The run passed539 code tests,14 ordinary browser scenarios plus one signed-IdP journey,16 auth/invitation/member/OIDC/group/token PostgreSQL cases,5 restricted provider cases, the separate OIDC privilege case and the complete fresh/upgrade/runtime-role/application/outage Compose flow.

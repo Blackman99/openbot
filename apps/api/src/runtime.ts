@@ -1,3 +1,5 @@
+import { BotService } from './bots/service.js';
+import { PostgresBotRepository } from './bots/postgres-bot-repository.js';
 import { OpenIdProvider } from './oidc/provider.js';
 import { PostgresOidcRepository } from './oidc/postgres-repository.js';
 import { OidcService } from './oidc/service.js';
@@ -85,6 +87,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   };
   const app = buildApp({
     auth,
+    bots: new BotService(new PostgresBotRepository(pool)),
     groups: new GroupService(new PostgresGroupRepository(pool)),
     apiTokens: new ApiTokenService(new PostgresApiTokenRepository(pool)),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),

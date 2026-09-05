@@ -1,3 +1,4 @@
+import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
 import {
   PERSONAL_MODEL_CONNECTION_STATEMENTS,
@@ -204,6 +205,11 @@ const MIGRATIONS = [
       "ALTER TABLE workspace_model_connections ADD COLUMN policy JSONB NOT NULL DEFAULT '{}'::jsonb",
     ],
     postgresStatements: [],
+  },
+  {
+    version: '0012_bot_identity',
+    statements: BOT_SCHEMA_STATEMENTS,
+    postgresStatements: BOT_POSTGRES_GUARD_STATEMENTS,
   },
 ] as const;
 

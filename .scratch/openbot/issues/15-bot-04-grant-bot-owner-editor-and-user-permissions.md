@@ -2,7 +2,7 @@
 sequence: 15
 id: BOT-04
 title: "Grant bot owner, editor, and user permissions"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-01
   - WS-03

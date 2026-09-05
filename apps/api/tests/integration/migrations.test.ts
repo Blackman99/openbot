@@ -45,6 +45,7 @@ describe('database migrations', () => {
       '0009_groups_and_human_memberships',
       '0010_scoped_api_tokens',
       '0011_model_capability_policies',
+      '0012_bot_identity',
     ]);
 
     const database: DatabaseClient = {
@@ -81,6 +82,9 @@ describe('database migrations', () => {
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
       'api_tokens',
       'audit_events',
+      'bot_acl',
+      'bot_versions',
+      'bots',
       'group_memberships',
       'groups',
       'instance_claims',
@@ -107,7 +111,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0011_model_capability_policies' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0012_bot_identity' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -280,5 +284,27 @@ describe('database migrations', () => {
         )
       ).rows,
     ).toEqual([{ invitation_id: invitationId }]);
+  });
+  it('does not record the Bot migration when installing its native same-Bot pointer constraint fails', async () => {
+    const statements: string[] = [];
+    const connection = {
+      query: async (statement: string) => {
+        statements.push(statement);
+        if (statement.includes('ADD CONSTRAINT bots_current_version_same_bot'))
+          throw new Error('native constraint installation failed');
+        return statement.startsWith('SELECT version FROM openbot_schema_migrations')
+          ? { rows: MIGRATION_VERSIONS.slice(0, -1).map((version) => ({ version })) }
+          : { rows: [] };
+      },
+      release: () => undefined,
+    };
+    await expect(migrateDatabase({ connect: async () => connection })).rejects.toThrow(
+      'native constraint installation failed',
+    );
+    expect(statements.at(-1)).toBe('ROLLBACK');
+    expect(statements).not.toContain('COMMIT');
+    expect(
+      statements.some((statement) => statement.startsWith('INSERT INTO openbot_schema_migrations')),
+    ).toBe(false);
   });
 });

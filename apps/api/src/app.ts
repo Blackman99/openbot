@@ -1,3 +1,5 @@
+import { registerBotRoutes } from './bots/routes.js';
+import type { BotService } from './bots/service.js';
 import { registerOidcRoutes } from './oidc/routes.js';
 import type { OidcService } from './oidc/service.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -44,6 +46,7 @@ export interface BuildAppOptions {
   workspaces?: WorkspaceService;
   members?: WorkspaceMemberService;
   groups?: GroupService;
+  bots?: BotService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -134,6 +137,7 @@ export function buildApp({
   workspaces,
   members,
   groups,
+  bots,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger:
@@ -176,6 +180,7 @@ export function buildApp({
 
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
+    if (bots) registerBotRoutes(app, auth, bots, webOrigin);
     if (groups) registerGroupRoutes(app, auth, groups, webOrigin);
     if (apiTokens) registerApiTokenRoutes(app, auth, apiTokens, webOrigin);
     if (members) registerWorkspaceMemberRoutes(app, auth, members, webOrigin);

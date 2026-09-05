@@ -4,9 +4,10 @@ import { expect, it, vi } from 'vitest';
 import { ApiTokenApiClient } from '../../../web/src/lib/server/api-token-api.js';
 import { MemberApiClient } from '../../../web/src/lib/server/member-api.js';
 import { InvitationApiClient } from '../../../web/src/lib/server/invitation-api.js';
+import { BotApiClient } from '../../../web/src/lib/server/bot-api.js';
 import { GroupApiClient } from '../../../web/src/lib/server/group-api.js';
 
-it.each(['members', 'invitations', 'groups', 'api-tokens'] as const)(
+it.each(['members', 'invitations', 'groups', 'api-tokens', 'bots'] as const)(
   'keeps the %s client deadline active while a real HTTP response body stalls',
   async (resource) => {
     const server = createServer((_request, response) => {
@@ -36,12 +37,14 @@ it.each(['members', 'invitations', 'groups', 'api-tokens'] as const)(
           ? GroupApiClient
           : resource === 'invitations'
             ? InvitationApiClient
-            : ApiTokenApiClient;
+            : resource === 'bots'
+              ? BotApiClient
+              : ApiTokenApiClient;
     const pending = new Client(
       request,
       `http://127.0.0.1:${address.port}`,
       'http://localhost:3000',
-    ).list('a'.repeat(43), 'workspace-id');
+    ).list('a'.repeat(43), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([

@@ -1,0 +1,328 @@
+import { SESSION_COOKIE_NAME } from './auth-api.js';
+export type BotScope = { kind: 'personal' | 'workspace'; id: string };
+export interface BotLimits {
+  maxTotalTokens: number;
+  maxDurationSeconds: number;
+  maxTurns: number;
+  maxDelegationDepth: number;
+}
+export interface BotConfiguration {
+  name: string;
+  roleDescription: string;
+  description: string;
+  instructions: string;
+  modelBinding: { scope: BotScope; connectionId: string; modelId: string };
+  limits: BotLimits;
+}
+export type BotInput = Omit<BotConfiguration, 'description' | 'limits'> & {
+  description?: string;
+  limits?: Partial<BotLimits>;
+};
+export type BindingUnavailableReason =
+  'disabled' | 'binding-changed' | 'capability-unavailable' | 'not-accessible';
+export type BindingStatus =
+  | { state: 'ready'; chatOnly: boolean }
+  | { state: 'unavailable'; reason: BindingUnavailableReason };
+export interface BotSummary {
+  id: string;
+  workspaceId: string;
+  visibility: 'private' | 'workspace';
+  accessRole: 'owner' | 'editor' | 'user' | null;
+  name: string;
+  roleDescription: string;
+  description: string;
+  bindingStatus: BindingStatus;
+}
+export interface BotDetail extends BotSummary {
+  currentVersion: {
+    id: string;
+    number: number;
+    author: { id: string; displayName: string };
+    createdAt: string;
+    rationale: string;
+    configuration: BotConfiguration;
+  };
+}
+export type BotResult<T> =
+  | { status: 'available'; value: T }
+  | { status: 'anonymous' | 'forbidden' | 'invalid' | 'unavailable' }
+  | { status: 'model-unavailable'; reason: BindingUnavailableReason };
+export function isBotUuid(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(value)
+  );
+}
+function keys(value: unknown, expected: string): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).sort().join(',') === expected
+  );
+}
+function bounded(value: unknown, min: number, max: number): value is string {
+  return typeof value === 'string' && value.trim().length >= min && value.length <= max;
+}
+function integer(value: unknown, min: number, max: number): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
+}
+function reason(value: unknown): value is BindingUnavailableReason {
+  return (
+    value === 'disabled' ||
+    value === 'binding-changed' ||
+    value === 'capability-unavailable' ||
+    value === 'not-accessible'
+  );
+}
+function bindingStatus(value: unknown): BindingStatus | undefined {
+  if (
+    keys(value, 'chatOnly,state') &&
+    value.state === 'ready' &&
+    typeof value.chatOnly === 'boolean'
+  )
+    return { state: 'ready', chatOnly: value.chatOnly };
+  if (keys(value, 'reason,state') && value.state === 'unavailable' && reason(value.reason))
+    return { state: 'unavailable', reason: value.reason };
+  return undefined;
+}
+function configuration(value: unknown, workspaceId: string): BotConfiguration | undefined {
+  if (
+    !keys(value, 'description,instructions,limits,modelBinding,name,roleDescription') ||
+    !bounded(value.name, 1, 100) ||
+    !bounded(value.roleDescription, 1, 200) ||
+    !bounded(value.description, 0, 2000) ||
+    !bounded(value.instructions, 1, 32000) ||
+    !keys(value.modelBinding, 'connectionId,modelId,scope') ||
+    !keys(value.modelBinding.scope, 'id,kind') ||
+    !isBotUuid(value.modelBinding.scope.id) ||
+    (value.modelBinding.scope.kind !== 'workspace' &&
+      value.modelBinding.scope.kind !== 'personal') ||
+    (value.modelBinding.scope.kind === 'workspace' &&
+      value.modelBinding.scope.id.toLowerCase() !== workspaceId) ||
+    !isBotUuid(value.modelBinding.connectionId) ||
+    !bounded(value.modelBinding.modelId, 1, 256) ||
+    !keys(value.limits, 'maxDelegationDepth,maxDurationSeconds,maxTotalTokens,maxTurns') ||
+    !integer(value.limits.maxTotalTokens, 1, 1000000) ||
+    !integer(value.limits.maxDurationSeconds, 1, 3600) ||
+    !integer(value.limits.maxTurns, 1, 100) ||
+    !integer(value.limits.maxDelegationDepth, 0, 8)
+  )
+    return undefined;
+  return {
+    name: value.name,
+    roleDescription: value.roleDescription,
+    description: value.description,
+    instructions: value.instructions,
+    modelBinding: {
+      scope: { kind: value.modelBinding.scope.kind, id: value.modelBinding.scope.id.toLowerCase() },
+      connectionId: value.modelBinding.connectionId.toLowerCase(),
+      modelId: value.modelBinding.modelId,
+    },
+    limits: {
+      maxTotalTokens: value.limits.maxTotalTokens,
+      maxDurationSeconds: value.limits.maxDurationSeconds,
+      maxTurns: value.limits.maxTurns,
+      maxDelegationDepth: value.limits.maxDelegationDepth,
+    },
+  };
+}
+function parseBot(
+  value: unknown,
+  workspaceId: string,
+  detail: boolean,
+): BotSummary | BotDetail | undefined {
+  const baseKeys =
+    'accessRole,bindingStatus,description,id,name,roleDescription,visibility,workspaceId';
+  const hasVersion =
+    detail &&
+    keys(
+      value,
+      'accessRole,bindingStatus,currentVersion,description,id,name,roleDescription,visibility,workspaceId',
+    );
+  if (
+    (!keys(value, baseKeys) && !hasVersion) ||
+    !isBotUuid(value.id) ||
+    !isBotUuid(value.workspaceId) ||
+    value.workspaceId.toLowerCase() !== workspaceId.toLowerCase() ||
+    !bounded(value.name, 1, 100) ||
+    !bounded(value.roleDescription, 1, 200) ||
+    !bounded(value.description, 0, 2000) ||
+    (value.visibility !== 'private' && value.visibility !== 'workspace') ||
+    (value.accessRole !== null &&
+      value.accessRole !== 'owner' &&
+      value.accessRole !== 'editor' &&
+      value.accessRole !== 'user') ||
+    (value.visibility === 'private' && value.accessRole === null) ||
+    (detail && (value.accessRole !== null) !== hasVersion)
+  )
+    return undefined;
+  const status = bindingStatus(value.bindingStatus);
+  if (!status) return undefined;
+  const summary: BotSummary = {
+    id: value.id.toLowerCase(),
+    workspaceId: value.workspaceId.toLowerCase(),
+    name: value.name,
+    roleDescription: value.roleDescription,
+    description: value.description,
+    visibility: value.visibility,
+    accessRole: value.accessRole,
+    bindingStatus: status,
+  };
+  if (!hasVersion) return summary;
+  const version = value.currentVersion;
+  if (
+    !keys(version, 'author,configuration,createdAt,id,number,rationale') ||
+    !isBotUuid(version.id) ||
+    !integer(version.number, 1, Number.MAX_SAFE_INTEGER) ||
+    !keys(version.author, 'displayName,id') ||
+    !isBotUuid(version.author.id) ||
+    !bounded(version.author.displayName, 1, 200) ||
+    typeof version.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(version.createdAt)) ||
+    !bounded(version.rationale, 1, 2000)
+  )
+    return undefined;
+  const config = configuration(version.configuration, summary.workspaceId);
+  if (
+    !config ||
+    config.name !== summary.name ||
+    config.roleDescription !== summary.roleDescription ||
+    config.description !== summary.description
+  )
+    return undefined;
+  return {
+    ...summary,
+    currentVersion: {
+      id: version.id.toLowerCase(),
+      number: version.number,
+      author: { id: version.author.id.toLowerCase(), displayName: version.author.displayName },
+      createdAt: version.createdAt,
+      rationale: version.rationale,
+      configuration: config,
+    },
+  };
+}
+export function isBotDetail(bot: BotSummary | BotDetail): bot is BotDetail {
+  return 'currentVersion' in bot;
+}
+export class BotApiClient {
+  constructor(
+    private readonly request: typeof fetch,
+    private readonly baseUrl: string,
+    private readonly webOrigin: string,
+  ) {}
+  async create(
+    session: string | undefined,
+    workspaceId: string,
+    input: BotInput,
+  ): Promise<BotResult<BotDetail>> {
+    const result = await this.send(session, workspaceId, undefined, input);
+    if (result.status !== 'available') return result;
+    const bot = keys(result.value.payload, 'bot')
+      ? parseBot(result.value.payload.bot, workspaceId, true)
+      : undefined;
+    return result.value.status === 201 &&
+      bot &&
+      isBotDetail(bot) &&
+      bot.currentVersion.number === 1 &&
+      bot.accessRole === 'owner' &&
+      bot.visibility === 'private'
+      ? { status: 'available', value: bot }
+      : { status: 'unavailable' };
+  }
+  async list(session: string | undefined, workspaceId: string): Promise<BotResult<BotSummary[]>> {
+    const result = await this.send(session, workspaceId);
+    if (result.status !== 'available') return result;
+    if (
+      result.value.status !== 200 ||
+      !keys(result.value.payload, 'bots') ||
+      !Array.isArray(result.value.payload.bots)
+    )
+      return { status: 'unavailable' };
+    const bots: BotSummary[] = [];
+    const ids = new Set<string>();
+    for (const value of result.value.payload.bots) {
+      const bot = parseBot(value, workspaceId, false);
+      if (!bot || ids.has(bot.id)) return { status: 'unavailable' };
+      ids.add(bot.id);
+      bots.push(bot);
+    }
+    return { status: 'available', value: bots };
+  }
+  async get(
+    session: string | undefined,
+    workspaceId: string,
+    botId: string,
+  ): Promise<BotResult<BotSummary | BotDetail>> {
+    const result = await this.send(session, workspaceId, botId);
+    if (result.status !== 'available') return result;
+    const bot = keys(result.value.payload, 'bot')
+      ? parseBot(result.value.payload.bot, workspaceId, true)
+      : undefined;
+    return result.value.status === 200 && bot && bot.id === botId.toLowerCase()
+      ? { status: 'available', value: bot }
+      : { status: 'unavailable' };
+  }
+  private async send(
+    session: string | undefined,
+    workspaceId: string,
+    botId?: string,
+    input?: BotInput,
+  ): Promise<BotResult<{ status: number; payload: unknown }>> {
+    if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
+    if (!isBotUuid(workspaceId) || (botId !== undefined && !isBotUuid(botId)))
+      return { status: 'invalid' };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await this.request(
+        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${workspaceId.toLowerCase()}/bots${botId === undefined ? '' : `/${botId.toLowerCase()}`}`,
+        {
+          method: input === undefined ? 'GET' : 'POST',
+          headers: {
+            cookie: `${SESSION_COOKIE_NAME}=${session}`,
+            origin: new URL(this.webOrigin).origin,
+            ...(input === undefined ? {} : { 'content-type': 'application/json' }),
+          },
+          ...(input === undefined ? {} : { body: JSON.stringify(input) }),
+          signal: controller.signal,
+        },
+      );
+      if (response.status === 401) return { status: 'anonymous' };
+      const payload: unknown = await response.json();
+      if (keys(payload, 'error')) {
+        if (keys(payload.error, 'code')) {
+          if (
+            response.status === 403 &&
+            (payload.error.code === 'bot_forbidden' || payload.error.code === 'invalid_origin')
+          )
+            return { status: 'forbidden' };
+          if (response.status === 400 && payload.error.code === 'invalid_bot_request')
+            return { status: 'invalid' };
+        }
+        if (
+          response.status === 400 &&
+          keys(payload.error, 'code,reason') &&
+          payload.error.code === 'bot_model_unavailable' &&
+          reason(payload.error.reason)
+        )
+          return { status: 'model-unavailable', reason: payload.error.reason };
+      }
+      return response.ok
+        ? { status: 'available', value: { status: response.status, payload } }
+        : { status: 'unavailable' };
+    } catch {
+      return { status: 'unavailable' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+export function createBotApiClient(request: typeof fetch): BotApiClient {
+  return new BotApiClient(
+    request,
+    process.env.API_BASE_URL ?? 'http://localhost:3001',
+    process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+  );
+}

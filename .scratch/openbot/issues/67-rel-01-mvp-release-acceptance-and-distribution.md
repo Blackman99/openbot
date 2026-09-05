@@ -124,29 +124,40 @@ Integrated `3c515b6` passed 400 unit/integration tests, 10 ordinary browser scen
 
 PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/actions/runs/33943840316), all five jobs successful on remote `3f4e39145b4b3af53ed49c182eacaadb0144740c`, completed on 2026-09-05 at 04:12:53 UTC. All three restricted provider tests and the shared-role Compose assertions passed.
 
-## Open external gate — COL-01-E1
+## Closed external gate — COL-01-E1
 
-- [ ] Execute the three real PostgreSQL group concurrency/rollback cases, including current eligible-owner counts, waiting-actor authorization and atomic audit failures across group mutations.
-- [ ] Execute the deployed-role Compose group lifecycle: private/discoverable boundaries, explicit roles, immediate workspace-removal denial, retained-grant restoration by invitation, eligible-last-owner rejection, preserved authors and exact safe/no-op audits.
-- [ ] Verify exact group/group-membership table and column privileges and the ordered migration ledger through0009, with all earlier provider/auth/OIDC checks green.
+- [x] Execute the three real PostgreSQL group concurrency/rollback cases, including current eligible-owner counts, waiting-actor authorization and atomic audit failures across group mutations.
+- [x] Execute the deployed-role Compose group lifecycle: private/discoverable boundaries, explicit roles, immediate workspace-removal denial, retained-grant restoration by invitation, eligible-last-owner rejection, preserved authors and exact safe/no-op audits.
+- [x] Verify exact group/group-membership table and column privileges and the ordered migration ledger through0009, with all earlier provider/auth/OIDC checks green.
 
 Integrated `b7dc8fe` passed 445 unit/integration tests, 11 ordinary browser scenarios and one real signed-IdP journey, formatting, types and both builds. Both review axes are clean at e3677ad; root independently reviewed the new Compose lifecycle, nine expected group audits, privileges and historical migration fixture. Actual PostgreSQL/Compose remains pending on this revision; local fixtures are not external evidence.
 
 Verify33944259379 on remote c547c6c passed code, postgres-auth (including the three group cases), postgres-providers and postgres-oidc. Compose failed before group assertions in pre-authentication database seeding because the socket readiness probe admitted the temporary initialization server. The independently reviewed fix2ed018e, integrated4943df0, uses authenticated target-database TCP readiness with bounded probes in Compose, seeding and all three native services; its 10 focused checks, types/lint and 31 shell syntax checks pass. COL-01-E1 stays open pending an actual complete retry.
 
-## Open external gate — API-01-E1
+## Closed external gate — API-01-E1
 
-- [ ] Execute both native PostgreSQL API token cases for atomic audit rollback, concurrent creation/member removal, and identical-timestamp rejoin without credential revival.
-- [ ] Execute `infra/verify-api-tokens.mjs` against the deployed restricted runtime role, proving one-time plaintext/hash-only storage, public identity, fixed scopes, immutable SQL fields, idempotent revocation and permanent member-removal revocation.
-- [ ] Keep all earlier auth/OIDC/provider/group checks and fresh/upgrade Compose startup green through the ordered0010 migration.
+- [x] Execute both native PostgreSQL API token cases for atomic audit rollback, concurrent creation/member removal, and identical-timestamp rejoin without credential revival.
+- [x] Execute `infra/verify-api-tokens.mjs` against the deployed restricted runtime role, proving one-time plaintext/hash-only storage, public identity, fixed scopes, immutable SQL fields, idempotent revocation and permanent member-removal revocation.
+- [x] Keep all earlier auth/OIDC/provider/group checks and fresh/upgrade Compose startup green through the ordered0010 migration.
 
 Integrated47a6008 passed478 unit/integration tests,12 ordinary browser scenarios and one real signed-IdP journey, formatting/types/builds. Original Standards and Spec reviews are clean at96ab273; root independently reviewed integration deltas and the bounded canonical member-removal audit followup498fdec (integrated3c7783d). These local checks do not replace actual PostgreSQL/Compose execution.
 
-## Open external gate — PROV-05-E1
+## Closed external gate — PROV-05-E1
 
-- [ ] Execute actual restricted-role provider PostgreSQL cases for both scopes: opposing concurrent fallback edits, policy/audit rollback, users UPDATE denial and provider admission locks held through the caller transaction.
-- [ ] Verify fresh/upgrade Compose through0011 and exact shared policy UPDATE privileges, preserving all prior group/token/auth/OIDC/provider checks.
+- [x] Execute actual restricted-role provider PostgreSQL cases for both scopes: opposing concurrent fallback edits, policy/audit rollback, users UPDATE denial and provider admission locks held through the caller transaction.
+- [x] Verify fresh/upgrade Compose through0011 and exact shared policy UPDATE privileges, preserving all prior group/token/auth/OIDC/provider checks.
 
 Integrated075a191 passed539 unit/integration tests,14 ordinary browser scenarios plus one real signed-IdP journey, formatting/types/builds and31 shell syntax checks. Both independent reviews are clean3468fa8; root reviewed only additive integration resolutions and group CI patch85f8686. This explicit external exception unlocks local BOT-01 implementation; pg-mem and browser fixtures do not substitute for the pending database/runtime evidence.
 
 API/group retry33944859922 passed482 code tests,13 browser journeys and all three native PostgreSQL jobs, including16 auth/invitation/member/OIDC/group/token cases. Compose failed because the group smoke expected a role in the invitation identity projection. Reviewed patch85f8686, integrated075a191, corrects the assertion using the actual member-list API; complete Compose retry remains mandatory for COL-01-E1 and API-01-E1.
+
+## Combined group, token and capability gate closure
+
+COL-01-E1, API-01-E1 and PROV-05-E1 are closed by [Verify33945439831](https://github.com/Blackman99/openbot/actions/runs/33945439831), all five jobs successful on remote `4429ccdc8a61d6771b954c70dc0d6a1ab7b43873`, completed2026-09-05 at04:49:16 UTC. Published tree514ec8f9b70b5a760154171957ba566b0bf28242 exactly matches localf3d3671. The run passed539 code tests,14 ordinary browser scenarios plus one signed-IdP journey,16 auth/invitation/member/OIDC/group/token PostgreSQL cases,5 restricted provider cases, the separate OIDC privilege case and the complete fresh/upgrade/runtime-role/application/outage Compose flow. The group smoke now uses the real membership response contract, and its full deployment lifecycle/nine-audit assertions pass. The deployed API-token smoke reports successful hash-only storage, fixed scope/immutable-field privileges and permanent revocation. Both policy scope concurrency/rollback/admission-lock cases passed against real PostgreSQL. These closures supersede the pending historical notes above; final REL-01 acceptance still runs on the final combined release revision.
+
+## Open external gate — BOT-01-E1
+
+- [ ] Execute all eight dedicated `postgres-bots` cases using the deployed restricted role: atomic creation, same-Bot deferred pointer at COMMIT, immutable versions and exact grants, mandatory audit rollback, current authority and both lock orderings for provider disable/member removal, and post-admission creation time.
+- [ ] Execute fresh/upgrade Compose through `0012_bot_identity`, verifying exact Bot table/column/function privileges and preserving all earlier runtime checks.
+
+BOT-01 integrated as `ccda8d5ce10527e71ad0fd7c879d29b862589cb7`, tree `83b4549995ebc60c6ad93ac1db5de1cb0b9c7590`. Both independent review axes are clean at code `cdeff01`; final author `ce54b78` adds only evidence/ticket documentation. Dedicated merger `pnpm verify` exited0:594 unit/integration tests,15 ordinary browser scenarios,one signed-OIDC journey,formatting/types/builds all passed. YAML,26 shell steps and changed MJS syntax also passed. No integration source fix was needed. The eight local native cases were skipped without a database; this explicit release gate permits BOT-02, BOT-04 and COL-03 implementation but does not claim actual database or Compose success.

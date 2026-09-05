@@ -2,7 +2,7 @@
 sequence: 18
 id: COL-01
 title: "Add group lifecycle and human membership"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - WS-03
 labels:
@@ -60,8 +60,12 @@ Content and subscription admission are fresh database-backed seams; this ticket 
 
 ## External verification exception — COL-01-E1
 
-- [ ] Execute the three cases in `apps/api/tests/postgres/groups-runtime.test.ts` against actual PostgreSQL: concurrent last-owner demotions, owners removing each other with waiting-actor rechecks, and audit-failure rollback across creation, metadata, and every membership mutation.
-- [ ] Execute the root integration's Compose group lifecycle smoke through the deployed `openbot_runtime` role, including current workspace ∩ group ACL, no private-group administrative bypass, immediate workspace-removal denial, retained-grant re-invitation behavior, eligible-owner checks, and preserved authors/audits.
-- [ ] Assert exact privileges: groups SELECT/INSERT and column UPDATE(name, description, visibility, updated_at), no group DELETE/table-wide UPDATE or creator/identity UPDATE; human group membership SELECT/INSERT/DELETE and column UPDATE(role), no identity/join-time UPDATE; immutable audit protection remains intact.
+- [x] Execute the three cases in `apps/api/tests/postgres/groups-runtime.test.ts` against actual PostgreSQL: concurrent last-owner demotions, owners removing each other with waiting-actor rechecks, and audit-failure rollback across creation, metadata, and every membership mutation.
+- [x] Execute the root integration's Compose group lifecycle smoke through the deployed `openbot_runtime` role, including current workspace ∩ group ACL, no private-group administrative bypass, immediate workspace-removal denial, retained-grant re-invitation behavior, eligible-owner checks, and preserved authors/audits.
+- [x] Assert exact privileges: groups SELECT/INSERT and column UPDATE(name, description, visibility, updated_at), no group DELETE/table-wide UPDATE or creator/identity UPDATE; human group membership SELECT/INSERT/DELETE and column UPDATE(role), no identity/join-time UPDATE; immutable audit protection remains intact.
 
 These are mandatory `REL-01` release gates. The local PostgreSQL command currently skips 5 suites / 12 tests because test databases are unavailable. Mocked PostgreSQL and browser fixtures do not close these gates. Root integration owns the combined Compose extension and ordered migration-ledger assertion before this ticket is marked fully complete.
+
+## Closed external evidence — COL-01-E1
+
+COL-01-E1 closed by [Verify33945439831](https://github.com/Blackman99/openbot/actions/runs/33945439831), all five jobs successful on remote `4429ccdc8a61d6771b954c70dc0d6a1ab7b43873`, completed2026-09-05 at04:49:16 UTC. Published tree514ec8f9b70b5a760154171957ba566b0bf28242 exactly matches localf3d3671. The run passed539 code tests,14 ordinary browser scenarios plus one signed-IdP journey,16 auth/invitation/member/OIDC/group/token PostgreSQL cases,5 restricted provider cases, the separate OIDC privilege case and the complete fresh/upgrade/runtime-role/application/outage Compose flow.

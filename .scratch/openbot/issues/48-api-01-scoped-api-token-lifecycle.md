@@ -2,7 +2,7 @@
 sequence: 48
 id: API-01
 title: "Scoped API token lifecycle"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - WS-03
 labels:
@@ -61,9 +61,9 @@ Workspace members can create, inspect, and revoke scoped API tokens whose plaint
 
 ## External verification exception — API-01-E1
 
-- [ ] Execute the two isolated-schema cases in `apps/api/tests/postgres/api-tokens-runtime.test.ts` against real PostgreSQL: audit-failure rollback for creation, use-state updates, revocation and member removal; concurrent token creation/removal; and identical-timestamp rejoining without credential revival.
-- [ ] Execute `infra/verify-api-tokens.mjs` through the Compose CI step under the restricted `openbot_runtime` database role: create/hash-only storage, public identity, redacted list, forbidden scope/expiry/DELETE SQL privileges, insufficient scope 403, idempotent revoke and member-removal revocation with a retained session.
-- [ ] Complete fresh/upgrade Compose startup with the integrated migration ledger and the unchanged append-only audit guard.
+- [x] Execute the two isolated-schema cases in `apps/api/tests/postgres/api-tokens-runtime.test.ts` against real PostgreSQL: audit-failure rollback for creation, use-state updates, revocation and member removal; concurrent token creation/removal; and identical-timestamp rejoining without credential revival.
+- [x] Execute `infra/verify-api-tokens.mjs` through the Compose CI step under the restricted `openbot_runtime` database role: create/hash-only storage, public identity, redacted list, forbidden scope/expiry/DELETE SQL privileges, insufficient scope 403, idempotent revoke and member-removal revocation with a retained session.
+- [x] Complete fresh/upgrade Compose startup with the integrated migration ledger and the unchanged append-only audit guard.
 
 These remain mandatory REL-01 release evidence until an actual GitHub CI run passes. pg-mem, fixture browsers, and skipped local PostgreSQL tests do not close this gate. Root owns the REL-01/index/PROGRESS updates and final integrated migration number.
 
@@ -72,3 +72,7 @@ These remain mandatory REL-01 release evidence until an actual GitHub CI run pas
 Integrated at `47a6008`: all 478 unit/integration tests, 12 ordinary browser scenarios and one real signed-IdP journey passed, with formatting, strict types (zero Web warnings), both production builds and all 24 workflow shell steps passing syntax checks. Both original review axes are clean at96ab273. Root independently reviewed integration-only migration privilege assertions, logger/404 composition and the shared stalled-response-body regression.
 
 A narrow post-integration regression reproduced a member-removal route with an uppercase workspace UUID emitting a noncanonical token audit reference. Author commit498fdec (integrated3c7783d) uses canonical `workspace_id` returned by the revocation UPDATE; root independently reviewed the two-file delta. The author passed all21 token/member integration tests, API types and lint. Actual API-01-E1 remains open until the combined GitHub CI succeeds.
+
+## Closed external evidence — API-01-E1
+
+API-01-E1 closed by [Verify33945439831](https://github.com/Blackman99/openbot/actions/runs/33945439831), all five jobs successful on remote `4429ccdc8a61d6771b954c70dc0d6a1ab7b43873`, completed2026-09-05 at04:49:16 UTC. Published tree514ec8f9b70b5a760154171957ba566b0bf28242 exactly matches localf3d3671. The run passed539 code tests,14 ordinary browser scenarios plus one signed-IdP journey,16 auth/invitation/member/OIDC/group/token PostgreSQL cases,5 restricted provider cases, the separate OIDC privilege case and the complete fresh/upgrade/runtime-role/application/outage Compose flow.

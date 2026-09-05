@@ -2,7 +2,7 @@
 sequence: 13
 id: BOT-02
 title: "Upload and securely display bot avatars"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-01
 labels:
@@ -37,3 +37,7 @@ Bot owners and editors can upload, replace, and remove avatars through a shared 
 - General attachment ingestion or knowledge extraction
 - An image-cropping editor
 - Public CDN configuration
+
+## Implementation contract
+
+Follow [AVATAR-STORAGE-CONTRACT](../AVATAR-STORAGE-CONTRACT.md) and the shared immutable append rules in [BOT-CONTRACT](../BOT-CONTRACT.md). BOT-01 is integrated and locally verified; its actual PostgreSQL/Compose evidence remains the explicit BOT-01-E1 gate in REL-01 until CI succeeds.
