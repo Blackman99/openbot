@@ -142,7 +142,6 @@ export async function writeNextAttempt(
     "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
     [runId, input.taskId, input.sourceAttempt + 1, input.now],
   );
-  await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [input.taskId]);
   await connection.query(
     'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
     [
@@ -171,6 +170,7 @@ export async function writeNextAttempt(
       }),
     ],
   );
+  await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [input.taskId]);
   await appendQueuedRunState(connection, runId, () => input.now);
   return { scheduled: true, runId };
 }

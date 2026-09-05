@@ -28,7 +28,10 @@ import { PostgresProviderRepository } from '../../src/providers/postgres-reposit
 import { personalAccess } from '../../src/providers/scope.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { ProviderError, ProviderUrlPolicy } from '../../src/providers/url-policy.js';
+import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import { TaskQueue } from '../../src/tasks/queue.js';
+import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
+import { planNextAttempt } from '../../src/tasks/retry-schedule.js';
 import { TaskAccessError, TaskConflictError, TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { GroupRoutingService, RoutingSettingConflictError } from '../../src/routing/service.js';
@@ -118,7 +121,14 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
     const conversations = (pool = runtime) =>
       new ConversationService(new PostgresConversationRepository(pool));
     const grants = () => new GroupBotService(new PostgresGroupBotRepository(runtime));
-    async function fixture(scope: 'personal' | 'workspace' = 'personal', inGroup = false) {
+    async function fixture(
+      scope: 'personal' | 'workspace' = 'personal',
+      inGroup = false,
+      options: {
+        retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
+        fallback?: boolean;
+      } = {},
+    ) {
       const ownerId = randomUUID(),
         memberId = randomUUID(),
         workspaceId = randomUUID();
@@ -165,6 +175,17 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         apiKey: 'native-task-fixture',
         headers: {},
       });
+      const connections = scope === 'workspace' ? providers.inWorkspace(workspaceId) : providers;
+      const fallback = options.fallback
+        ? await connections.save(ownerId, {
+            protocol: 'openai-responses',
+            name: 'Fallback model',
+            baseUrl: 'https://models.example/v1',
+            modelId: 'fallback-model',
+            apiKey: 'native-task-fallback',
+            headers: {},
+          })
+        : undefined;
       const bot = await new BotService(new PostgresBotRepository(runtime)).create(
         ownerId,
         workspaceId,
@@ -177,6 +198,18 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
             connectionId: model.id,
             modelId: model.modelId,
           },
+          ...(options.retryPolicy ? { retryPolicy: options.retryPolicy } : {}),
+          ...(fallback && options.retryPolicy
+            ? {
+                fallbackBindings: [
+                  {
+                    scope: { kind: scope, id: scope === 'personal' ? ownerId : workspaceId },
+                    connectionId: fallback.id,
+                    modelId: fallback.modelId,
+                  },
+                ],
+              }
+            : {}),
         },
       );
       let grant: GroupBotGrant | null = null;
@@ -213,6 +246,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         workspaceId,
         bot,
         model,
+        fallback,
         providers,
         secrets,
         conversationId,
@@ -1872,5 +1906,264 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         ).rows,
       ).toHaveLength(1);
     }, 15000);
+
+    it('schedules a transient later attempt under runtime privileges without a human retry command', async () => {
+      const f = await fixture('personal', false, {
+        retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+      });
+      let now = new Date();
+      const queue = new TaskQueue(runtime, () => now);
+      const task = await submit(f);
+      const selected = await queue.claimNext();
+      expect(selected.claim).toBeDefined();
+      expect(
+        await queue.finish(selected.claim!, {
+          error: 'provider_failed',
+          usage: { inputTokens: 3, outputTokens: 1 },
+          modelFailure: modelFailure('provider_rate_limited'),
+        }),
+      ).toBe(true);
+      const runs = (
+        await runtime.query(
+          'SELECT id,attempt,status,error_code FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows;
+      expect(runs).toMatchObject([
+        { attempt: 1, status: 'failed', error_code: 'provider_failed' },
+        { attempt: 2, status: 'queued', error_code: null },
+      ]);
+      expect(
+        (await runtime.query('SELECT id FROM task_retry_commands WHERE task_id=$1', [task.id]))
+          .rows,
+      ).toHaveLength(0);
+      expect(
+        (await runtime.query('SELECT id FROM tasks WHERE conversation_id=$1', [f.conversationId]))
+          .rows,
+      ).toHaveLength(1);
+      const queued = (
+        await runtime.query<{ metadata: Record<string, unknown> }>(
+          "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+          [runs[1]!.id],
+        )
+      ).rows[0]!.metadata;
+      expect(queued).toMatchObject({
+        origin: 'provider_retry',
+        sourceRunId: runs[0]!.id,
+        reason: 'provider_rate_limited',
+      });
+      now = new Date(String(queued.notBefore));
+      expect(await queue.claimNext()).toMatchObject({
+        handled: true,
+        claim: { provider: { connectionId: f.model.id, modelId: f.model.modelId } },
+      });
+    });
+
+    it('does not schedule authentication failures and leaves one Task with no Bot message', async () => {
+      const f = await fixture('personal', false, {
+        retryPolicy: { maxAttemptsPerModel: 3, maxRunsPerChain: 4 },
+      });
+      const queue = new TaskQueue(runtime);
+      const task = await submit(f);
+      const selected = await queue.claimNext();
+      await queue.finish(selected.claim!, {
+        error: 'provider_failed',
+        usage: null,
+        modelFailure: modelFailure('provider_authentication_failed'),
+      });
+      expect(await read(f, task.id)).toMatchObject({
+        status: 'failed',
+        runCount: 1,
+        runs: [{ status: 'failed', error: 'provider_failed' }],
+      });
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(1);
+      expect(
+        (
+          await runtime.query(
+            "SELECT id FROM conversation_events WHERE conversation_id=$1 AND event_type='bot.message.created'",
+            [f.conversationId],
+          )
+        ).rows,
+      ).toHaveLength(0);
+    });
+
+    it('claims only a version-listed fallback after the per-model cap and rejects an unlisted binding', async () => {
+      const f = await fixture('personal', false, {
+        retryPolicy: { maxAttemptsPerModel: 1, maxRunsPerChain: 4 },
+        fallback: true,
+      });
+      let now = new Date();
+      const queue = new TaskQueue(runtime, () => now);
+      const task = await submit(f);
+      const selected = await queue.claimNext();
+      await queue.finish(selected.claim!, {
+        error: 'provider_failed',
+        usage: null,
+        modelFailure: modelFailure('provider_unavailable'),
+      });
+      const runs = (
+        await runtime.query(
+          'SELECT id,attempt,status FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows;
+      expect(runs).toHaveLength(2);
+      const queued = (
+        await runtime.query<{ metadata: Record<string, unknown> }>(
+          "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+          [runs[1]!.id],
+        )
+      ).rows[0]!.metadata;
+      expect(queued).toMatchObject({
+        origin: 'model_fallback',
+        binding: { connectionId: f.fallback!.id, modelId: f.fallback!.modelId },
+      });
+      await expect(
+        runtime.query(
+          `UPDATE task_runs SET status='running',started_at=NOW(),claim_token=$2,deadline_at=NOW()+'5 minutes',
+            provider_scope_kind='personal',provider_scope_id=$3,connection_id=$4,connection_revision=1,
+            protocol='openai-responses',model_id='unlisted-model'
+           WHERE id=$1`,
+          [runs[1]!.id, randomUUID(), f.ownerId, f.model.id],
+        ),
+      ).rejects.toThrow(/admitted model binding/u);
+      now = new Date(String(queued.notBefore));
+      expect(await queue.claimNext()).toMatchObject({
+        handled: true,
+        claim: { provider: { connectionId: f.fallback!.id, modelId: f.fallback!.modelId } },
+      });
+    });
+
+    it('serializes competing automatic writers into one successor with observed lock waits', async () => {
+      const f = await fixture();
+      const task = await submit(f);
+      const failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, {
+        error: 'provider_failed',
+        usage: null,
+        modelFailure: modelFailure('provider_rate_limited'),
+      });
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(1);
+      const binding = {
+        scope: { kind: 'personal' as const, id: f.ownerId },
+        connectionId: f.model.id,
+        modelId: f.model.modelId,
+      };
+      const plan = planNextAttempt({
+        failure: modelFailure('provider_rate_limited'),
+        configuration: {
+          modelBinding: binding,
+          retryPolicy: { maxAttemptsPerModel: 3, maxRunsPerChain: 4 },
+        },
+        chain: {
+          rootRunId: failedClaim.runId,
+          previousRunId: failedClaim.runId,
+          attempts: [
+            {
+              runId: failedClaim.runId,
+              connectionId: f.model.id,
+              modelId: f.model.modelId,
+              origin: 'initial',
+            },
+          ],
+        },
+        now: new Date(),
+        jitterMs: 0,
+      })!;
+      const holder = await runtime.connect();
+      const observers = [observedPool(), observedPool()];
+      const actions: Promise<Awaited<ReturnType<typeof writeNextAttempt>>>[] = [];
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT id FROM tasks WHERE id=$1 FOR UPDATE', [task.id]);
+        const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        for (const observer of observers) {
+          actions.push(
+            (async () => {
+              const connection = await observer.pool.connect();
+              try {
+                await connection.query('BEGIN');
+                const result = await writeNextAttempt(connection, {
+                  taskId: task.id,
+                  sourceRunId: failedClaim.runId,
+                  workspaceId: f.workspaceId,
+                  conversationId: f.conversationId,
+                  executionUserId: f.actorId,
+                  sourceAttempt: 1,
+                  plan,
+                  now: new Date(),
+                });
+                await connection.query('COMMIT');
+                return result;
+              } catch (error) {
+                await connection.query('ROLLBACK');
+                throw error;
+              } finally {
+                connection.release();
+              }
+            })(),
+          );
+        }
+        const settled = Promise.allSettled(actions);
+        for (const observer of observers) await blocked(observer.name, pid);
+        await holder.query('COMMIT');
+        const results = await Promise.all(actions);
+        expect(results.filter((result) => result.scheduled)).toHaveLength(1);
+        expect(
+          results.filter((result) => !result.scheduled && result.reason === 'duplicate'),
+        ).toHaveLength(1);
+        await settled;
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+        await Promise.allSettled(actions);
+        await Promise.all(observers.map(({ pool }) => pool.end()));
+      }
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(2);
+      expect(
+        (await runtime.query('SELECT id FROM task_retry_commands WHERE task_id=$1', [task.id]))
+          .rows,
+      ).toHaveLength(0);
+      expect(
+        (await runtime.query('SELECT id FROM tasks WHERE conversation_id=$1', [f.conversationId]))
+          .rows,
+      ).toHaveLength(1);
+    }, 20000);
+
+    it('rejects a forged failed-to-queued advance without a continuation receipt and keeps immutability', async () => {
+      const f = await fixture();
+      const task = await submit(f);
+      const failedClaim = await claim();
+      await new TaskQueue(runtime).finish(failedClaim, { error: 'provider_failed', usage: null });
+      const connection = await runtime.connect();
+      try {
+        await connection.query('BEGIN');
+        await connection.query(
+          "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,2,'queued',NOW())",
+          [randomUUID(), task.id],
+        );
+        await expect(
+          connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [task.id]),
+        ).rejects.toThrow(/immutable receipt/u);
+        await connection.query('ROLLBACK');
+      } finally {
+        connection.release();
+      }
+      await expect(
+        runtime.query("UPDATE task_runs SET status='queued' WHERE id=$1", [failedClaim.runId]),
+      ).rejects.toThrow(/immutable/u);
+      expect(
+        (await runtime.query('SELECT status FROM tasks WHERE id=$1', [task.id])).rows[0],
+      ).toEqual({ status: 'failed' });
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(1);
+    });
   },
 );

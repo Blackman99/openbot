@@ -364,6 +364,82 @@ describe('COL-10 unique next-attempt writer', () => {
     ).toHaveLength(0);
   });
 
+  it('inserts the continuation audit before returning the same Task to queued', async () => {
+    const f = await taskFixture(cleanup);
+    const queue = new TaskQueue(f.pool);
+    const selected = await queue.claimNext();
+    expect(
+      await queue.finish(selected.claim!, {
+        error: 'provider_failed',
+        usage: null,
+        modelFailure: modelFailure('provider_rate_limited'),
+      }),
+    ).toBe(true);
+    const failed = (await taskRuns(f.pool, (await f.read()).id))[0]!;
+    const events: Array<{ parameters?: unknown[]; statement: string }> = [];
+    const connection = await f.pool.connect();
+    try {
+      await connection.query('BEGIN');
+      const result = await writeNextAttempt(
+        {
+          query: async (statement, parameters) => {
+            events.push({ statement, ...(parameters === undefined ? {} : { parameters }) });
+            return connection.query(statement, parameters);
+          },
+          release: () => undefined,
+        },
+        {
+          taskId: (await f.read()).id,
+          sourceRunId: failed.id,
+          workspaceId: f.owner.workspace.id,
+          conversationId: f.conversation.id,
+          executionUserId: f.owner.user.id,
+          sourceAttempt: 1,
+          plan: planNextAttempt({
+            failure: modelFailure('provider_rate_limited'),
+            configuration: {
+              modelBinding: {
+                scope: { kind: 'personal', id: f.owner.user.id },
+                connectionId: f.model.id,
+                modelId: f.model.modelId,
+              },
+              retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+            },
+            chain: {
+              rootRunId: failed.id,
+              previousRunId: failed.id,
+              attempts: [
+                {
+                  runId: failed.id,
+                  connectionId: f.model.id,
+                  modelId: f.model.modelId,
+                  origin: 'initial',
+                },
+              ],
+            },
+            now: new Date(),
+            jitterMs: 0,
+          })!,
+          now: new Date(),
+        },
+      );
+      await connection.query('COMMIT');
+      expect(result).toMatchObject({ scheduled: true });
+    } finally {
+      connection.release();
+    }
+    const queuedAudit = events.findIndex(
+      (event) =>
+        event.statement.includes('INSERT INTO audit_events') &&
+        event.parameters?.[1] === 'task.queued',
+    );
+    const taskQueued = events.findIndex((event) =>
+      event.statement.includes("UPDATE tasks SET status='queued'"),
+    );
+    expect(queuedAudit).toBeGreaterThanOrEqual(0);
+    expect(taskQueued).toBeGreaterThan(queuedAudit);
+  });
+
   it('keeps an absent legacy retry policy as a single failed Run even for allowlisted codes', async () => {
     const f = await taskFixture(cleanup);
     const queue = new TaskQueue(f.pool);

@@ -197,6 +197,57 @@ describe('database migrations', () => {
     ]);
   });
 
+  it('reapplies COL-10 automatic-attempt guards after 0023 without recording a new version', async () => {
+    const statements: string[] = [];
+    const connection = {
+      query: async (statement: string) => {
+        statements.push(statement);
+        return statement.startsWith('SELECT version FROM openbot_schema_migrations')
+          ? { rows: MIGRATION_VERSIONS.map((version) => ({ version })) }
+          : { rows: [] };
+      },
+      release: () => undefined,
+    };
+
+    await migrateDatabase({ connect: async () => connection });
+
+    expect(
+      statements.some((statement) =>
+        statement.includes("origin' IN ('provider_retry','model_fallback')"),
+      ),
+    ).toBe(true);
+    expect(statements.some((statement) => statement.includes('fallbackBindings'))).toBe(true);
+    expect(
+      statements.some((statement) => statement.startsWith('INSERT INTO openbot_schema_migrations')),
+    ).toBe(false);
+    expect(statements.at(-1)).toBe('COMMIT');
+  });
+
+  it('does not apply COL-10 automatic-attempt guards before migration 0023', async () => {
+    const statements: string[] = [];
+    const through0022 = MIGRATION_VERSIONS.slice(
+      0,
+      MIGRATION_VERSIONS.indexOf('0022_failed_task_retries') + 1,
+    );
+    const connection = {
+      query: async (statement: string) => {
+        statements.push(statement);
+        return statement.startsWith('SELECT version FROM openbot_schema_migrations')
+          ? { rows: through0022.map((version) => ({ version })) }
+          : { rows: [] };
+      },
+      release: () => undefined,
+    };
+
+    await migrateDatabase(
+      { connect: async () => connection },
+      { throughVersion: '0022_failed_task_retries' },
+    );
+
+    expect(statements.join('\n')).not.toContain("origin' IN ('provider_retry','model_fallback')");
+    expect(statements.at(-1)).toBe('COMMIT');
+  });
+
   it.each([
     {
       description: 'a missing predecessor',

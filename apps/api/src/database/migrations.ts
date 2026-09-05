@@ -23,6 +23,10 @@ import {
 } from '../tasks/cancellation-schema.js';
 import { TASK_CANCELLATION_POSTGRES_GUARDS } from '../tasks/cancellation-postgres.js';
 import {
+  COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS,
+  COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION,
+} from '../tasks/col10-postgres-guards.js';
+import {
   CONVERSATION_STREAM_SCHEMA_STATEMENTS,
   CONVERSATION_STREAM_POSTGRES_GUARDS,
 } from '../conversations/stream-schema.js';
@@ -367,6 +371,14 @@ export async function migrateDatabase(
       await connection.query('INSERT INTO openbot_schema_migrations (version) VALUES ($1)', [
         migration.version,
       ]);
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
     }
     await connection.query('COMMIT');
   } catch (error) {
