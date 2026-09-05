@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   loadMemoriesPage,
   loadMemoryPage,
+  previewPromotionAction,
+  confirmPromotionAction,
   saveMemoryAction,
   searchMemoryAction,
 } from '../../src/lib/server/memory-page.js';
+import { BOT_PRIVATE_VISIBILITY_SUMMARY } from '../../src/lib/server/memory-api.js';
 import {
   memory,
   command,
@@ -17,6 +20,34 @@ import {
   token,
 } from '../fixtures/memories.js';
 import { summary as botSummary } from '../fixtures/bots.js';
+const preview = {
+  id: '4c661304-a1bc-4767-9a87-c47de763f749',
+  expiresAt: memory.createdAt,
+  source: {
+    groupId: group.id,
+    groupName: group.name,
+    memoryId: memory.id,
+    text: memory.text,
+  },
+  destinationBot: { id: botSummary.id, name: botSummary.name },
+  visibility: {
+    kind: 'bot-private' as const,
+    botId: botSummary.id,
+    summary: BOT_PRIVATE_VISIBILITY_SUMMARY,
+  },
+  content: memory.text,
+};
+const privateMemory = {
+  id: '5c661304-a1bc-4767-9a87-c47de763f749',
+  versionId: '6c661304-a1bc-4767-9a87-c47de763f749',
+  version: 1 as const,
+  scope: { kind: 'bot-private' as const, workspaceId: workspace.id, botId: botSummary.id },
+  sourceGroupId: group.id,
+  sourceMemoryId: memory.id,
+  approver: { id: user.id, displayName: user.displayName },
+  approvedAt: memory.createdAt,
+  text: memory.text,
+};
 function context() {
   const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
     const path = new URL(String(url)).pathname;
@@ -28,6 +59,10 @@ function context() {
       return Response.json({ bots: [botSummary] });
     if (path.endsWith(`/conversations/${conversation.id}`))
       return Response.json({ conversation, messages: [message], nextCursor: null, canWrite: true });
+    if (path.endsWith(`/memories/${memory.id}/promotion-previews`))
+      return Response.json({ preview });
+    if (path.endsWith(`/memories/${memory.id}/promotions`))
+      return Response.json({ memory: privateMemory }, { status: 201 });
     if (path.endsWith(`/memories/${memory.id}`)) return Response.json({ memory });
     if (path.endsWith('/memories') && init?.method === 'POST')
       return Response.json({ memory }, { status: 201 });
@@ -68,6 +103,49 @@ describe('Memory Web boundary', () => {
     expect(event.setHeaders).toHaveBeenCalledWith({ 'cache-control': 'private, no-store' });
     expect(await loadMemoryPage(event, workspace.id, group.id, memory.id)).toMatchObject({
       memory,
+      destinationBots: [{ id: botSummary.id, name: botSummary.name }],
+    });
+  });
+  it('previews source, destination Bot, visibility and content, then confirms into Bot-private memories', async () => {
+    const event = context();
+    expect(
+      await previewPromotionAction(
+        { ...event, request: request({ destinationBotId: botSummary.id }) },
+        workspace.id,
+        group.id,
+        memory.id,
+      ),
+    ).toMatchObject({
+      action: 'previewPromotion',
+      preview,
+    });
+    const previewCall = event.fetch.mock.calls.find((entry) =>
+      String(entry[0]).endsWith('/promotion-previews'),
+    );
+    expect(JSON.parse(String(previewCall?.[1]?.body))).toEqual({
+      destinationBotId: botSummary.id,
+    });
+    await expect(
+      confirmPromotionAction(
+        {
+          ...event,
+          request: request({ intentId: preview.id, idempotencyKey: 'promote-memory-key' }),
+        },
+        workspace.id,
+        group.id,
+        memory.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/bots/${botSummary.id}/private-memories`,
+    });
+    const confirmCall = event.fetch.mock.calls.find((entry) =>
+      String(entry[0]).endsWith('/promotions'),
+    );
+    expect(JSON.parse(String(confirmCall?.[1]?.body))).toEqual({
+      intentId: preview.id,
+      idempotencyKey: 'promote-memory-key',
+      acknowledged: true,
     });
   });
   it.each(['0.5', '5e-1'])(

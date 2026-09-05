@@ -26,7 +26,7 @@ import { GroupBotService } from '../../src/group-bots/service.js';
 import { PostgresGroupRepository } from '../../src/groups/postgres-group-repository.js';
 import { GroupService } from '../../src/groups/service.js';
 import { MemoryService } from '../../src/memories/service.js';
-import { MemoryAccessError } from '../../src/memories/types.js';
+import { BOT_PRIVATE_VISIBILITY_SUMMARY, MemoryAccessError } from '../../src/memories/types.js';
 import { LocalObjectStore } from '../../src/objects/local-store.js';
 import { ProviderConnections } from '../../src/providers/connections.js';
 import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
@@ -59,6 +59,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
+    expect(versions.at(-1)).toEqual({ version: '0024_bot_private_memories' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(
@@ -240,6 +241,82 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     });
     return { bot, acl, grants, grant, tasks, task, runId: task.runs[0]!.id };
   }
+  async function provisionBots(f: Fixture) {
+    const providers = new ProviderConnections(
+      new PostgresProviderRepository(runtime),
+      secrets,
+      new ProviderUrlPolicy({ hosts: ['models.example'], schemes: ['https'], privateCidrs: [] }),
+      {
+        run: async () => ({
+          testedAt: new Date().toISOString(),
+          text: { ok: true, code: 'passed', raw: 'OK' },
+          action: { ok: false, code: 'provider_action_unsupported', raw: 'Unsupported' },
+        }),
+      },
+    );
+    const model = await providers.inWorkspace(f.workspaceId).save(f.ownerId, {
+      protocol: 'openai-chat',
+      name: 'Promotion model',
+      baseUrl: 'https://models.example/v1',
+      modelId: 'promotion-model',
+      apiKey: 'native-promotion-fixture',
+      headers: {},
+    });
+    const binding = {
+      scope: { kind: 'workspace' as const, id: f.workspaceId },
+      connectionId: model.id,
+      modelId: model.modelId,
+    };
+    const bots = new BotService(new PostgresBotRepository(runtime));
+    const dest = await bots.create(f.ownerId, f.workspaceId, {
+      name: 'Private destination',
+      roleDescription: 'Researcher',
+      instructions: 'Use promoted evidence.',
+      modelBinding: binding,
+    });
+    const other = await bots.create(f.ownerId, f.workspaceId, {
+      name: 'Other isolated',
+      roleDescription: 'Researcher',
+      instructions: 'Stay isolated.',
+      modelBinding: binding,
+    });
+    return {
+      dest,
+      other,
+      grants: new GroupBotService(new PostgresGroupBotRepository(runtime)),
+      ownerAccess: { actorUserId: f.ownerId, workspaceId: f.workspaceId, groupId: f.group.id },
+    };
+  }
+  async function rawPrivateInsert(
+    f: Fixture,
+    memoryId: string,
+    botId: string,
+    approverUserId: string,
+    sourceEventId?: string,
+  ) {
+    const version = (
+      await admin.query<{ id: string; source_event_id: string }>(
+        'SELECT id,source_event_id FROM memory_versions WHERE memory_id=$1',
+        [memoryId],
+      )
+    ).rows[0]!;
+    await runtime.query(
+      'INSERT INTO bot_private_memories(id,workspace_id,bot_id,source_group_id,source_memory_id,source_memory_version_id,source_event_id,approver_user_id,approved_at,version,version_id,idempotency_key,command_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW(),1,$9,$10,$11)',
+      [
+        randomUUID(),
+        f.workspaceId,
+        botId,
+        f.group.id,
+        memoryId,
+        version.id,
+        sourceEventId ?? version.source_event_id,
+        approverUserId,
+        randomUUID(),
+        randomUUID(),
+        '0'.repeat(64),
+      ],
+    );
+  }
   async function counts(f: Fixture) {
     return (
       await admin.query(
@@ -394,7 +471,15 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     const f = await fixture(),
       saved = (await f.memories.create(f.access, f.command)).memory,
       other = await fixture();
-    for (const table of ['group_memories', 'memory_versions', 'run_memory_references']) {
+    for (const table of [
+      'group_memories',
+      'memory_versions',
+      'run_memory_references',
+      'memory_promotion_intents',
+      'bot_private_memories',
+      'memory_promotion_confirmations',
+      'run_private_memory_references',
+    ]) {
       for (const privilege of [
         'SELECT',
         'INSERT',
@@ -420,6 +505,9 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'protect_group_memory()',
       'protect_memory_version()',
       'protect_run_memory_reference()',
+      'protect_bot_private_memory()',
+      'protect_memory_promotion_confirmation()',
+      'protect_run_private_memory_reference()',
     ])
       expect(
         (
@@ -807,5 +895,359 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
         ])
       ).rows,
     ).toEqual([{ source_event_id: source.eventId }]);
+  });
+  it('previews source, destination Bot, visibility and content, then promotes only after an explicit owner confirmation', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory,
+      { dest, ownerAccess } = await provisionBots(f),
+      owner = await f.headers(f.ownerId),
+      member = await f.headers(),
+      outsider = await f.headers(f.outsiderId);
+    const preview = await f.app.inject({
+      method: 'POST',
+      url: `${f.path}/${memory.id}/promotion-previews`,
+      headers: owner,
+      payload: { destinationBotId: dest.id },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json().preview).toMatchObject({
+      source: { groupId: f.group.id, memoryId: memory.id, text: memory.text },
+      destinationBot: { id: dest.id, name: 'Private destination' },
+      visibility: {
+        kind: 'bot-private',
+        botId: dest.id,
+        summary: BOT_PRIVATE_VISIBILITY_SUMMARY,
+      },
+      content: memory.text,
+    });
+    expect(
+      (
+        await admin.query('SELECT id FROM bot_private_memories WHERE workspace_id=$1', [
+          f.workspaceId,
+        ])
+      ).rows,
+    ).toEqual([]);
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url: `${f.path}/${memory.id}/promotions`,
+          headers: owner,
+          payload: {
+            intentId: preview.json().preview.id,
+            idempotencyKey: 'native-promote',
+            acknowledged: false,
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url: `${f.path}/${memory.id}/promotion-previews`,
+          headers: member,
+          payload: { destinationBotId: dest.id },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url: `${f.path}/${memory.id}/promotion-previews`,
+          headers: outsider,
+          payload: { destinationBotId: dest.id },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await admin.query('SELECT id FROM bot_private_memories WHERE workspace_id=$1', [
+          f.workspaceId,
+        ])
+      ).rows,
+    ).toEqual([]);
+    const confirmed = await f.app.inject({
+      method: 'POST',
+      url: `${f.path}/${memory.id}/promotions`,
+      headers: owner,
+      payload: {
+        intentId: preview.json().preview.id,
+        idempotencyKey: 'native-promote',
+        acknowledged: true,
+      },
+    });
+    expect(confirmed.statusCode).toBe(201);
+    expect(confirmed.json().memory).toMatchObject({
+      version: 1,
+      scope: { kind: 'bot-private', workspaceId: f.workspaceId, botId: dest.id },
+      sourceGroupId: f.group.id,
+      sourceMemoryId: memory.id,
+      approver: { id: f.ownerId },
+      text: memory.text,
+    });
+    expect(Date.parse(String(confirmed.json().memory.approvedAt))).toBeGreaterThan(0);
+    expect(
+      (
+        await admin.query(
+          "SELECT metadata FROM audit_events WHERE event_type='memory.promoted' AND actor_user_id=$1",
+          [f.ownerId],
+        )
+      ).rows,
+    ).toMatchObject([{ metadata: { sourceMemoryId: memory.id, botId: dest.id } }]);
+    expect(
+      JSON.stringify(
+        (await admin.query("SELECT metadata FROM audit_events WHERE event_type='memory.promoted'"))
+          .rows,
+      ),
+    ).not.toContain('cobalt');
+    const stale = new MemoryService(runtime, () => new Date(Date.now() + 6 * 60 * 1000));
+    const expiredPreview = await new MemoryService(
+      runtime,
+      () => new Date(Date.now() - 6 * 60 * 1000),
+    ).preview(ownerAccess, memory.id, { destinationBotId: dest.id });
+    await expect(
+      stale.confirm(ownerAccess, memory.id, {
+        intentId: expiredPreview.preview.id,
+        idempotencyKey: 'expired-promote',
+        acknowledged: true,
+      }),
+    ).rejects.toThrow(MemoryAccessError);
+    expect(
+      (await admin.query('SELECT id FROM bot_private_memories WHERE bot_id=$1', [dest.id])).rows,
+    ).toHaveLength(1);
+  });
+  it('refuses forged private-memory provenance and expired confirmation under the runtime role', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory,
+      { dest, other, ownerAccess } = await provisionBots(f),
+      otherFixture = await fixture();
+    await expect(rawPrivateInsert(f, memory.id, dest.id, f.memberId)).rejects.toMatchObject({
+      code: '23514',
+    });
+    await expect(rawPrivateInsert(f, memory.id, dest.id, f.outsiderId)).rejects.toMatchObject({
+      code: '23514',
+    });
+    await expect(
+      rawPrivateInsert(f, memory.id, dest.id, f.ownerId, otherFixture.source.eventId),
+    ).rejects.toMatchObject({ code: '23514' });
+    const promoted = (
+      await f.memories.confirm(ownerAccess, memory.id, {
+        intentId: (await f.memories.preview(ownerAccess, memory.id, { destinationBotId: dest.id }))
+          .preview.id,
+        idempotencyKey: 'guard-promote',
+        acknowledged: true,
+      })
+    ).memory;
+    const expiredIntent = randomUUID();
+    await runtime.query(
+      "INSERT INTO memory_promotion_intents(id,workspace_id,actor_user_id,source_group_id,source_memory_id,destination_bot_id,content_hash,lineage_digest,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()-INTERVAL '1 minute',NOW())",
+      [
+        expiredIntent,
+        f.workspaceId,
+        f.ownerId,
+        f.group.id,
+        memory.id,
+        dest.id,
+        '0'.repeat(64),
+        '1'.repeat(64),
+      ],
+    );
+    await expect(
+      runtime.query(
+        'INSERT INTO memory_promotion_confirmations(intent_id,private_memory_id,confirmed_at) VALUES($1,$2,NOW())',
+        [expiredIntent, promoted.id],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      runtime.query(
+        'INSERT INTO memory_promotion_confirmations(intent_id,private_memory_id,confirmed_at) VALUES($1,$2,NOW())',
+        [
+          (
+            await runtime.query<{ id: string }>(
+              "INSERT INTO memory_promotion_intents(id,workspace_id,actor_user_id,source_group_id,source_memory_id,destination_bot_id,content_hash,lineage_digest,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()+INTERVAL '5 minutes',NOW()) RETURNING id",
+              [
+                randomUUID(),
+                f.workspaceId,
+                f.ownerId,
+                f.group.id,
+                memory.id,
+                other.id,
+                '0'.repeat(64),
+                '1'.repeat(64),
+              ],
+            )
+          ).rows[0]!.id,
+          promoted.id,
+        ],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    await expect(
+      admin.query('UPDATE bot_private_memories SET version=1 WHERE id=$1', [promoted.id]),
+    ).rejects.toMatchObject({ code: '55000' });
+  });
+  it('serializes competing confirms to one private memory and rolls back when the mandatory promotion audit cannot write', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory,
+      { dest, ownerAccess } = await provisionBots(f),
+      intentId = (await f.memories.preview(ownerAccess, memory.id, { destinationBotId: dest.id }))
+        .preview.id;
+    const receipts = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        f.memories.confirm(ownerAccess, memory.id, {
+          intentId,
+          idempotencyKey: 'compete-promote',
+          acknowledged: true,
+        }),
+      ),
+    );
+    expect(receipts.filter((receipt) => !receipt.replayed)).toHaveLength(1);
+    expect(receipts.every((receipt) => receipt.memory.id === receipts[0]!.memory.id)).toBe(true);
+    expect(
+      (await admin.query('SELECT id FROM bot_private_memories WHERE bot_id=$1', [dest.id])).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await admin.query(
+          "SELECT id FROM audit_events WHERE event_type='memory.promoted' AND metadata->>'botId'=$1",
+          [dest.id],
+        )
+      ).rows,
+    ).toHaveLength(1);
+    const other = await fixture(),
+      otherMemory = (await other.memories.create(other.access, other.command)).memory,
+      otherBots = await provisionBots(other),
+      otherIntent = (
+        await other.memories.preview(otherBots.ownerAccess, otherMemory.id, {
+          destinationBotId: otherBots.dest.id,
+        })
+      ).preview.id;
+    await admin.query('REVOKE INSERT ON audit_events FROM openbot_runtime');
+    try {
+      await expect(
+        other.memories.confirm(otherBots.ownerAccess, otherMemory.id, {
+          intentId: otherIntent,
+          idempotencyKey: 'audit-fail-promote',
+          acknowledged: true,
+        }),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await admin.query('GRANT INSERT ON audit_events TO openbot_runtime');
+    }
+    expect(
+      (
+        await admin.query('SELECT id FROM bot_private_memories WHERE bot_id=$1', [
+          otherBots.dest.id,
+        ])
+      ).rows,
+    ).toEqual([]);
+    expect(
+      (
+        await admin.query('SELECT id FROM memory_promotion_confirmations WHERE intent_id=$1', [
+          otherIntent,
+        ])
+      ).rows,
+    ).toEqual([]);
+  });
+  it('lets the destination Bot use the promoted memory in another group and records zero private references for every other Bot', async () => {
+    const f = await fixture(),
+      memory = (await f.memories.create(f.access, f.command)).memory,
+      { dest, other, grants, ownerAccess } = await provisionBots(f);
+    const promoted = (
+      await f.memories.confirm(ownerAccess, memory.id, {
+        intentId: (await f.memories.preview(ownerAccess, memory.id, { destinationBotId: dest.id }))
+          .preview.id,
+        idempotencyKey: 'cross-group-promote',
+        acknowledged: true,
+      })
+    ).memory;
+    expect(
+      (await f.memories.listPrivate({ ...ownerAccess, botId: dest.id }, { query: 'cobalt' }, true))
+        .memories,
+    ).toMatchObject([{ id: promoted.id, sourceMemoryId: memory.id, sourceGroupId: f.group.id }]);
+    expect(
+      (await f.memories.listPrivate({ ...ownerAccess, botId: other.id }, { query: 'cobalt' }, true))
+        .memories,
+    ).toEqual([]);
+    const second = await f.groups.create(f.ownerId, f.workspaceId, { name: 'Second native group' });
+    const destGrant = await grants.invite(f.ownerId, f.workspaceId, second.id, {
+      botId: dest.id,
+      idempotencyKey: 'dest-other-group',
+      history: { mode: 'all' },
+    });
+    const otherGrant = await grants.invite(f.ownerId, f.workspaceId, second.id, {
+      botId: other.id,
+      idempotencyKey: 'other-bot',
+      history: { mode: 'all' },
+    });
+    const tasks = new TaskService(runtime);
+    const destTask = await tasks.submit(f.ownerId, f.workspaceId, destGrant.conversationId, {
+      body: 'Use private memory.',
+      groupGrantId: destGrant.id,
+      idempotencyKey: 'dest-run',
+    });
+    const otherTask = await tasks.submit(f.ownerId, f.workspaceId, otherGrant.conversationId, {
+      body: 'Do not see private memory.',
+      groupGrantId: otherGrant.id,
+      idempotencyKey: 'other-run',
+    });
+    const queue = new TaskQueue(runtime);
+    const first = (await queue.claimNext()).claim!;
+    claims.push(first);
+    const secondClaim = (await queue.claimNext()).claim!;
+    claims.push(secondClaim);
+    const destClaim = first.runId === destTask.runs[0]!.id ? first : secondClaim;
+    const otherClaim = destClaim.runId === first.runId ? secondClaim : first;
+    expect(destClaim.runId).toBe(destTask.runs[0]!.id);
+    expect(otherClaim.runId).toBe(otherTask.runs[0]!.id);
+    expect(
+      JSON.parse(
+        destClaim.messages.find((message) =>
+          message.content.startsWith('{"kind":"bot_private_memories"'),
+        )!.content,
+      ),
+    ).toMatchObject({
+      memories: [{ id: promoted.id, text: memory.text, source_memory_id: memory.id }],
+    });
+    expect(
+      destClaim.messages.some((message) => message.content.includes('{"kind":"group_memories"')),
+    ).toBe(false);
+    expect(
+      otherClaim.messages.some((message) =>
+        message.content.startsWith('{"kind":"bot_private_memories"'),
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await admin.query(
+          'SELECT private_memory_id FROM run_private_memory_references WHERE run_id=$1',
+          [destClaim.runId],
+        )
+      ).rows,
+    ).toEqual([{ private_memory_id: promoted.id }]);
+    expect(
+      (
+        await admin.query(
+          'SELECT private_memory_id FROM run_private_memory_references WHERE run_id=$1',
+          [otherClaim.runId],
+        )
+      ).rows,
+    ).toEqual([]);
+    await expect(
+      runtime.query(
+        'INSERT INTO run_private_memory_references(run_id,private_memory_id,source_event_id,selected_at) VALUES($1,$2,$3,NOW())',
+        [otherClaim.runId, promoted.id, f.source.eventId],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    expect(
+      JSON.stringify(
+        (
+          await admin.query('SELECT * FROM run_private_memory_references WHERE run_id=$1', [
+            destClaim.runId,
+          ])
+        ).rows,
+      ),
+    ).not.toContain('cobalt');
   });
 });

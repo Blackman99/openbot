@@ -2,7 +2,9 @@ import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import MemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[groupId]/memories/+page.svelte';
 import MemoryPage from '../../src/routes/app/workspaces/[workspaceId]/groups/[groupId]/memories/[memoryId]/+page.svelte';
+import PrivateMemoriesPage from '../../src/routes/app/workspaces/[workspaceId]/bots/[botId]/private-memories/+page.svelte';
 import { memory, group, grant, user, workspace } from '../fixtures/memories.js';
+import { summary } from '../fixtures/bots.js';
 const data = {
   user,
   workspace,
@@ -95,5 +97,41 @@ describe('Memory pages', () => {
     expect(html).toContain('Access changed');
     expect(html).not.toContain(memory.text);
     expect(html).not.toContain('Saved by');
+  });
+  it('lists destination Bot-private memories and shows an empty state for every other Bot', () => {
+    const listed = render(PrivateMemoriesPage, {
+      props: {
+        data: {
+          workspace,
+          bot: { id: summary.id, name: summary.name },
+          memories: [
+            {
+              id: memory.id,
+              sourceGroupId: group.id,
+              sourceMemoryId: memory.id,
+              approver: { displayName: user.displayName },
+              approvedAt: memory.createdAt,
+              text: memory.text,
+            },
+          ],
+        },
+      },
+    }).body;
+    expect(listed).toContain('Bot-private memories');
+    expect(listed).toContain(summary.name);
+    expect(listed).toContain(memory.text);
+    expect(listed).toContain(group.id);
+    expect(listed).toContain('across its conversations and groups');
+    const empty = render(PrivateMemoriesPage, {
+      props: {
+        data: {
+          workspace,
+          bot: { id: summary.id, name: 'Other isolated' },
+          memories: [],
+        },
+      },
+    }).body;
+    expect(empty).toContain('No Bot-private memories.');
+    expect(empty).not.toContain(memory.text);
   });
 });
