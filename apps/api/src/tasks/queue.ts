@@ -33,6 +33,13 @@ import {
   type RunMemoryContribution,
 } from '../memories/run-context.js';
 import {
+  selectRunKnowledgeContribution,
+  persistRunKnowledgeReferences,
+  assertRunKnowledgeReferencesCurrent,
+  KnowledgeContextLimitError,
+  type RunKnowledgeContribution,
+} from '../knowledge/run-context.js';
+import {
   enqueueMemoryExtractionJob,
   persistRunSourceManifest,
 } from '../memories/extraction-jobs.js';
@@ -94,7 +101,11 @@ function admissionFailure(error: unknown): TaskFailure | undefined {
   )
     return 'execution_forbidden';
   if (error instanceof ProviderError) return 'model_unavailable';
-  if (error instanceof ContextLimitError || error instanceof MemoryContextLimitError)
+  if (
+    error instanceof ContextLimitError ||
+    error instanceof MemoryContextLimitError ||
+    error instanceof KnowledgeContextLimitError
+  )
     return 'context_limit';
   return undefined;
 }
@@ -253,6 +264,7 @@ export class TaskQueue {
       if (run?.status !== 'queued') return { handled: false };
       let provider: TaskClaim['provider'];
       let memory: RunMemoryContribution;
+      let knowledge: RunKnowledgeContribution;
       const selectedMessages: Array<{
         id: string;
         creationSequence: number;
@@ -264,10 +276,12 @@ export class TaskQueue {
       ];
       try {
         memory = await selectRunMemoryContribution(connection, task.id, this.now);
-        messages.push(...memory.messages);
+        knowledge = await selectRunKnowledgeContribution(connection, task.id, this.now);
+        messages.push(...memory.messages, ...knowledge.messages);
         let after = target.lowerBound - 1,
-          bytes = Buffer.byteLength(target.configuration.instructions) + memory.bytes,
-          count = memory.itemCount;
+          bytes =
+            Buffer.byteLength(target.configuration.instructions) + memory.bytes + knowledge.bytes,
+          count = memory.itemCount + knowledge.itemCount;
         if (bytes > 1048576 || count > 1000) throw new ContextLimitError();
         while (true) {
           const page = await currentPage(
@@ -336,6 +350,7 @@ export class TaskQueue {
       if (!claimed.rows.length) return { handled: false };
       await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
       await persistRunMemoryReferences(connection, memory, this.now);
+      await persistRunKnowledgeReferences(connection, knowledge, this.now);
       await persistRunSourceManifest(connection, {
         runId: task.id,
         workspaceId: task.workspace_id,
@@ -395,6 +410,7 @@ export class TaskQueue {
           { connectionId: binding.connectionId, expectedModelId: binding.modelId },
         );
         await assertRunMemoryReferencesCurrent(connection, task.id, this.now);
+        await assertRunKnowledgeReferencesCurrent(connection, task.id, this.now);
         if (
           !(await appendAssistantDelta(
             connection,
@@ -463,6 +479,7 @@ export class TaskQueue {
             { connectionId: binding.connectionId, expectedModelId: binding.modelId },
           );
           await assertRunMemoryReferencesCurrent(connection, task.id, this.now);
+          await assertRunKnowledgeReferencesCurrent(connection, task.id, this.now);
         } catch (error) {
           denied = admissionFailure(error);
           if (!denied) throw error;
