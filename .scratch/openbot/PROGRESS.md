@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** MEM-03 is complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `9f25a7c`, Verify [33984665506](https://github.com/Blackman99/openbot/actions/runs/33984665506)). KNW-01 is in progress on that same branch: promotion, ATT-01 citation, pre-rank scope isolation, untrusted framing, and PostgreSQL full-text search (`0030_knowledge_full_text_search`) are implemented. Ticket 42 ACs stay unchecked until Tester stamps. MEM-04 and TPL-01 are ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-05):** MEM-04, KNW-01, and TPL-01 are complete on `feat/openbot-collaboration-system` / draft PR #1 (product HEAD `a7f4d31`, Verify [33989291158](https://github.com/Blackman99/openbot/actions/runs/33989291158)). RET-01 is now ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty-two of 67 tickets are implemented and independently reviewed: 31 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. KNW-01 remains in progress; MEM-04 and TPL-01 are ready-for-agent; the other blocked tickets remain blocked by their actual implementation dependencies.
+Thirty-five of 67 tickets are implemented and independently reviewed: 34 fully complete, with COL-07 accepted subject to its explicit external verification gate. All 401 original acceptance texts are preserved. RET-01 is the next unblocked ticket; COL-08 and COL-11 stay blocked on COL-07's external verification gate.
 
 COL-08 follows COL-07/COL-10 and consumes the single next-attempt writer. COL-11 shares that writer. Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

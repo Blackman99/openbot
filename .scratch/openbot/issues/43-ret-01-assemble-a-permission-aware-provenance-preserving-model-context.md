@@ -2,7 +2,7 @@
 sequence: 43
 id: RET-01
 title: "Assemble a permission-aware, provenance-preserving model context"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - MEM-04
   - KNW-01
