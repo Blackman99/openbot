@@ -239,7 +239,7 @@ try {
     GRANT SELECT, INSERT ON avatar_objects, bot_avatar_references TO openbot_runtime;
     GRANT UPDATE (state, lease_until, cleanup_after, attempts, cleanup_token) ON avatar_objects TO openbot_runtime;
     CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt(target uuid, run_id uuid, actor uuid)
-    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       SELECT EXISTS (
         SELECT 1 FROM audit_events a
         JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
@@ -251,18 +251,18 @@ try {
       )
     $$;
     CREATE OR REPLACE FUNCTION task_queued_audit_metadata(run_id uuid)
-    RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       SELECT a.metadata FROM audit_events a
       WHERE a.event_type='task.queued' AND a.metadata->>'runId'=run_id::text
       ORDER BY a.occurred_at DESC LIMIT 1
     $$;
     CREATE OR REPLACE FUNCTION task_queued_audit_metadata_for_task(target uuid)
-    RETURNS SETOF jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    RETURNS SETOF jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       SELECT a.metadata FROM audit_events a
       WHERE a.event_type='task.queued' AND a.metadata->>'taskId'=target::text
     $$;
     CREATE OR REPLACE FUNCTION task_run_has_listed_continuation_binding(target uuid, run_id uuid, scope_kind text, scope_id uuid, connection_id uuid, model_id text)
-    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
       SELECT EXISTS (
         SELECT 1 FROM tasks t
         JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id

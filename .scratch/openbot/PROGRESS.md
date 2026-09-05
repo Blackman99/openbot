@@ -2,7 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**2026-09-05 this round:** Verify `33970675474` on `320878f` passed `code`, but `postgres-tasks` / `postgres-bots` / `postgres-task-cancellation` / `compose` failed: granting `audit_events` SELECT broke the existing `can_read=false` contract, and INVOKER guards that read audit were permission-denied so savepoints swallowed automatic continuations. Corrected with SECURITY DEFINER helpers that read `task.queued` receipts while runtime keeps audit INSERT-only. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 were not started.
+**2026-09-05 this round:** Verify `33971346917` on `165e56a` passed 14 of 16 jobs, including `code`, `postgres-bots`, `compose`, `compose-tasks` and `compose-task-cancellation`. `postgres-tasks` kept the two COL-10 automatic-continuation cases failing (43/45). `postgres-task-cancellation` failed all 18 cases: the 0022 drain fixture called `task_queued_audit_metadata` inside an open transaction, the missing function aborted that transaction, and migration 0023 never installed (`root_task_id` / `task_cancel_commands` absent). App readers now probe the DEFINER helpers inside a savepoint so a missing function or denied `audit_events` SELECT cannot abort the caller. Helpers are VOLATILE SECURITY DEFINER; runtime stays audit INSERT-only. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 were not started.
+
+The preceding privilege correction on `3c36756` (Verify `33970675474` on `320878f`) removed the `audit_events` SELECT grant that had broken `can_read=false` and compose `audit_privileges`. That restored bots/compose; it did not stop a failed helper probe from aborting the finish/upgrade transaction.
 
 Earlier taxonomy slice: only 429/500/502/503/504, 529 with `overloaded_error`, and explicit transient network failures may auto-retry; Bot versions may store optional `retryPolicy` and up to 3 same-scope fallbacks. The repository ticket index did not rewrite the 401 original texts; COL-07 stays `complete-with-external-verification`, and COL-07-E1 is not closed in this round.
 

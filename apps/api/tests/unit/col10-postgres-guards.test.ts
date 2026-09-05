@@ -19,6 +19,7 @@ describe('COL-10 automatic-attempt PostgreSQL overlay', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION task_queued_audit_metadata');
     expect(sql).toContain('SECURITY DEFINER');
+    expect(sql).toContain('VOLATILE');
     expect(sql).toContain(
       'task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)',
     );

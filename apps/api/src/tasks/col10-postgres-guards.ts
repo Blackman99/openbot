@@ -11,7 +11,7 @@ export const COL10_AUTOMATIC_ATTEMPT_HELPERS = [
   `CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt(target uuid, run_id uuid, actor uuid)
 RETURNS boolean
 LANGUAGE sql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
@@ -32,7 +32,7 @@ $$`,
   `CREATE OR REPLACE FUNCTION task_queued_audit_metadata(run_id uuid)
 RETURNS jsonb
 LANGUAGE sql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
@@ -45,7 +45,7 @@ $$`,
   `CREATE OR REPLACE FUNCTION task_queued_audit_metadata_for_task(target uuid)
 RETURNS SETOF jsonb
 LANGUAGE sql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
@@ -56,7 +56,7 @@ $$`,
   `CREATE OR REPLACE FUNCTION task_run_has_listed_continuation_binding(target uuid, run_id uuid, scope_kind text, scope_id uuid, connection_id uuid, model_id text)
 RETURNS boolean
 LANGUAGE sql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
