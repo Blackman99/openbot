@@ -74,3 +74,30 @@ test('saves one source through an uncertain response, reloads provenance, search
   ).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('reviews a pending candidate from the conversation inbox and confirms a workspace destination', async ({
+  page,
+  request,
+}) => {
+  await request.post(api + '/__scenario', { data: { scenario: 'unclaimed' } });
+  await page.request.post(api + '/__conversation/setup');
+  await page.goto(`/app/workspaces/${workspaceId}/conversations`);
+  await page.getByRole('button', { name: 'Open Research group', exact: true }).click();
+  const conversationId = new URL(page.url()).pathname.split('/').at(-1)!;
+  expect(
+    (await page.request.post(api + '/__memory/setup-inbox', { data: { conversationId } })).status(),
+  ).toBe(200);
+  await page.getByRole('link', { name: 'Memory review inbox', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Memory review inbox', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('keep the edited evidence.')).toBeVisible();
+  await page.getByLabel('Wider destination').selectOption(`workspace:${workspaceId}`);
+  await page.getByRole('button', { name: 'Preview wider approval', exact: true }).click();
+  await expect(
+    page.getByText('Workspace facts are available throughout this workspace.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm this approval', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'approved', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm this approval' })).toHaveCount(0);
+});

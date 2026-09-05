@@ -9,11 +9,15 @@ const time = '2026-09-05T00:00:00.000Z';
 let conversation,
   records = [],
   attempts = [],
+  candidates = [],
+  intents = [],
   failAfterCommit = false;
 export function resetMemoryFixture() {
   conversation = undefined;
   records = [];
   attempts = [];
+  candidates = [];
+  intents = [];
   failAfterCommit = false;
 }
 export function handleMemoryFixture(request, response, context) {
@@ -33,7 +37,170 @@ export function handleMemoryFixture(request, response, context) {
     });
     return true;
   }
+  if (request.method === 'POST' && path === '/__memory/setup-inbox') {
+    readJson(request, ({ conversationId }) => {
+      resetMemoryFixture();
+      const current = readTaskConversationFixture(conversationId, user?.id);
+      if (!current || current.subject.kind !== 'group') fail(400, 'invalid_memory_fixture');
+      else {
+        conversation = current;
+        candidates.push({
+          id: randomUUID(),
+          runId: randomUUID(),
+          status: 'pending',
+          revision: 1,
+          body: 'keep the edited evidence.',
+          proposedScope: { kind: 'group', id: groupId },
+          confidence: 0.5,
+          confidenceSource: 'local_rule',
+          sourceCount: 2,
+          createdAt: time,
+        });
+        sendJson(response, 200, { candidateId: candidates[0].id });
+      }
+    });
+    return true;
+  }
   if (!conversation) return false;
+  const inboxBase = `/api/v1/workspaces/${workspaceId}/conversations/${conversation.id}/memory-candidates`;
+  if (path === inboxBase || path.startsWith(`${inboxBase}/`)) {
+    if (!user || !memberships.get(workspaceId)?.has(user.id)) {
+      fail(403, 'memory_forbidden');
+      return true;
+    }
+    if (request.method === 'GET' && path === inboxBase) {
+      sendJson(response, 200, { candidates, nextAfter: null });
+      return true;
+    }
+    if (request.method !== 'GET' && request.headers.origin !== trustedOrigin) {
+      fail(403, 'memory_forbidden');
+      return true;
+    }
+    const rest = path.slice(inboxBase.length + 1).split('/');
+    const candidate = candidates.find((row) => row.id === rest[0]);
+    if (!candidate) {
+      fail(403, 'memory_forbidden');
+      return true;
+    }
+    if (request.method === 'PATCH' && rest.length === 1) {
+      readJson(request, (command) => {
+        if (candidate.status !== 'pending' || candidate.revision !== command.expectedRevision)
+          fail(409, 'source_version_conflict');
+        else {
+          candidate.body = command.body;
+          candidate.revision += 1;
+          sendJson(response, 200, { candidate });
+        }
+      });
+      return true;
+    }
+    if (request.method === 'POST' && rest[1] === 'rejections') {
+      readJson(request, (command) => {
+        if (candidate.status !== 'pending' || candidate.revision !== command.expectedRevision)
+          fail(409, 'source_version_conflict');
+        else {
+          candidate.status = 'rejected';
+          sendJson(response, 201, { candidate });
+        }
+      });
+      return true;
+    }
+    if (request.method === 'POST' && rest[1] === 'approvals') {
+      readJson(request, (command) => {
+        if (
+          command.destination?.kind !== 'group' ||
+          command.destination.id !== groupId ||
+          candidate.status !== 'pending' ||
+          candidate.revision !== command.expectedRevision
+        )
+          fail(403, 'memory_forbidden');
+        else {
+          candidate.status = 'approved';
+          sendJson(response, 201, {
+            candidate,
+            fact: {
+              kind: 'approved_fact',
+              id: randomUUID(),
+              versionId: randomUUID(),
+              version: 1,
+              candidateId: candidate.id,
+              scope: { kind: 'group', workspaceId, id: groupId },
+              creator: { id: user.id, displayName: user.displayName },
+              createdAt: time,
+              confidence: command.confidence,
+              confidenceSource: 'human',
+              text: candidate.body,
+            },
+            replayed: false,
+          });
+        }
+      });
+      return true;
+    }
+    if (request.method === 'POST' && rest[1] === 'approval-previews') {
+      readJson(request, (command) => {
+        if (candidate.status !== 'pending' || candidate.revision !== command.expectedRevision)
+          fail(409, 'source_version_conflict');
+        else {
+          const preview = {
+            id: randomUUID(),
+            expiresAt: time,
+            content: candidate.body,
+            destination: command.destination,
+            visibility: {
+              kind: command.destination.kind,
+              id: command.destination.id,
+              summary:
+                command.destination.kind === 'workspace'
+                  ? 'Workspace facts are available throughout this workspace.'
+                  : command.destination.kind === 'bot'
+                    ? 'This Bot can use this reviewed fact across its conversations and groups. Participants in those conversations may see it. Other Bots cannot list, search, or receive it.'
+                    : 'Group members with content access can use this reviewed fact in this group.',
+            },
+            disclosureVersion: 'mem-03-audience-v1',
+          };
+          intents.push({ ...preview, candidateId: candidate.id });
+          sendJson(response, 200, { preview });
+        }
+      });
+      return true;
+    }
+    if (request.method === 'POST' && rest[1] === 'approval-confirmations') {
+      readJson(request, (command) => {
+        const intent = intents.find(
+          (row) => row.id === command.intentId && row.candidateId === candidate.id,
+        );
+        if (!intent || !command.acknowledged) fail(403, 'memory_forbidden');
+        else {
+          candidate.status = 'approved';
+          sendJson(response, 201, {
+            candidate,
+            fact: {
+              kind: 'approved_fact',
+              id: randomUUID(),
+              versionId: randomUUID(),
+              version: 1,
+              candidateId: candidate.id,
+              scope: {
+                kind: intent.destination.kind,
+                workspaceId,
+                id: intent.destination.id,
+              },
+              creator: { id: user.id, displayName: user.displayName },
+              createdAt: time,
+              confidence: 0.7,
+              confidenceSource: 'human',
+              text: candidate.body,
+            },
+            replayed: false,
+          });
+        }
+      });
+      return true;
+    }
+    fail(404, 'not_found');
+    return true;
+  }
   if (path === '/__memory/state') {
     if (request.method === 'POST')
       readJson(request, (input) => {
