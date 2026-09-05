@@ -180,6 +180,16 @@ try {
     REVOKE ALL ON FUNCTION protect_run_approved_fact_reference() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_knowledge_document() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_knowledge_chunk() FROM PUBLIC, openbot_runtime;
+    DO $revoke_optional_knowledge_promotion$
+    BEGIN
+      IF to_regprocedure('protect_knowledge_promotion_intent()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_knowledge_promotion_intent() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_knowledge_promotion_confirmation()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_knowledge_promotion_confirmation() FROM PUBLIC, openbot_runtime;
+      END IF;
+    END
+    $revoke_optional_knowledge_promotion$;
     REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
@@ -278,7 +288,8 @@ try {
       memory_extraction_jobs, memory_candidates, memory_candidate_revisions,
       memory_candidate_sources, approved_memory_facts, memory_candidate_decisions,
       memory_candidate_review_intents, memory_candidate_review_confirmations,
-      run_approved_fact_references, knowledge_documents, knowledge_chunks TO openbot_runtime;
+      run_approved_fact_references, knowledge_documents, knowledge_chunks,
+      knowledge_promotion_intents, knowledge_promotion_confirmations TO openbot_runtime;
     GRANT UPDATE (status, attempt_count, available_at, claim_token, lease_expires_at, last_error_code, updated_at)
       ON memory_extraction_jobs TO openbot_runtime;
     GRANT UPDATE (status, current_revision) ON memory_candidates TO openbot_runtime;

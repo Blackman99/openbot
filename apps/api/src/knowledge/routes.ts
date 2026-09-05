@@ -3,7 +3,14 @@ import type { AuthService } from '../auth/service.js';
 import { readSessionToken } from '../auth/session-cookie.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import { AttachmentInputError, AttachmentUnavailableError } from '../attachments/types.js';
-import { KnowledgeInputError, knowledgeAccess } from './types.js';
+import { BotAccessError } from '../bots/service.js';
+import { GroupAccessError } from '../groups/service.js';
+import {
+  KnowledgeAccessError,
+  KnowledgeConflictError,
+  KnowledgeInputError,
+  knowledgeAccess,
+} from './types.js';
 import type { KnowledgeService } from './service.js';
 
 export function registerKnowledgeRoutes(
@@ -20,8 +27,15 @@ export function registerKnowledgeRoutes(
       return payload;
     });
     routes.setErrorHandler((error, _request, reply) => {
-      if (error instanceof ConversationAccessError)
+      if (
+        error instanceof ConversationAccessError ||
+        error instanceof KnowledgeAccessError ||
+        error instanceof GroupAccessError ||
+        error instanceof BotAccessError
+      )
         return reply.code(403).send({ error: { code: 'knowledge_forbidden' } });
+      if (error instanceof KnowledgeConflictError)
+        return reply.code(409).send({ error: { code: error.code } });
       if (error instanceof KnowledgeInputError || error instanceof AttachmentInputError)
         return reply.code(400).send({ error: { code: 'invalid_knowledge_request' } });
       if (error instanceof AttachmentUnavailableError)
@@ -38,16 +52,10 @@ export function registerKnowledgeRoutes(
     });
     routes.post<{ Params: Params }>(
       '/api/v1/workspaces/:workspaceId/conversations/:conversationId/messages/:messageId/knowledge/preview',
+      { bodyLimit: 4096 },
       async (request) => {
         const identity = await auth.getSession(readSessionToken(request.headers.cookie)!);
         if (!identity) throw new KnowledgeInputError();
-        if (
-          !request.body ||
-          typeof request.body !== 'object' ||
-          Array.isArray(request.body) ||
-          Object.keys(request.body).length
-        )
-          throw new KnowledgeInputError();
         return knowledge.preview(
           knowledgeAccess(
             identity.user.id,
@@ -55,7 +63,26 @@ export function registerKnowledgeRoutes(
             request.params.conversationId,
           ),
           request.params.messageId,
+          request.body,
         );
+      },
+    );
+    routes.post<{ Params: Params }>(
+      '/api/v1/workspaces/:workspaceId/conversations/:conversationId/messages/:messageId/knowledge/confirmations',
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const identity = await auth.getSession(readSessionToken(request.headers.cookie)!);
+        if (!identity) throw new KnowledgeInputError();
+        const result = await knowledge.confirm(
+          knowledgeAccess(
+            identity.user.id,
+            request.params.workspaceId,
+            request.params.conversationId,
+          ),
+          request.params.messageId,
+          request.body,
+        );
+        return reply.code(result.replayed ? 200 : 201).send({ document: result.document });
       },
     );
   });

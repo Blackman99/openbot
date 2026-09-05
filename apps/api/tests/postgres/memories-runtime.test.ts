@@ -64,7 +64,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
-    expect(versions.at(-1)).toEqual({ version: '0028_scoped_knowledge' });
+    expect(versions.at(-1)).toEqual({ version: '0029_knowledge_promotion' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(
@@ -495,6 +495,10 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'memory_candidate_review_intents',
       'memory_candidate_review_confirmations',
       'run_approved_fact_references',
+      'knowledge_documents',
+      'knowledge_chunks',
+      'knowledge_promotion_intents',
+      'knowledge_promotion_confirmations',
     ]) {
       for (const privilege of [
         'SELECT',
@@ -579,6 +583,10 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'protect_memory_candidate_decision()',
       'protect_memory_candidate_review_confirmation()',
       'protect_run_approved_fact_reference()',
+      'protect_knowledge_document()',
+      'protect_knowledge_chunk()',
+      'protect_knowledge_promotion_intent()',
+      'protect_knowledge_promotion_confirmation()',
     ])
       expect(
         (

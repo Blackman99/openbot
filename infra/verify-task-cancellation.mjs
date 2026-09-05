@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0028_scoped_knowledge');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0029_knowledge_promotion');
   assert.deepEqual(
     (
       await pool.query(
