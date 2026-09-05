@@ -6,10 +6,12 @@ import {
   taskKeys,
   taskText,
   taskInteger,
+  taskDate,
   type TaskPage,
   type TaskView,
   type TaskRun,
 } from './task-contract.js';
+import { parseTaskPartialOutput, type TaskPartialOutput } from '../task-partial-output.js';
 export type { TaskPage, TaskView, TaskRun, TaskStatus, TaskErrorCode } from './task-contract.js';
 export interface TaskCommand {
   idempotencyKey: string;
@@ -23,6 +25,19 @@ export interface TaskRetryCommand {
 export interface TaskRetryResult {
   task: TaskView;
   receipt: { runId: string; attempt: number };
+}
+export interface TaskCancellationResult {
+  task: TaskView;
+  receipt: {
+    commandId: string;
+    taskId: string;
+    rootTaskId: string;
+    runId: string;
+    attempt: number;
+    cancelledAt: string;
+    affectedTaskCount: number;
+    affectedRunCount: number;
+  };
 }
 export interface TaskRunsPage {
   conversationId: string;
@@ -41,6 +56,10 @@ export type TaskResult<T> =
         | 'model-unavailable'
         | 'retry-state-conflict'
         | 'retry-run-conflict'
+        | 'retry-cancelled-ancestor'
+        | 'cancel-state-conflict'
+        | 'cancel-run-conflict'
+        | 'partial-state-conflict'
         | 'attempt-exhausted'
         | 'routing-unavailable'
         | 'unavailable';
@@ -235,6 +254,92 @@ export class TaskApiClient {
       },
     };
   }
+  async cancel(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    command: TaskRetryCommand,
+  ): Promise<TaskResult<TaskCancellationResult>> {
+    if (
+      !isConversationUuid(taskId) ||
+      !taskKeys(command, 'expectedRunId,idempotencyKey') ||
+      !isCommandKey(command.idempotencyKey) ||
+      !isConversationUuid(command.expectedRunId)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/cancellations',
+      {
+        idempotencyKey: command.idempotencyKey,
+        expectedRunId: command.expectedRunId.toLowerCase(),
+      },
+      200,
+    );
+    if (result.status !== 'available') return result;
+    if (!taskKeys(result.value, 'receipt,task')) return { status: 'unavailable' };
+    const task = parseTask(result.value.task, conversationId),
+      receipt = result.value.receipt;
+    if (
+      !task ||
+      task.id !== taskId.toLowerCase() ||
+      task.status !== 'cancelled' ||
+      !taskKeys(
+        receipt,
+        'affectedRunCount,affectedTaskCount,attempt,cancelledAt,commandId,rootTaskId,runId,taskId',
+      ) ||
+      !isConversationUuid(receipt.commandId) ||
+      !isConversationUuid(receipt.rootTaskId) ||
+      !isConversationUuid(receipt.taskId) ||
+      receipt.taskId.toLowerCase() !== task.id ||
+      !isConversationUuid(receipt.runId) ||
+      receipt.runId.toLowerCase() !== command.expectedRunId.toLowerCase() ||
+      receipt.runId.toLowerCase() !== task.runs[0]?.id ||
+      receipt.attempt !== task.runCount ||
+      !taskInteger(receipt.affectedTaskCount, 0) ||
+      receipt.affectedRunCount !== receipt.affectedTaskCount ||
+      !taskDate(receipt.cancelledAt) ||
+      receipt.cancelledAt !== task.runs[0].finishedAt
+    )
+      return { status: 'unavailable' };
+    return {
+      status: 'available',
+      value: {
+        task,
+        receipt: {
+          commandId: receipt.commandId.toLowerCase(),
+          taskId: task.id,
+          rootTaskId: receipt.rootTaskId.toLowerCase(),
+          runId: receipt.runId.toLowerCase(),
+          attempt: task.runCount,
+          cancelledAt: receipt.cancelledAt,
+          affectedTaskCount: receipt.affectedTaskCount,
+          affectedRunCount: receipt.affectedTaskCount,
+        },
+      },
+    };
+  }
+  async partialOutput(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    runId: string,
+  ): Promise<TaskResult<TaskPartialOutput>> {
+    if (!isConversationUuid(taskId) || !isConversationUuid(runId)) return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/runs/' + runId.toLowerCase() + '/partial-output',
+    );
+    if (result.status !== 'available') return result;
+    const value = parseTaskPartialOutput(result.value, { conversationId, taskId, runId });
+    return value ? { status: 'available', value } : { status: 'unavailable' };
+  }
   async runs(
     session: string | undefined,
     workspaceId: string,
@@ -297,6 +402,7 @@ export class TaskApiClient {
     conversationId: string,
     suffix: string,
     body?: TaskCommand | TaskRetryCommand,
+    expectedStatus?: number,
   ): Promise<TaskResult<unknown>> {
     if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
     if (!isConversationUuid(workspaceId) || !isConversationUuid(conversationId))
@@ -347,9 +453,17 @@ export class TaskApiClient {
           return { status: 'retry-run-conflict' };
         if (response.status === 409 && code === 'task_attempt_exhausted')
           return { status: 'attempt-exhausted' };
+        if (response.status === 409 && code === 'task_retry_cancelled_ancestor')
+          return { status: 'retry-cancelled-ancestor' };
+        if (response.status === 409 && code === 'task_cancel_state_conflict')
+          return { status: 'cancel-state-conflict' };
+        if (response.status === 409 && code === 'task_cancel_run_conflict')
+          return { status: 'cancel-run-conflict' };
+        if (response.status === 409 && code === 'task_partial_state_conflict')
+          return { status: 'partial-state-conflict' };
       }
 
-      return response.status === (body === undefined ? 200 : 202)
+      return response.status === (expectedStatus ?? (body === undefined ? 200 : 202))
         ? { status: 'available', value: payload }
         : { status: 'unavailable' };
     } catch {

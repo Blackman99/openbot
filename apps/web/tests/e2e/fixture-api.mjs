@@ -1,3 +1,7 @@
+import {
+  handleTaskCancellationFixture,
+  resetTaskCancellationFixture,
+} from './task-cancellation-fixture.mjs';
 import { handlePublicBotFixture, resetPublicBotFixture } from './public-bot-fixture.mjs';
 import { handleRoutingFixture, resetRoutingFixture } from './routing-fixture.mjs';
 import { handleGroupBotFixture, resetGroupBotFixture } from './group-bot-fixture.mjs';
@@ -99,7 +103,11 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
-  if (request.url === '/__scenario') void resetConversationStreamFixture();
+  if (request.url === '/__scenario') {
+    void resetConversationStreamFixture();
+    void resetTaskCancellationFixture();
+  }
+  if (handleTaskCancellationFixture(request, response, { sendJson, trustedOrigin })) return;
   if (handleConversationStreamFixture(request, response, { sendJson, trustedOrigin })) return;
   if (handleRoutingFixture(request, response, { sendJson, readJson, trustedOrigin })) return;
   if (handlePublicBotFixture(request, response, { sendJson, trustedOrigin })) return;

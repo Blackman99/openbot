@@ -2,14 +2,17 @@
   import RoutingDecision from '$lib/components/RoutingDecision.svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
+  import TaskCancellation from '$lib/components/TaskCancellation.svelte';
   import TaskSummary from '$lib/components/TaskSummary.svelte';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
   let submitting = $state(false);
   let transportError = $state('');
   let unconfirmed = $state<Record<string, string> | null>(null);
-  let values = $derived(unconfirmed ?? form?.values ?? {});
-  let uncertain = $derived(Boolean(unconfirmed) || Boolean(form?.uncertain));
+  let retryForm = $derived(form && 'values' in form ? form : null);
+  let cancellationForm = $derived(form && 'cancellation' in form ? form.cancellation : undefined);
+  let values = $derived(unconfirmed ?? retryForm?.values ?? {});
+  let uncertain = $derived(Boolean(unconfirmed) || Boolean(retryForm?.uncertain));
   let canConfirm = $derived(uncertain && data.user.id === data.task.executionUser.id && Boolean(values.idempotencyKey && values.expectedRunId));
   let base = $derived(`/app/workspaces/${data.workspace.id}/conversations/${data.conversation.id}`);
   const retry: SubmitFunction = ({ formData, cancel }) => {
@@ -42,7 +45,16 @@
   <nav aria-label="Task navigation"><a href={`${base}/tasks/${data.task.id}`} data-sveltekit-reload>Refresh task</a><a href={base}>Open conversation</a></nav>
   <TaskSummary task={data.task} conversationBase={base} showLink={false} />
   {#if data.routingDecision}<RoutingDecision decision={data.routingDecision} />{/if}
-  {#if transportError || form?.error}<p role="alert">{transportError || form?.error}</p>{/if}
+  {#if data.task.status === 'cancelled'}
+    <section aria-labelledby="partial-heading">
+      <h2 id="partial-heading">Interrupted output</h2>
+      {#if data.partialUnavailable}<p role="alert">Saved partial output is unavailable. Refresh this task to try again.</p>
+      {:else if data.partialOutput?.partial}<p>This task was cancelled. The saved output is incomplete.</p><pre>{data.partialOutput.partial.text}</pre>
+      {:else}<p>No output was saved before cancellation.</p>{/if}
+    </section>
+  {/if}
+  <TaskCancellation canCancel={data.canCancel} canConfirm={data.canConfirmCancellation} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/cancel`} action={cancellationForm} />
+  {#if transportError || retryForm?.error}<p role="alert">{transportError || retryForm?.error}</p>{/if}
   {#if data.canRetry || canConfirm}
     <section aria-labelledby="retry-heading">
       <h2 id="retry-heading">Retry this task</h2>
@@ -51,7 +63,7 @@
         <input type="hidden" name="idempotencyKey" value={values.idempotencyKey ?? data.idempotencyKey} />
         <input type="hidden" name="expectedRunId" value={values.expectedRunId ?? data.task.runs[0]?.id} />
         {#if uncertain}<p>The original retry request is preserved until its outcome is confirmed.</p>{/if}
-        <button disabled={submitting || form?.conflict}>{submitting ? 'Confirming…' : uncertain ? 'Confirm unchanged retry' : 'Retry failed task'}</button>
+        <button disabled={submitting || retryForm?.conflict}>{submitting ? 'Confirming…' : uncertain ? 'Confirm unchanged retry' : 'Retry failed task'}</button>
       </form>
     </section>
   {/if}
@@ -60,6 +72,7 @@
   :global(body) { margin: 0; background: #0d1117; color: #f0f6fc; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
   main { max-width: 55rem; margin: auto; padding: 2rem; overflow-wrap: anywhere; }
   a { color: #a5d6ff; } nav { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 1rem 0; }
+  pre { white-space: pre-wrap; font: inherit; }
   section { margin-top: 1.5rem; } h2 { font-size: 1.25rem; }
   button { padding: .75rem; border: 1px solid #526171; border-radius: .4rem; font: inherit; background: #9ed0ff; color: #0d1117; cursor: pointer; }
   button:disabled { opacity: .5; cursor: not-allowed; } [role="alert"] { color: #ffb4b4; }

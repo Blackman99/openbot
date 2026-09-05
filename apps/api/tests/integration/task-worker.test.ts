@@ -6,11 +6,84 @@ import { ConversationAccessError } from '../../src/conversations/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import type { SqlPool } from '../../src/auth/postgres-auth-repository.js';
+import type { ModelEventConsumer, ModelResponse } from '../../src/providers/model-events.js';
 
 describe('Task execution authority and terminal outcomes', () => {
   const cleanup: Array<() => Promise<unknown>> = [];
   afterEach(async () => {
     for (const close of cleanup.splice(0).reverse()) await close();
+  });
+
+  it('aborts a silent provider when another transaction ends its durable claim', async () => {
+    const f = await taskFixture(cleanup);
+    let announce!: (signal: AbortSignal) => void;
+    let respond!: (response: ModelResponse) => void;
+    const started = new Promise<AbortSignal>((resolve) => {
+      announce = resolve;
+    });
+    const response = new Promise<ModelResponse>((resolve) => {
+      respond = resolve;
+    });
+    let workerFinished = false;
+    let emit: ModelEventConsumer | undefined;
+    const running = f
+      .worker(async (_input, signal, onEvent) => {
+        emit = onEvent;
+        announce(signal!);
+        return response;
+      })
+      .runOnce()
+      .then((handled) => {
+        workerFinished = true;
+        return handled;
+      });
+    const providerSignal = await started;
+    const connection = await f.pool.connect();
+    try {
+      // Another process owns this valid terminal transition. The cancellation
+      // state will use the same observation seam after standalone migration0023.
+      await connection.query('BEGIN');
+      await connection.query(
+        "UPDATE task_runs SET status='failed',finished_at=$2,error_code='worker_stopped' WHERE id=$1",
+        [f.task.runs[0]!.id, new Date()],
+      );
+      await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [f.task.id]);
+      await connection.query(
+        "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.failed',$2,$3,$4::jsonb)",
+        [randomUUID(), f.owner.user.id, new Date(), JSON.stringify({ taskId: f.task.id })],
+      );
+      await connection.query('COMMIT');
+      await expect.poll(() => providerSignal.aborted, { timeout: 1500 }).toBe(true);
+      // A provider that ignores abort must not hold this worker invocation open.
+      await expect.poll(() => workerFinished, { timeout: 1500 }).toBe(true);
+      await expect(
+        Promise.resolve().then(() => emit?.({ type: 'text', text: 'Late callback.' })),
+      ).rejects.toThrow();
+    } finally {
+      connection.release();
+      respond({
+        events: [
+          { type: 'text', text: 'This late completion must not be published.' },
+          { type: 'complete', stopReason: 'stop' },
+        ],
+        raw: '',
+      });
+      await running;
+    }
+    expect(await f.read()).toMatchObject({
+      status: 'failed',
+      runs: [{ status: 'failed', error: 'worker_stopped', output: null }],
+    });
+    expect(
+      (await f.pool.query("SELECT id FROM audit_events WHERE event_type='task.failed'")).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await f.pool.query(
+          "SELECT id FROM conversation_events WHERE event_type='bot.message.created'",
+        )
+      ).rows,
+    ).toHaveLength(0);
   });
 
   it('rechecks provider authority after the complete generation promise and never publishes a disabled provider result', async () => {
@@ -239,11 +312,13 @@ describe('Task execution authority and terminal outcomes', () => {
     const selected = await queue.claimNext();
     expect(selected.claim).toBeDefined();
     const claim = selected.claim!;
+    await expect(queue.isClaimActive(claim)).resolves.toBe(true);
     expect(
       await queue.finish({ ...claim, claimToken: randomUUID() }, { body: 'Stale.', usage: null }),
     ).toBe(false);
     expect((await f.read()).status).toBe('running');
     expect(await queue.finish(claim, { body: 'One output.', usage: null })).toBe(true);
+    await expect(queue.isClaimActive(claim)).resolves.toBe(false);
     expect(await queue.finish(claim, { body: 'Duplicate.', usage: null })).toBe(false);
     const final = await f.read();
     const output = final.runs[0]!.output!;

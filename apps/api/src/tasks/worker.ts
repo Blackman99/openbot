@@ -1,6 +1,7 @@
 import type { SqlPool } from '../auth/postgres-auth-repository.js';
 import type { ModelAdapter, ProviderProtocol } from '../providers/model-events.js';
 import type { ProviderSecretBox } from '../providers/secrets.js';
+import { withAbort } from '../providers/transport.js';
 import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent } from '../providers/model-events.js';
@@ -35,7 +36,27 @@ export class TaskWorker {
       () => controller.abort(),
     );
     let timedOut = false,
-      limit = false;
+      limit = false,
+      claimStopped = false,
+      observing = true;
+    let observation: Promise<void> = Promise.resolve(),
+      observationTimer: ReturnType<typeof setTimeout> | undefined;
+    // Observe durable state even when a provider emits no callbacks. Each
+    // check finishes before scheduling the next; a database failure aborts
+    // this request without claiming that cancellation committed.
+    const observeClaim = async (): Promise<void> => {
+      try {
+        claimStopped = !(await this.queue.isClaimActive(claim));
+      } catch {
+        claimStopped = true;
+      }
+      if (claimStopped) controller.abort();
+      else if (observing && !combined.aborted) {
+        observationTimer = setTimeout(() => {
+          observation = observeClaim();
+        }, 1000);
+      }
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
@@ -70,14 +91,15 @@ export class TaskWorker {
     };
     let failure: TaskFailure | undefined;
     try {
+      observation = observeClaim();
+      await observation;
       combined.throwIfAborted();
       const credentials = this.options.secrets.open(
         claim.provider.sealedCredentials,
         claim.provider.credentialContext,
       );
-      const response = await this.options
-        .createAdapter(claim.provider.protocol, { timeoutMs })
-        .generate(
+      const response = await withAbort(
+        this.options.createAdapter(claim.provider.protocol, { timeoutMs }).generate(
           {
             ...credentials,
             baseUrl: claim.provider.baseUrl,
@@ -92,11 +114,14 @@ export class TaskWorker {
           },
           combined,
           async (event) => {
+            combined.throwIfAborted();
             observe(event);
             if (event.type === 'text' && event.text)
               await publication.push(Buffer.from(event.text).toString('utf8'));
           },
-        );
+        ),
+        combined,
+      );
       if (response.error) failure = 'provider_failed';
       // Rebuild only the pure accumulator. The callback has already published
       // each delta; terminal response.events must never publish that text again.
@@ -115,13 +140,16 @@ export class TaskWorker {
     } catch (error) {
       failure = error instanceof TaskPublicationError ? error.code : 'provider_failed';
     } finally {
+      observing = false;
+      clearTimeout(observationTimer);
+      await observation;
       clearTimeout(timer);
       await publication.discard();
     }
     if (limit) failure = 'output_limit';
     else if (timedOut || this.now().getTime() >= claim.deadlineAt.getTime())
       failure = 'execution_timeout';
-    else if (signal?.aborted) failure = 'worker_stopped';
+    else if (claimStopped || signal?.aborted) failure = 'worker_stopped';
     await this.queue.finish(claim, failure ? { error: failure, usage } : { body, usage });
     return true;
   }

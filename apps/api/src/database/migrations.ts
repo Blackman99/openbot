@@ -18,6 +18,11 @@ import { GROUP_BOT_SCHEMA_STATEMENTS, GROUP_BOT_POSTGRES_GUARDS } from '../group
 import { TASK_SCHEMA_STATEMENTS, TASK_POSTGRES_GUARDS } from '../tasks/schema.js';
 import { TASK_RETRY_SCHEMA_STATEMENTS, TASK_RETRY_POSTGRES_GUARDS } from '../tasks/retry-schema.js';
 import {
+  TASK_CANCELLATION_SCHEMA_STATEMENTS,
+  TASK_CANCELLATION_POSTGRES_PREFLIGHT,
+} from '../tasks/cancellation-schema.js';
+import { TASK_CANCELLATION_POSTGRES_GUARDS } from '../tasks/cancellation-postgres.js';
+import {
   CONVERSATION_STREAM_SCHEMA_STATEMENTS,
   CONVERSATION_STREAM_POSTGRES_GUARDS,
 } from '../conversations/stream-schema.js';
@@ -277,6 +282,12 @@ const MIGRATIONS = [
     statements: TASK_RETRY_SCHEMA_STATEMENTS,
     postgresStatements: TASK_RETRY_POSTGRES_GUARDS,
   },
+  {
+    version: '0023_task_tree_cancellation',
+    postgresBeforeStatements: TASK_CANCELLATION_POSTGRES_PREFLIGHT,
+    statements: TASK_CANCELLATION_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_CANCELLATION_POSTGRES_GUARDS,
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -330,6 +341,10 @@ export async function migrateDatabase(
         continue;
       }
 
+      if (installPostgresGuards && 'postgresBeforeStatements' in migration) {
+        for (const statement of migration.postgresBeforeStatements)
+          await connection.query(statement);
+      }
       for (const statement of migration.statements) {
         await connection.query(statement);
       }

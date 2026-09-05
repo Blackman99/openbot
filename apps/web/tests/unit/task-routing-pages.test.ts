@@ -14,7 +14,17 @@ const routed = {
   groupGrantId: lead.grantId,
   routing: { algorithm: decision.algorithm, reason: decision.reason },
 };
-const base = { conversation, workspace, user, workspaces: [workspace], canWrite: true };
+const base = {
+  conversation,
+  workspace,
+  user,
+  workspaces: [workspace],
+  canWrite: true,
+  canCancel: false,
+  canConfirmCancellation: false,
+  partialOutput: null,
+  partialUnavailable: false,
+};
 const params = { workspaceId: workspace.id, conversationId: conversation.id };
 describe('Group routing integrated UI', () => {
   it('offers an automatic default and labels the optional explicit grant as a mention', () => {

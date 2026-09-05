@@ -4,7 +4,7 @@ import {
   isConversationCursor,
   type MessageReceipt,
 } from './conversation-api.js';
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export const taskErrorCodes = [
   'execution_forbidden',
   'model_unavailable',
@@ -64,12 +64,18 @@ export function taskInteger(value: unknown, minimum = 1): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
 }
 function status(value: unknown): value is TaskStatus {
-  return value === 'queued' || value === 'running' || value === 'completed' || value === 'failed';
+  return (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  );
 }
 function errorCode(value: unknown): value is TaskErrorCode {
   return typeof value === 'string' && taskErrorCodes.some((code) => code === value);
 }
-function date(value: unknown): value is string {
+export function taskDate(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     Number.isFinite(Date.parse(value)) &&
@@ -98,11 +104,12 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     !taskInteger(value.attempt) ||
     value.attempt > 2147483647 ||
     !status(value.status) ||
-    !date(value.createdAt) ||
+    !taskDate(value.createdAt) ||
     (createdAt !== undefined && value.createdAt < createdAt) ||
-    (value.startedAt !== null && (!date(value.startedAt) || value.startedAt < value.createdAt)) ||
+    (value.startedAt !== null &&
+      (!taskDate(value.startedAt) || value.startedAt < value.createdAt)) ||
     (value.finishedAt !== null &&
-      (!date(value.finishedAt) || value.finishedAt < (value.startedAt ?? value.createdAt))) ||
+      (!taskDate(value.finishedAt) || value.finishedAt < (value.startedAt ?? value.createdAt))) ||
     (value.error !== null && !errorCode(value.error))
   )
     return undefined;
@@ -164,6 +171,14 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     (value.finishedAt === null || value.error === null || output !== null)
   )
     return undefined;
+  if (
+    value.status === 'cancelled' &&
+    (value.finishedAt === null ||
+      value.error !== null ||
+      output !== null ||
+      (value.startedAt !== null && provider === null))
+  )
+    return undefined;
   if (value.startedAt === null && (provider !== null || usage !== null)) return undefined;
   return {
     id: value.id.toLowerCase(),
@@ -192,7 +207,7 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     !isConversationUuid(value.conversationId) ||
     value.conversationId.toLowerCase() !== conversationId.toLowerCase() ||
     !status(value.status) ||
-    !date(value.createdAt) ||
+    !taskDate(value.createdAt) ||
     !taskKeys(value.bot, 'id,name,versionId,versionNumber') ||
     !isConversationUuid(value.bot.id) ||
     !isConversationUuid(value.bot.versionId) ||

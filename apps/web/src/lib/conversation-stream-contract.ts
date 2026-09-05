@@ -17,7 +17,7 @@ export interface MessageReference {
   taskId: string | null;
   runId: string | null;
 }
-export type StreamTaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+export type StreamTaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type StreamTaskFailure =
   | 'execution_forbidden'
   | 'model_unavailable'
@@ -136,7 +136,13 @@ function utf8Length(value: unknown, maximum: number): number | undefined {
     : undefined;
 }
 function status(value: unknown): value is StreamTaskStatus {
-  return value === 'queued' || value === 'running' || value === 'completed' || value === 'failed';
+  return (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  );
 }
 function failure(value: unknown): value is StreamTaskFailure {
   return (
@@ -326,6 +332,14 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
   if (
     value.taskStatus === 'failed' &&
     (value.finishedAt === null || value.error === null || output !== null)
+  )
+    return undefined;
+  if (
+    value.taskStatus === 'cancelled' &&
+    (value.finishedAt === null ||
+      value.error !== null ||
+      output !== null ||
+      (value.startedAt !== null && provider === null))
   )
     return undefined;
   if (value.startedAt === null && (provider !== null || usage !== null)) return undefined;

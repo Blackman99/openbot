@@ -3,6 +3,7 @@ import {
   createConversationStreamState,
   applyConversationStreamEvent,
   resolveConversationStreamMessage,
+  resolveCancelledTaskPartial,
 } from '../../src/lib/conversation-stream-state.js';
 import {
   encodeConversationStreamCursor,
@@ -95,6 +96,95 @@ const revision = (message: MessageReference) => ({
 });
 
 describe('conversation stream convergence', () => {
+  it('marks the streamed prefix interrupted on cancellation and ignores a late delta', () => {
+    const initial = createConversationStreamState(bootstrap({ executions: [execution()] }));
+    const streamed = applyConversationStreamEvent(initial, delta(1, 0, 7, 'hi 🌍'));
+    const stopped = applyConversationStreamEvent(
+      streamed.state,
+      event(2, 'task.run.updated', {
+        execution: {
+          ...execution(),
+          taskStatus: 'cancelled',
+          runStatus: 'cancelled',
+          finishedAt: instant,
+        },
+      }),
+    );
+    expect(stopped.status).toBe('applied');
+    expect(stopped.state.previews[id(200)]).toMatchObject({
+      status: 'interrupted',
+      text: 'hi 🌍',
+      endByte: 7,
+    });
+    const late = applyConversationStreamEvent(stopped.state, delta(3, 7, 11, 'LATE'));
+    expect(late.status).toBe('applied');
+    expect(late.state.previews).toEqual(stopped.state.previews);
+    expect(late.state.messages).toEqual({});
+  });
+  it('restores the complete private cancelled prefix after bootstrap without inventing a final message', () => {
+    const cancelled = {
+      ...execution(),
+      taskStatus: 'cancelled' as const,
+      runStatus: 'cancelled' as const,
+      finishedAt: instant,
+    };
+    const initial = createConversationStreamState(bootstrap({ executions: [cancelled] }));
+    const result = resolveCancelledTaskPartial(initial, {
+      conversationId: scope.conversationId,
+      taskId: cancelled.taskId,
+      runId: cancelled.runId,
+      partial: { text: 'hi 🌍', endByte: 7, interrupted: true },
+    });
+    expect(result.previews[cancelled.runId]).toMatchObject({
+      text: 'hi 🌍',
+      status: 'interrupted',
+    });
+    expect(result.acknowledgedCursor).toBe(initial.acknowledgedCursor);
+    expect(result.messages).toEqual({});
+  });
+  it.each(['cancelled', 'running'] as const)(
+    'retains interrupted Bot identity while bounding later %s execution history',
+    (laterStatus) => {
+      const cancelled = {
+        ...execution(),
+        taskStatus: 'cancelled' as const,
+        runStatus: 'cancelled' as const,
+        finishedAt: instant,
+      };
+      let state = resolveCancelledTaskPartial(
+        createConversationStreamState(bootstrap({ executions: [cancelled] })),
+        {
+          conversationId: scope.conversationId,
+          taskId: cancelled.taskId,
+          runId: cancelled.runId,
+          partial: { text: 'hi 🌍', endByte: 7, interrupted: true },
+        },
+      );
+      for (let n = 1; n <= 70; n++) {
+        const result = applyConversationStreamEvent(
+          state,
+          event(n, 'task.run.updated', {
+            execution: {
+              ...execution(n),
+              taskStatus: laterStatus,
+              runStatus: laterStatus,
+              finishedAt: laterStatus === 'cancelled' ? instant : null,
+            },
+          }),
+        );
+        expect(result.status).toBe('applied');
+        state = result.state;
+      }
+      expect(Object.keys(state.executions)).toHaveLength(64);
+      expect(state.previews[cancelled.runId]).toMatchObject({
+        text: 'hi 🌍',
+        status: 'interrupted',
+      });
+      expect(state.executions[cancelled.runId]).toEqual(cancelled);
+      const late = applyConversationStreamEvent(state, delta(71, 7, 11, 'LATE'));
+      expect(late.state.previews).toEqual(state.previews);
+    },
+  );
   it('retains persisted attempt numbers and rejects changing attempt identity within a run', () => {
     const run = { ...execution(), attempt: 2 };
     const initial = createConversationStreamState(bootstrap({ executions: [run] }));

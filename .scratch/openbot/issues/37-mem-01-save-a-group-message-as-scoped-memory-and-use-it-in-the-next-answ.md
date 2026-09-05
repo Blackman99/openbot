@@ -2,7 +2,7 @@
 sequence: 37
 id: MEM-01
 title: "Save a group message as scoped memory and use it in the next answer"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - BOT-01
   - COL-02
@@ -47,4 +47,4 @@ An authorized member can turn a visible conversation message into a group-scoped
 
 Source `19568c9fc603b97213cd5560a097471ba93107fa` is integrated in reviewed source `0ff6898eee671f04987fd5024a0bbc3c2d0afef4`, tree `3173dfcb6ea9af4913c0eae5fea67748a623dce2`; the accepted evidence commit is `0fd1198e2c0dc1c43dc3e8f59742e4e58ab99f72`. Component and combined Spec/Standards reviews are CLEAN. The dedicated merger ran one complete `pnpm verify` with exit 0: 1,453 nonbrowser tests, 53 ordinary browser journeys, one OIDC journey, formatting, zero-error/zero-warning Web types and both production builds. See [combined evidence](../STREAM-BATCH-VERIFICATION.md).
 
-`MEM-01-E1` remains an explicit [REL-01 release gate](67-rel-01-mvp-release-acceptance-and-distribution.md): execute 14 dedicated memory PostgreSQL cases and the real scoped-source-memory Compose flow. Local skips and syntax checks do not satisfy native PostgreSQL or Compose evidence. The original acceptance texts are unchanged.
+`MEM-01-E1` closed by [Verify33965537394](../VERIFY-33965537394.md), completed 2026-09-05 at 12:21:46 UTC with all 14 jobs successful. Its exact published/actual checkout tree is `89a71e230bac00504399752670ff7e19c1b58260`. Actual PostgreSQL and Compose witnesses are recorded in the linked evidence; local skips are excluded. The original acceptance texts are unchanged.

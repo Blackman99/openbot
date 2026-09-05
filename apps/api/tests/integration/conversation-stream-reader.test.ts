@@ -20,23 +20,28 @@ describe('current-authority durable conversation reader', () => {
         queue = new TaskQueue(f.pool);
       const scope = { workspaceId: f.owner.workspace.id, conversationId: f.conversation.id };
       const token = f.headers.cookie.split('=')[1]!;
-      const chunk = (kind === 'utf8' ? 'x' : '\u0001').repeat(4000);
-      for (let run = 0; run < 3; run++) {
+      // Each Run stays within the worker's 32,000-character output limit.
+      // Three UTF-8 prefixes exceed the text budget; six escaped prefixes exceed JSON.
+      const chunk = kind === 'utf8' ? '漢'.repeat(1000) : '\u0001'.repeat(4000);
+      const runCount = kind === 'utf8' ? 3 : 6;
+      const parts = kind === 'utf8' ? 32 : 8;
+      const endByte = parts * Buffer.byteLength(chunk);
+      for (let run = 0; run < runCount; run++) {
         if (run)
           await f.tasks.submit(f.owner.user.id, scope.workspaceId, scope.conversationId, {
             idempotencyKey: `budget-${run}`,
             body: `Budget ${run}`,
           });
         const claim = (await queue.claimNext()).claim!;
-        for (let part = 0; part < 25; part++) await queue.publishDelta(claim, chunk);
+        for (let part = 0; part < parts; part++) await queue.publishDelta(claim, chunk);
       }
       const snapshot = await stream.bootstrap(token, scope);
-      expect(snapshot.executions).toHaveLength(3);
-      expect(snapshot.previews).toHaveLength(kind === 'utf8' ? 2 : 1);
+      expect(snapshot.executions).toHaveLength(runCount);
+      expect(snapshot.previews).toHaveLength(kind === 'utf8' ? 2 : 5);
       expect(snapshot.previewsTruncated).toBe(true);
       expect(
         snapshot.previews.every(
-          (preview) => preview.endByte === 100000 && Buffer.byteLength(preview.text) === 100000,
+          (preview) => preview.endByte === endByte && Buffer.byteLength(preview.text) === endByte,
         ),
       ).toBe(true);
       expect(

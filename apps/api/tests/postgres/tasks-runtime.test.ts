@@ -1104,7 +1104,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         const outputs = (
           await rebuilt.pool.query(
             "SELECT id,message_id,sequence FROM conversation_events WHERE conversation_id=$1 AND bot_run_id=$2 AND event_type='bot.message.created'",
-            [f.conversationId, task.runs[0]!.id],
+            [f.conversationId, final.runs[0]!.id],
           )
         ).rows;
         expect(outputs).toHaveLength(1);

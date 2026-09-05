@@ -22,7 +22,7 @@ it('rejects a Task whose trigger belongs to another conversation', async () => {
   );
   await expect(
     f.pool.query(
-      "INSERT INTO tasks(id,workspace_id,conversation_id,bot_id,bot_version_id,execution_user_id,trigger_event_id,command_hash,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'queued',NOW())",
+      "INSERT INTO tasks(id,workspace_id,conversation_id,bot_id,bot_version_id,execution_user_id,trigger_event_id,command_hash,status,created_at,root_task_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'queued',NOW(),$1)",
       [
         randomUUID(),
         f.owner.workspace.id,

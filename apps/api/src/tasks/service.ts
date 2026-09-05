@@ -20,16 +20,14 @@ import {
 import type { ProviderProtocol } from '../providers/model-events.js';
 import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { TaskFailure, Usage } from './queue.js';
+import { cancelTask, cancellationCommand } from './cancellation.js';
+import { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from './run-history.js';
+import type { TaskPartialOutput } from './partial-output.js';
+import { lockTaskAncestry } from './tree.js';
 
-export class TaskInputError extends Error {}
-export class TaskAccessError extends Error {}
-export class TaskConflictError extends Error {
-  constructor(readonly code = 'idempotency_conflict') {
-    super(code);
-  }
-}
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed';
+export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -204,6 +202,55 @@ export class TaskService {
       connection.release();
     }
   }
+  cancel(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId),
+      command = cancellationCommand(input);
+    return this.transaction(async (connection) => {
+      const receipt = await cancelTask(connection, access, id, command, this.now);
+      return { task: await readTask(connection, id), receipt };
+    });
+  }
+  partialOutput(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    runId: string,
+  ): Promise<TaskPartialOutput> {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId),
+      selectedRunId = conversationUuid(runId);
+    return this.transaction(async (connection) => {
+      await ConversationTransaction.lock(connection, access, this.now, 'inspect');
+      const run = (
+        await connection.query<{ status: TaskStatus }>(
+          'SELECT r.status FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND t.id=$2 AND t.workspace_id=$3 AND t.conversation_id=$4',
+          [selectedRunId, id, access.workspaceId, access.conversationId],
+        )
+      ).rows[0];
+      if (!run) throw new TaskAccessError();
+      if (run.status !== 'cancelled') throw new TaskConflictError('task_partial_state_conflict');
+      const row = (
+        await connection.query<{ body: string; end_byte: number }>(
+          'SELECT body,end_byte FROM task_run_partial_outputs WHERE run_id=$1',
+          [selectedRunId],
+        )
+      ).rows[0];
+      return {
+        conversationId: access.conversationId,
+        taskId: id,
+        runId: selectedRunId,
+        partial: row ? { text: row.body, endByte: row.end_byte, interrupted: true } : null,
+      };
+    });
+  }
   get(actorUserId: string, workspaceId: string, conversationId: string, taskId: string) {
     const access = taskAccess(actorUserId, workspaceId, conversationId),
       id = conversationUuid(taskId);
@@ -347,7 +394,7 @@ export class TaskService {
         runId = randomUUID(),
         occurredAt = this.now();
       await connection.query(
-        "INSERT INTO tasks(id,workspace_id,conversation_id,bot_id,bot_version_id,execution_user_id,trigger_event_id,command_hash,status,created_at,group_grant_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'queued',$9,$10)",
+        "INSERT INTO tasks(id,workspace_id,conversation_id,bot_id,bot_version_id,execution_user_id,trigger_event_id,command_hash,status,created_at,group_grant_id,root_task_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'queued',$9,$10,$1)",
         [
           id,
           access.workspaceId,
@@ -459,6 +506,7 @@ export class TaskService {
         this.now,
         task.bot_version_id,
       );
+      const activeAncestry = await lockTaskAncestry(connection, id);
       const locked = (
         await connection.query<{ status: TaskStatus }>(
           'SELECT status FROM tasks WHERE id=$1 FOR UPDATE',
@@ -479,6 +527,7 @@ export class TaskService {
       ).rows[0];
       if (prior && prior.expected_run_id !== expectedRunId) throw new TaskConflictError();
       if (!prior) {
+        if (!activeAncestry) throw new TaskConflictError('task_retry_cancelled_ancestor');
         if (locked.status !== 'failed' || current.status !== 'failed')
           throw new TaskConflictError('task_retry_state_conflict');
         if (current.id !== expectedRunId) throw new TaskConflictError('task_retry_run_conflict');

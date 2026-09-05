@@ -324,6 +324,39 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api exec vitest run tests/postgres/tasks-runtime.test.ts
 
+  postgres-task-cancellation:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_task_cancellation_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_task_cancellation_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_TASK_CANCELLATION_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_task_cancellation_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify drain upgrade, cancellation races and restricted writes on PostgreSQL
+        run: |
+          : "${TEST_TASK_CANCELLATION_DATABASE_URL:?Task cancellation PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/task-cancellation-runtime.test.ts
+
   postgres-conversation-streams:
     needs: code
     runs-on: ubuntu-latest
@@ -456,7 +489,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries,0023_task_tree_cancellation'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -1310,6 +1343,80 @@ jobs:
           test "$ready" = true
           docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-tasks.mjs
           docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-conversation-stream.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-cancellation:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-cancellation.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Cancel queued work before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T cancel-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-cancellation.mjs
+      - name: Observe independent worker HTTP abort for streaming and silent requests
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T cancel-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for(let attempt=0;attempt<100;attempt++) {
+            stats=await(await fetch('http://127.0.0.1:3100/stats')).json();
+            if(stats.pending===1)break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.deepEqual(stats.calls,[{prompt:'cancel-running',modelId:'cancel-compose-model'}]);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=cancel api node --input-type=module < infra/verify-task-cancellation.mjs
+      - name: Retain interrupted output after process restart and stream reclamation
+        run: |
+          docker compose restart worker api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-task-cancellation.mjs
       - if: always()
         run: |
           docker compose logs

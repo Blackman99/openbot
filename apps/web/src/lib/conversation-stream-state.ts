@@ -12,8 +12,9 @@ import {
   type MessageReference,
   type StreamPreview,
 } from './conversation-stream-contract.js';
+import { parseTaskPartialOutput, type TaskPartialOutput } from './task-partial-output.js';
 export interface StreamPreviewState extends StreamPreview {
-  status: 'streaming' | 'unavailable';
+  status: 'streaming' | 'unavailable' | 'interrupted';
 }
 export interface ConversationMessageRevision {
   id: string;
@@ -141,9 +142,21 @@ export function applyConversationStreamEvent(
       preview = previews[execution.runId];
     if (preview && (preview.taskId !== execution.taskId || preview.attempt !== execution.attempt))
       return { status: 'resync-required', state };
-    if (rank(execution.runStatus) === 2) delete previews[execution.runId];
+    if (execution.runStatus === 'cancelled') {
+      if (preview?.status === 'streaming')
+        previews[execution.runId] = { ...preview, status: 'interrupted' };
+    } else if (rank(execution.runStatus) === 2) delete previews[execution.runId];
     const executions = { ...state.executions, [execution.runId]: execution };
-    trimRuns(executions, (run) => rank(run.runStatus) === 2);
+    // Visible interrupted output still needs its author and terminal fence.
+    // At most eight previews are visible, leaving room in this 64-Run cache.
+    const withoutVisiblePreview = (run: ExecutionState) =>
+      !previews[run.runId] || previews[run.runId]?.status === 'unavailable';
+    const removed = trimRuns(
+      executions,
+      (run) => rank(run.runStatus) === 2 && withoutVisiblePreview(run),
+      withoutVisiblePreview,
+    );
+    if (removed) delete previews[removed];
     return applied(state, event, { executions, previews });
   }
   const delta = event.data,
@@ -173,7 +186,7 @@ export function applyConversationStreamEvent(
       // Offsets inside a codepoint cannot prove an identical UTF-8 replay.
     }
   }
-  const available = Object.values(previews).filter((preview) => preview.status === 'streaming');
+  const available = Object.values(previews).filter((preview) => preview.status !== 'unavailable');
   const bytes = available.reduce((sum, preview) => sum + preview.endByte, 0);
   const contiguous = delta.startByte === (previous?.endByte ?? 0);
   const fits =
@@ -204,6 +217,39 @@ export function applyConversationStreamEvent(
     previews,
     previewsTruncated: state.previewsTruncated || previews[delta.runId]?.status === 'unavailable',
   });
+}
+export function resolveCancelledTaskPartial(
+  state: ConversationStreamState,
+  input: TaskPartialOutput,
+): ConversationStreamState {
+  const execution = state.executions[input.runId];
+  const parsed =
+    execution &&
+    parseTaskPartialOutput(input, {
+      conversationId: state.scope.conversationId,
+      taskId: execution.taskId,
+      runId: execution.runId,
+    });
+  if (!parsed || execution?.runStatus !== 'cancelled')
+    throw new Error('invalid_cancelled_task_partial');
+  const previews = { ...state.previews };
+  delete previews[execution.runId];
+  if (parsed.partial === null) return { ...state, previews };
+  const visible = Object.values(previews).filter((p) => p.status !== 'unavailable');
+  const fits =
+    visible.length < MAX_STREAM_PREVIEWS &&
+    visible.reduce((sum, p) => sum + p.endByte, 0) + parsed.partial.endByte <=
+      MAX_STREAM_PREVIEW_BYTES;
+  previews[execution.runId] = {
+    taskId: execution.taskId,
+    runId: execution.runId,
+    attempt: execution.attempt,
+    text: fits ? parsed.partial.text : '',
+    endByte: parsed.partial.endByte,
+    status: fits ? 'interrupted' : 'unavailable',
+  };
+  trimRuns(previews, (p) => p.status === 'unavailable');
+  return { ...state, previews, previewsTruncated: state.previewsTruncated || !fits };
 }
 export function resolveConversationStreamMessage(
   state: ConversationStreamState,
@@ -289,10 +335,20 @@ function sameExecution(a: ExecutionState, b: ExecutionState) {
     (a.startedAt === null || a.startedAt === b.startedAt)
   );
 }
-function trimRuns<T>(runs: Record<string, T>, disposable: (value: T) => boolean) {
+function trimRuns<T>(
+  runs: Record<string, T>,
+  disposable: (value: T) => boolean,
+  fallback: (value: T) => boolean = () => true,
+) {
   const entries = Object.entries(runs);
   if (entries.length > 64) {
-    const selected = entries.find(([, value]) => disposable(value)) ?? entries[0];
-    if (selected) delete runs[selected[0]];
+    const selected =
+      entries.find(([, value]) => disposable(value)) ??
+      entries.find(([, value]) => fallback(value)) ??
+      entries[0];
+    if (selected) {
+      delete runs[selected[0]];
+      return selected[0];
+    }
   }
 }

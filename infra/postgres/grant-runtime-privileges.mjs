@@ -169,6 +169,14 @@ try {
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION require_current_task_run() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION lock_task_ancestry(UUID) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_tree() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_cancel_command() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_run_cancellation() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION require_cancelled_task_tree() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_partial_output() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION require_task_partial_checkpoint() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION fence_cancelled_task_publication() FROM PUBLIC, openbot_runtime;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -189,6 +197,8 @@ try {
       tasks,
       task_runs,
       task_retry_commands,
+      task_cancel_commands,
+      task_run_cancellations,
       instance_claims,
       sessions
     TO openbot_runtime;
@@ -203,6 +213,9 @@ try {
     GRANT SELECT, INSERT ON conversation_delivery_state, task_run_streams, task_run_delivery_receipts TO openbot_runtime;
     GRANT UPDATE (floor, retained_count, retained_bytes) ON conversation_delivery_state TO openbot_runtime;
     GRANT UPDATE (delivered_bytes) ON task_run_streams TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON task_run_partial_outputs TO openbot_runtime;
+    GRANT UPDATE (body, end_byte, updated_at) ON task_run_partial_outputs TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
     GRANT UPDATE (status) ON tasks TO openbot_runtime;
     GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
       provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,

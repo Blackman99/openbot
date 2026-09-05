@@ -6,7 +6,17 @@ import RunsPage from '../../src/routes/app/workspaces/[workspaceId]/conversation
 import { task, conversation, workspace, user } from '../fixtures/tasks.js';
 import { grant } from '../fixtures/group-bots.js';
 import type { TaskView } from '../../src/lib/server/task-api.js';
-const base = { conversation, workspace, user, workspaces: [workspace], canWrite: true };
+const base = {
+  conversation,
+  workspace,
+  user,
+  workspaces: [workspace],
+  canWrite: true,
+  canCancel: false,
+  canConfirmCancellation: false,
+  partialOutput: null,
+  partialUnavailable: false,
+};
 const data = {
   ...base,
   canSubmit: true,
@@ -38,6 +48,73 @@ const completed: TaskView = {
   ],
 };
 describe('Task pages', () => {
+  it('renders the authorized cancellation command and explains its unfinished descendants', () => {
+    const html = render(DetailPage, {
+      props: {
+        data: {
+          ...base,
+          task,
+          canRetry: false,
+          canCancel: true,
+          canConfirmCancellation: true,
+          idempotencyKey: 'stop-command',
+        },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Cancel task');
+    expect(html).toContain('unfinished work');
+    expect(html).toContain('stop-command');
+    expect(html).toContain(`name="expectedRunId" value="${task.runs[0]!.id}"`);
+    expect(html).not.toContain('Retry failed task');
+  });
+  it('renders an escaped interrupted prefix and keeps only the original cancellation confirmation', () => {
+    const stopped: TaskView = {
+      ...task,
+      status: 'cancelled',
+      runs: [{ ...task.runs[0]!, status: 'cancelled', finishedAt: '2026-09-05T00:00:01.000Z' }],
+    };
+    const text = '<strong>Saved 🌲</strong>';
+    const html = render(DetailPage, {
+      props: {
+        data: {
+          ...base,
+          task: stopped,
+          canRetry: false,
+          canConfirmCancellation: true,
+          idempotencyKey: 'unused',
+          partialOutput: {
+            conversationId: conversation.id,
+            taskId: task.id,
+            runId: task.runs[0]!.id,
+            partial: {
+              text,
+              endByte: new TextEncoder().encode(text).byteLength,
+              interrupted: true,
+            },
+          },
+        },
+        params: { ...params, taskId: task.id },
+        form: {
+          cancellation: {
+            values: { idempotencyKey: 'original-stop', expectedRunId: task.runs[0]!.id },
+            uncertain: true,
+            conflict: false,
+            error: 'Confirm the saved command.',
+          },
+        },
+      },
+    }).body;
+    expect(html).toContain('Cancelled');
+    expect(html).toContain('Interrupted output');
+    expect(html).toContain('&lt;strong>Saved 🌲&lt;/strong>');
+    expect(html).not.toContain(text);
+    expect(html).toContain('Confirm unchanged cancellation');
+    expect(html).toContain('original-stop');
+    expect(html).not.toContain('Confirm unchanged retry');
+    expect(html).not.toContain('Edit message');
+  });
   it('renders saved earlier attempt evidence and bounded navigation alongside the current answer', () => {
     const current: TaskView = {
       ...completed,

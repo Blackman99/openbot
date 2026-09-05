@@ -13,8 +13,10 @@ import {
   applyConversationStreamEvent,
   createConversationStreamState,
   resolveConversationStreamMessage,
+  resolveCancelledTaskPartial,
   type ConversationStreamState,
 } from './conversation-stream-state.js';
+import { parseTaskPartialOutput } from './task-partial-output.js';
 
 export type ConversationLiveStatus =
   | 'connecting'
@@ -100,12 +102,14 @@ export async function consumeConversationStream(options: StreamClientOptions): P
   const base = `/app/workspaces/${scope.workspaceId}/conversations/${scope.conversationId}/events`;
   let state: ConversationStreamState | undefined,
     bootstrapFailures = 0;
+  const attemptedCancelled = new Set<string>();
   while (!signal.aborted) {
     const controller = new AbortController(),
       abort = () => controller.abort();
     signal.addEventListener('abort', abort, { once: true });
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    let partialWork: Promise<void> | undefined, partialFailure: StreamResponseError | undefined;
     const fetchResponse = async (url: string, headers?: Record<string, string>) => {
       controller.signal.throwIfAborted();
       connectTimer = setTimeout(() => controller.abort(), 30_000);
@@ -148,11 +152,102 @@ export async function consumeConversationStream(options: StreamClientOptions): P
         throw new StreamResponseError('unavailable');
       return current;
     };
+    const nextCancelled = () =>
+      state &&
+      Object.values(state.executions).find(
+        (execution) =>
+          execution.runStatus === 'cancelled' && !attemptedCancelled.has(execution.runId),
+      );
+    // Partial detail enriches the live view; it never gates subscription or the
+    // next event. One serial request is active, at most once per retained Run
+    // until a fresh authorized bootstrap. Task details remain manually readable.
+    const readCancelled = async () => {
+      while (!controller.signal.aborted) {
+        const execution = nextCancelled();
+        if (!execution || !state) return;
+        attemptedCancelled.add(execution.runId);
+        const detail = new AbortController(),
+          stopDetail = () => detail.abort(),
+          timer = setTimeout(stopDetail, 30_000);
+        controller.signal.addEventListener('abort', stopDetail, { once: true });
+        let partial;
+        try {
+          const raw = await boundedJson(
+            await request(
+              `/app/workspaces/${scope.workspaceId}/conversations/${scope.conversationId}/tasks/${execution.taskId}/runs/${execution.runId}/partial-output`,
+              {
+                method: 'GET',
+                credentials: 'same-origin',
+                redirect: 'error',
+                cache: 'no-store',
+                signal: detail.signal,
+              },
+            ),
+            detail,
+          );
+          partial = parseTaskPartialOutput(raw, {
+            conversationId: scope.conversationId,
+            taskId: execution.taskId,
+            runId: execution.runId,
+          });
+          if (!partial) throw new StreamResponseError('unavailable');
+          detail.signal.throwIfAborted();
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          if (
+            error instanceof StreamResponseError &&
+            ['forbidden', 'authentication-required'].includes(error.outcome)
+          )
+            throw error;
+          // Keep already committed interrupted text and its terminal fence.
+          // A missing detail is local to this Run, not a stream cursor failure.
+          if (state.executions[execution.runId]?.runStatus === 'cancelled') {
+            state = { ...state, previewsTruncated: true };
+            options.onState(state);
+          }
+        } finally {
+          clearTimeout(timer);
+          detail.abort();
+          controller.signal.removeEventListener('abort', stopDetail);
+        }
+        if (controller.signal.aborted) return;
+        const current = state.executions[execution.runId];
+        if (
+          partial &&
+          current?.runStatus === 'cancelled' &&
+          current.taskId === execution.taskId &&
+          current.attempt === execution.attempt
+        ) {
+          state = resolveCancelledTaskPartial(state, partial);
+          options.onState(state);
+        }
+      }
+    };
+    const restoreCancelled = () => {
+      if (!state || controller.signal.aborted) return;
+      for (const runId of attemptedCancelled)
+        if (!state.executions[runId]) attemptedCancelled.delete(runId);
+      if (partialWork || !nextCancelled()) return;
+      partialWork = readCancelled()
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          partialFailure =
+            error instanceof StreamResponseError ? error : new StreamResponseError('unavailable');
+          controller.abort();
+        })
+        .finally(() => {
+          partialWork = undefined;
+          // An event can add another cancelled Run while the previous request
+          // settles. Rescan without blocking the event consumer.
+          if (nextCancelled()) restoreCancelled();
+        });
+    };
     const cancelReader = () => void reader?.cancel().catch(() => undefined);
     controller.signal.addEventListener('abort', cancelReader, { once: true });
     try {
       options.onStatus(state ? 'reconnecting' : 'connecting');
       if (!state) {
+        attemptedCancelled.clear();
         const raw = await boundedJson(await fetchResponse(base + '/bootstrap'), controller);
         const snapshot = parseConversationStreamBootstrap(JSON.stringify(raw), scope);
         if (!snapshot) throw new StreamResponseError('unavailable');
@@ -166,6 +261,7 @@ export async function consumeConversationStream(options: StreamClientOptions): P
         state = candidate;
         options.onState(state);
       }
+      restoreCancelled();
       const response = await fetchResponse(base, {
         accept: 'text/event-stream',
         'last-event-id': state.acknowledgedCursor,
@@ -222,11 +318,17 @@ export async function consumeConversationStream(options: StreamClientOptions): P
             state = resolved.state;
           }
           options.onState(state);
+          if (
+            frame.event.type === 'task.run.updated' &&
+            frame.event.data.execution.runStatus === 'cancelled'
+          )
+            restoreCancelled();
           bootstrapFailures = 0;
         }
       }
     } catch (error) {
       if (signal.aborted) break;
+      error = partialFailure ?? error;
       if (
         error instanceof ConversationStreamDecodeError ||
         (error instanceof StreamResponseError &&
@@ -254,6 +356,7 @@ export async function consumeConversationStream(options: StreamClientOptions): P
     } finally {
       clearTimeout(connectTimer);
       controller.abort();
+      await partialWork;
       await reader?.cancel().catch(() => undefined);
       reader?.releaseLock();
       controller.signal.removeEventListener('abort', cancelReader);

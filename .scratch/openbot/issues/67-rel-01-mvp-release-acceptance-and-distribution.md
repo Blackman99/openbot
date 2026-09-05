@@ -274,9 +274,22 @@ API-02-E1 closed by [Verify33960029570](../VERIFY-33960029570.md) on that same e
 
 Accepted source `0ff6898eee671f04987fd5024a0bbc3c2d0afef4` passed both independent review axes and one complete local `pnpm verify` (1,453 nonbrowser, 53 ordinary browser, one OIDC, lint/types/builds). The following real-service gates remain open; prior Verify33960029570 is baseline evidence and is not a fresh run of this tree.
 
-- [ ] **COL-05-E1**: execute 40 dedicated stream PostgreSQL cases and real running/reloaded Compose delivery witnesses; record the actual job, checkout tree and result.
-- [ ] **COL-06-E1**: execute seven routing PostgreSQL cases within the actual Task suite and deployed migration 0021/default-routing privileges; record the actual job, checkout tree and result.
-- [ ] **COL-09-E1**: execute seven retry PostgreSQL cases within the actual Task suite and deployed migration 0022/immutable command privileges; record the actual job, checkout tree and result.
-- [ ] **MEM-01-E1**: execute 14 dedicated memory PostgreSQL cases and the real scoped-source-memory Compose flow; record the actual job, checkout tree and result.
+- [x] **COL-05-E1**: execute 40 dedicated stream PostgreSQL cases and real running/reloaded Compose delivery witnesses; record the actual job, checkout tree and result.
+- [x] **COL-06-E1**: execute seven routing PostgreSQL cases within the actual Task suite and deployed migration 0021/default-routing privileges; record the actual job, checkout tree and result.
+- [x] **COL-09-E1**: execute seven retry PostgreSQL cases within the actual Task suite and deployed migration 0022/immutable command privileges; record the actual job, checkout tree and result.
+- [x] **MEM-01-E1**: execute 14 dedicated memory PostgreSQL cases and the real scoped-source-memory Compose flow; record the actual job, checkout tree and result.
 
 The combined workflow retains all 14 jobs and real migrations 0019 → 0020 → 0021 → 0022. Skipped tests, pg-mem, static review and shell/module syntax checks are not native/Compose passes.
+
+## Four-ticket actual CI closure
+
+[Verify33965537394](../VERIFY-33965537394.md) completed on 2026-09-05 at 12:21:46 UTC, all 14 jobs successful, against exact tree `89a71e230bac00504399752670ff7e19c1b58260`. It closes COL-05-E1, COL-06-E1, COL-09-E1 and MEM-01-E1 with 253 distinct native PostgreSQL passes, 14 storage passes and both actual Compose flows. The code gate passed 1,453 nonbrowser, 53 ordinary browser and one OIDC tests plus formatting/types/builds. This does not close later feature or release acceptance criteria.
+
+
+## Open external gate — COL-07-E1
+
+- [ ] Execute all 18 `task-cancellation-runtime.test.ts` cases using actual PostgreSQL and the deployed restricted role: drain upgrade, tree traversal, current authorization, competing cancellation/claim/publication, mandatory audit/delivery rollback, immutable receipts/partials, NULL queued claims, and exact UTF-16/UTF-8 partial bounds.
+- [ ] Execute the `compose-task-cancellation` job with separate API, worker and HTTP provider: queued work produces zero calls; streaming and silent requests are actually aborted; interrupted output survives process restart and stream reclamation without a final answer.
+- [ ] Preserve all 14 preceding Verify jobs, exact fresh/upgrade migration ordering through `0023_task_tree_cancellation`, restricted privileges, real storage contracts and existing deployment flows on the accepted cancellation tree.
+
+The independently reviewed source merge `49d24d8b2ab81b2e2fe47fcf4f474ff66785c36b`, tree `2380e6e2148d109aec227958b69dc78849ca4369`, passed one complete local verify: 1,504 nonbrowser, 60 ordinary browser and one OIDC, formatting/types/builds. See [dedicated gate](../COL-07-INTEGRATION-VERIFICATION.md). The prior all-green Verify33965537394 is historical baseline evidence and does not execute these new cases; discovery skips and static syntax checks remain excluded from native/Compose success.

@@ -5,6 +5,7 @@ import {
   loadTaskRunsPage,
   submitTask,
   retryTask,
+  cancelTask,
 } from '../../src/lib/server/task-page.js';
 import { task, conversation, workspace, user, token } from '../fixtures/tasks.js';
 import { page } from '../fixtures/conversations.js';
@@ -51,6 +52,95 @@ function context() {
 }
 
 describe('Task page boundary', () => {
+  it('preserves an unknown cancellation outcome and confirms the identical command without creating a retry', async () => {
+    const event = context(),
+      values = { idempotencyKey: 'uncertain-cancel', expectedRunId: task.runs[0]!.id };
+    const cancelledAt = '2026-09-05T00:00:01.000Z';
+    const saved = {
+      task: {
+        ...task,
+        status: 'cancelled',
+        runs: [{ ...task.runs[0], status: 'cancelled', finishedAt: cancelledAt }],
+      },
+      receipt: {
+        commandId: grant.id,
+        taskId: task.id,
+        rootTaskId: task.id,
+        runId: values.expectedRunId,
+        attempt: 1,
+        cancelledAt,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      },
+    };
+    event.fetch
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: 'task_unavailable' } }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(Response.json(saved));
+    const request = () =>
+      new Request(event.url, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        body: new URLSearchParams(values),
+      });
+    expect(
+      await cancelTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).toMatchObject({
+      status: 503,
+      data: { cancellation: { values, uncertain: true, conflict: false } },
+    });
+    await expect(
+      cancelTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/tasks/${task.id}`,
+    });
+    expect(event.fetch.mock.calls).toHaveLength(2);
+    for (const [url, init] of event.fetch.mock.calls) {
+      expect(String(url)).toContain('/cancellations');
+      expect(JSON.parse(String(init?.body))).toEqual(values);
+    }
+    expect(event.cookies.delete).not.toHaveBeenCalled();
+  });
+  it('offers cancellation to a current group admin with inspect access even when writing is unavailable', async () => {
+    const event = context(),
+      original = event.fetch.getMockImplementation()!;
+    event.fetch.mockImplementation(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith(`/tasks/${task.id}`))
+        return Response.json({
+          task: {
+            ...task,
+            executionUser: { ...task.executionUser, id: grant.id },
+            groupGrantId: grant.id,
+          },
+        });
+      if (path.endsWith(`/conversations/${conversation.id}`))
+        return Response.json({ ...page, canWrite: false, messages: [], nextCursor: null });
+      if (path.endsWith(`/groups/${conversation.subject.id}`))
+        return Response.json({
+          group: {
+            id: conversation.subject.id,
+            workspaceId: workspace.id,
+            name: 'Group',
+            description: '',
+            visibility: 'private',
+            role: 'admin',
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.createdAt,
+          },
+        });
+      if (path.includes('/bots') || path.includes('model-connections'))
+        throw new Error('cancel_does_not_require_model_use');
+      return original(url, init);
+    });
+    expect(await loadTaskPage(event, workspace.id, conversation.id, task.id)).toMatchObject({
+      canCancel: true,
+      canRetry: false,
+      partialOutput: null,
+    });
+  });
   it('omits the automatic group choice from the API command and retains it when no candidate is available', async () => {
     const event = context();
     const values = {

@@ -2,7 +2,7 @@
 sequence: 38
 id: MEM-02
 title: "Promote group memory to Bot-private memory with explicit approval"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - MEM-01
 labels:

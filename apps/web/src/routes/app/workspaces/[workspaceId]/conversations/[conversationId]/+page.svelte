@@ -18,7 +18,8 @@
   let liveCommands = $state<Record<string, { edit: string; tombstone: string; saveMemory: string }>>({});
   let messages = $derived(liveMessages ?? data.messages);
   let nextMessageCursor = $derived(liveNextMessageCursor === undefined ? data.nextCursor : liveNextMessageCursor);
-  let activeExecutions = $derived(Object.values(liveState?.executions ?? {}).filter((run) => run.runStatus === 'queued' || run.runStatus === 'running'));
+  let visibleExecutions = $derived(Object.values(liveState?.executions ?? {}).filter((run) => run.runStatus === 'queued' || run.runStatus === 'running' || run.runStatus === 'cancelled'));
+  let hasCancelledExecutions = $derived(visibleExecutions.some((run) => run.runStatus === 'cancelled'));
   let previews = $derived(Object.values(liveState?.previews ?? {}));
   let denied = $derived(liveStatus === 'forbidden' || liveStatus === 'authentication-required');
   let base = $derived(`/app/workspaces/${data.workspace.id}/conversations/${data.conversation.id}`);
@@ -185,16 +186,24 @@
       {/if}
     </article>
   {:else}<p>No messages on this page.</p>{/each}
-  {#if activeExecutions.length || previews.length}
+  {#if visibleExecutions.length || previews.length}
     <section aria-label="Live task progress">
       <h2>Task progress</h2>
-      {#each activeExecutions as run (run.runId)}<p><a href={`${base}/tasks/${run.taskId}`}>{run.bot.displayName}</a> · {run.runStatus === 'queued' ? 'Queued' : 'Running'}</p>{/each}
+      {#each visibleExecutions as run (run.runId)}<p><a href={`${base}/tasks/${run.taskId}`}>{run.bot.displayName}</a> · {run.runStatus === 'queued' ? 'Queued' : run.runStatus === 'cancelled' ? 'Cancelled' : 'Running'}</p>{/each}
       {#each previews as preview (preview.runId)}
-        <div aria-label="Draft answer">
-          {#if preview.status === 'unavailable'}<p>Preview unavailable; awaiting final answer.</p>{:else}<p>Draft answer · Still running</p><pre>{preview.text}</pre>{/if}
+        {@const execution = liveState?.executions[preview.runId]}
+        <div aria-label={execution?.runStatus === 'cancelled' ? 'Interrupted output' : 'Draft answer'}>
+          {#if execution?.runStatus === 'cancelled'}<p><a href={`${base}/tasks/${preview.taskId}`}>{execution.bot.displayName}</a></p>{/if}
+          {#if preview.status === 'unavailable'}
+            {#if execution?.runStatus === 'cancelled'}<p>Cancelled · Read any saved interrupted output in task details.</p>{:else}<p>Preview unavailable; awaiting final answer.</p>{/if}
+          {:else if preview.status === 'interrupted'}<p>Interrupted output · Cancelled before completion</p><pre>{preview.text}</pre>
+          {:else}<p>Draft answer · Still running</p><pre>{preview.text}</pre>{/if}
         </div>
       {/each}
-      {#if liveState?.previewsTruncated}<p>Some previews are unavailable. Final answers appear in conversation history.</p>{/if}
+      {#if liveState?.previewsTruncated}
+        {#if hasCancelledExecutions}<p>Some previews are unavailable. Check task details for saved interrupted output; completed answers appear in conversation history.</p>
+        {:else}<p>Some previews are unavailable. Final answers appear in conversation history.</p>{/if}
+      {/if}
     </section>
   {/if}
   {#if data.canWrite && !denied}

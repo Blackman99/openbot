@@ -15,6 +15,8 @@ import {
   appendFailedRunState,
 } from '../conversations/append-event.js';
 import { admitTaskTarget } from './admission.js';
+import { TaskPartialOutputLimitError } from './partial-output.js';
+import { lockTaskAncestry, taskAncestryIsActive } from './tree.js';
 import {
   selectRunMemoryContribution,
   persistRunMemoryReferences,
@@ -104,14 +106,14 @@ export class TaskQueue {
     ).rows[0];
   }
   private async lockRun(connection: SqlConnection, task: Candidate) {
-    await connection.query('SELECT id FROM tasks WHERE id=$1 FOR UPDATE', [task.task_id]);
+    if (!(await lockTaskAncestry(connection, task.task_id))) return undefined;
     return (
       await connection.query<{
         status: string;
         claim_token: string | null;
         deadline_at: Date | null;
       }>(
-        'SELECT status,claim_token,deadline_at FROM task_runs WHERE id=$1 AND task_id=$2 FOR UPDATE',
+        'SELECT r.status,r.claim_token,r.deadline_at FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND r.task_id=$2 AND r.status=t.status AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2) FOR UPDATE',
         [task.id, task.task_id],
       )
     ).rows[0];
@@ -181,6 +183,24 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+  }
+  async isClaimActive(claim: TaskClaim): Promise<boolean> {
+    const connection = await this.pool.connect();
+    try {
+      return (
+        (
+          await connection.query(
+            `SELECT r.id FROM task_runs r JOIN tasks t ON t.id=r.task_id
+           WHERE r.id=$1 AND r.task_id=$2 AND r.claim_token=$3
+             AND r.status='running' AND t.status='running' AND r.deadline_at>$4
+             AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2)`,
+            [claim.runId, claim.taskId, claim.claimToken, this.now()],
+          )
+        ).rows.length === 1 && (await taskAncestryIsActive(connection, claim.taskId))
+      );
+    } finally {
+      connection.release();
+    }
   }
   async claimNext(): Promise<{ handled: boolean; claim?: TaskClaim }> {
     return this.transaction(async (connection) => {
@@ -333,6 +353,8 @@ export class TaskQueue {
         )
           throw new TaskPublicationError('execution_timeout');
       } catch (error) {
+        if (error instanceof TaskPartialOutputLimitError)
+          throw new TaskPublicationError('output_limit');
         const code = admissionFailure(error);
         if (code) throw new TaskPublicationError(code);
         throw error;
@@ -422,6 +444,7 @@ export class TaskQueue {
         ],
       );
       await connection.query("UPDATE tasks SET status='completed' WHERE id=$1", [task.task_id]);
+      await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
       await appendCompletedRunState(connection, task.id, this.now);
       if (!run.deadline_at || run.deadline_at.getTime() <= this.now().getTime())

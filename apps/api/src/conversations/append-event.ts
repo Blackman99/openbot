@@ -6,6 +6,8 @@ import { reclaimConversationStream } from './stream-retention.js';
 import { readRunExecution } from '../tasks/execution-state.js';
 import { encodeConversationStreamEvent } from './stream-protocol.js';
 import type { TaskStatus } from '../tasks/service.js';
+import { checkpointTaskPartialOutput } from '../tasks/partial-output.js';
+import { lockTaskAncestry } from '../tasks/tree.js';
 
 interface Command {
   idempotencyKey: string;
@@ -99,6 +101,11 @@ export const appendCompletedRunState = (
 ) => appendRunState(connection, runId, 'completed', now);
 export const appendFailedRunState = (connection: SqlConnection, runId: string, now: () => Date) =>
   appendRunState(connection, runId, 'failed', now);
+export const appendCancelledRunState = (
+  connection: SqlConnection,
+  runId: string,
+  now: () => Date,
+) => appendRunState(connection, runId, 'cancelled', now);
 
 export async function appendAssistantDelta(
   connection: SqlConnection,
@@ -118,6 +125,7 @@ export async function appendAssistantDelta(
     )
   ).rows[0];
   if (!row || row.deadline_at.getTime() <= now().getTime()) return false;
+  if (!(await lockTaskAncestry(connection, row.task_id))) return false;
   await connection.query(
     'INSERT INTO task_run_streams(run_id) VALUES($1) ON CONFLICT(run_id) DO NOTHING',
     [command.runId],
@@ -165,6 +173,7 @@ export async function appendAssistantDelta(
     command.runId,
     endByte,
   ]);
+  await checkpointTaskPartialOutput(connection, { ...command, startByte, endByte }, occurredAt);
   await reclaimConversationStream(connection, row.conversation_id, occurredAt);
   // Progress/retention may have waited after the initial claim check. The
   // caller must roll back this whole transaction when the final guard fails.
@@ -258,11 +267,12 @@ export async function appendBotResult(
       version: number;
       deadline_at: Date;
     }>(
-      `SELECT t.*,v.configuration,v.version,r.deadline_at FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id WHERE r.id=$1 AND r.claim_token=$2 AND r.status='running'`,
+      `SELECT t.*,v.configuration,v.version,r.deadline_at FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id WHERE r.id=$1 AND r.claim_token=$2 AND r.status='running' AND t.status='running'`,
       [command.runId, command.claimToken],
     )
   ).rows[0];
   if (!row || row.deadline_at.getTime() <= now().getTime()) return undefined;
+  if (!(await lockTaskAncestry(connection, row.id))) return undefined;
   const messageId = randomUUID();
   const bot = {
     id: row.bot_id,

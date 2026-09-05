@@ -57,6 +57,38 @@ export function registerTaskRoutes(
       },
     );
     const base = '/api/v1/workspaces/:workspaceId/conversations/:conversationId/tasks';
+    routes.get<{
+      Params: { workspaceId: string; conversationId: string; taskId: string; runId: string };
+    }>(`${base}/:taskId/runs/:runId/partial-output`, async (request, reply) => {
+      const token = readSessionToken(request.headers.cookie),
+        identity = token ? await auth.getSession(token) : undefined;
+      if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+      if (Object.keys(request.query as object).length) throw new TaskInputError();
+      return tasks.partialOutput(
+        identity.user.id,
+        request.params.workspaceId,
+        request.params.conversationId,
+        request.params.taskId,
+        request.params.runId,
+      );
+    });
+    routes.post<{ Params: { workspaceId: string; conversationId: string; taskId: string } }>(
+      `${base}/:taskId/cancellations`,
+      async (request, reply) => {
+        if (request.headers.origin !== webOrigin)
+          return reply.code(403).send({ error: { code: 'invalid_origin' } });
+        const token = readSessionToken(request.headers.cookie),
+          identity = token ? await auth.getSession(token) : undefined;
+        if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return tasks.cancel(
+          identity.user.id,
+          request.params.workspaceId,
+          request.params.conversationId,
+          request.params.taskId,
+          request.body,
+        );
+      },
+    );
     routes.post<{ Params: { workspaceId: string; conversationId: string; taskId: string } }>(
       `${base}/:taskId/retries`,
       async (request, reply) => {

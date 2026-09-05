@@ -8,6 +8,8 @@ import {
   isConversationUuid,
 } from './conversation-api.js';
 import { createGroupBotApiClient } from './group-bot-api.js';
+import { createGroupApiClient } from './group-api.js';
+import type { TaskPartialOutput } from '../task-partial-output.js';
 import { createTaskApiClient } from './task-api.js';
 import { readTaskRoutingDecision } from './task-routing.js';
 import {
@@ -31,6 +33,34 @@ export async function loadTaskPage(
     taskId,
   );
   if (result.status !== 'available') readFailure(result.status, context);
+  let mayCancel = page.user.id === result.value.executionUser.id;
+  if (!mayCancel && page.conversation.subject.kind === 'group') {
+    const group = await createGroupApiClient(context.fetch).get(
+      readSessionCookie(context.cookies),
+      page.workspace.id,
+      page.conversation.subject.id,
+    );
+    if (group.status === 'anonymous' || group.status === 'forbidden')
+      readFailure(group.status, context);
+    mayCancel =
+      group.status === 'available' &&
+      (group.value.role === 'owner' || group.value.role === 'admin');
+  }
+  let partialOutput: TaskPartialOutput | null = null,
+    partialUnavailable = false;
+  if (result.value.status === 'cancelled') {
+    const partial = await createTaskApiClient(context.fetch, context.request.signal).partialOutput(
+      readSessionCookie(context.cookies),
+      page.workspace.id,
+      page.conversation.id,
+      result.value.id,
+      result.value.runs[0]!.id,
+    );
+    if (partial.status === 'anonymous' || partial.status === 'forbidden')
+      readFailure(partial.status, context);
+    if (partial.status === 'available') partialOutput = partial.value;
+    else partialUnavailable = true;
+  }
   const routing = await readTaskRoutingDecision(
     context.fetch,
     readSessionCookie(context.cookies),
@@ -44,6 +74,10 @@ export async function loadTaskPage(
     ...page,
     task: result.value,
     ...(routing.value === null ? {} : { routingDecision: routing.value }),
+    canCancel: mayCancel && ['queued', 'running'].includes(result.value.status),
+    canConfirmCancellation: mayCancel,
+    partialOutput,
+    partialUnavailable,
     canRetry:
       page.canWrite &&
       page.user.id === result.value.executionUser.id &&
@@ -100,6 +134,10 @@ function retryFailure(status: string, context: Context, values: Record<string, s
       409,
       'This task cannot create another attempt. Its existing attempts remain available.',
     ],
+    'retry-cancelled-ancestor': [
+      409,
+      'This task belongs to a cancelled task tree. Its earlier attempts remain available.',
+    ],
   };
   const detail = known[status];
   return fail(detail?.[0] ?? 503, {
@@ -110,12 +148,91 @@ function retryFailure(status: string, context: Context, values: Record<string, s
       'retry-state-conflict',
       'retry-run-conflict',
       'attempt-exhausted',
+      'retry-cancelled-ancestor',
     ].includes(status),
     uncertain: !detail,
     error:
       detail?.[1] ??
       'The retry could not be confirmed. Confirm this unchanged retry to check whether its attempt was created.',
   });
+}
+function cancellationFailure(status: string, context: Context, values: Record<string, string>) {
+  if (status === 'anonymous') readFailure(status, context);
+  const known: Record<string, [number, string]> = {
+    forbidden: [
+      403,
+      'Your current access does not allow cancellation. The saved task is preserved.',
+    ],
+    invalid: [400, 'This cancellation request is invalid. Refresh the task before trying again.'],
+    'idempotency-conflict': [
+      409,
+      'This command key names a different cancellation. Refresh the task to inspect its saved state.',
+    ],
+    'cancel-state-conflict': [
+      409,
+      'This task has already finished. Refresh the task to inspect its saved result.',
+    ],
+    'cancel-run-conflict': [409, 'A newer attempt exists. Refresh the task before cancelling it.'],
+  };
+  const detail = known[status];
+  return fail(detail?.[0] ?? 503, {
+    cancellation: {
+      values,
+      uncertain: !detail,
+      conflict: [
+        'invalid',
+        'idempotency-conflict',
+        'cancel-state-conflict',
+        'cancel-run-conflict',
+      ].includes(status),
+      error:
+        detail?.[1] ??
+        'The cancellation could not be confirmed. Confirm this unchanged command to check its saved result.',
+    },
+  });
+}
+export async function cancelTask(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (
+    context.request.headers.get('origin') !==
+    new URL(process.env.WEB_ORIGIN ?? 'http://localhost:3000').origin
+  )
+    return cancellationFailure('forbidden', context, {});
+  const values: Record<string, string> = {};
+  try {
+    const form = await context.request.formData();
+    for (const [key, value] of form) {
+      if (
+        !['idempotencyKey', 'expectedRunId'].includes(key) ||
+        typeof value !== 'string' ||
+        form.getAll(key).length !== 1 ||
+        value.length > 128
+      )
+        return cancellationFailure('invalid', context, values);
+      values[key] = value;
+    }
+  } catch {
+    return cancellationFailure('invalid', context, values);
+  }
+  if (!isCommandKey(values.idempotencyKey) || !isConversationUuid(values.expectedRunId))
+    return cancellationFailure('invalid', context, values);
+  const result = await createTaskApiClient(context.fetch, context.request.signal).cancel(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+    { idempotencyKey: values.idempotencyKey, expectedRunId: values.expectedRunId },
+  );
+  if (result.status !== 'available') return cancellationFailure(result.status, context, values);
+  redirect(
+    303,
+    `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
+  );
 }
 export async function retryTask(
   context: Context,

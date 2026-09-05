@@ -43,11 +43,13 @@ async function conversationState(page: Page) {
   return (await page.request.get(`${api}/__conversation/state`)).json();
 }
 
-async function safePage(page: Page) {
+async function safePage(page: Page, canCancel = false) {
   expect(await page.content()).not.toMatch(
     /fixture-only-password|sealedCredential|authorization:|connectionId|apiKey|modelBinding|instructions/iu,
   );
-  await expect(page.getByRole('button', { name: /cancel/iu })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /cancel/iu })).toHaveCount(canCancel ? 1 : 0);
+  if (canCancel)
+    await expect(page.getByRole('button', { name: 'Cancel task', exact: true })).toBeEnabled();
 }
 
 for (const lostResponse of ['server', 'browser'] as const) {
@@ -395,6 +397,7 @@ test('conflicts require a ready refreshed form and a lost browser response repla
       (message: { versions: Array<{ body: string }> }) => message.versions[0]!.body,
     ),
   ).toEqual(['The previously committed command.', prompt]);
-  await safePage(page);
+  // This retained queued Task now offers its original human the cancellation action.
+  await safePage(page, true);
   expect(errors).toEqual([]);
 });
