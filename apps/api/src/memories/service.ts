@@ -371,12 +371,24 @@ export class MemoryService {
     await this.resolveRevocation(supplied, id, input, 'revoke');
     return { revoked: true };
   }
+  private resolveRevocation(
+    supplied: MemoryAccess,
+    id: string,
+    input: unknown,
+    action: 'retain',
+  ): Promise<MemoryProjection>;
+  private resolveRevocation(
+    supplied: MemoryAccess,
+    id: string,
+    input: unknown,
+    action: 'revoke',
+  ): Promise<{ id: string }>;
   private async resolveRevocation(
     supplied: MemoryAccess,
     id: string,
     input: unknown,
     action: 'retain' | 'revoke',
-  ) {
+  ): Promise<MemoryProjection | { id: string }> {
     const access = memoryAccess(supplied),
       memoryId = memoryUuid(id),
       command = memoryRevocationInput(input);
