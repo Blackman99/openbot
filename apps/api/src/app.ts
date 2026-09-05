@@ -2,8 +2,10 @@ import { registerOidcRoutes } from './oidc/routes.js';
 import type { OidcService } from './oidc/service.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 
+import { registerApiTokenRoutes, registerPublicIdentityRoute } from './api-tokens/routes.js';
+import type { ApiTokenService } from './api-tokens/service.js';
 import { AuthenticationAttemptLimiter } from './auth/attempt-limiter.js';
 import { InstanceAlreadyClaimedError } from './auth/repository.js';
 import { readSessionToken, serializeSessionCookie } from './auth/session-cookie.js';
@@ -31,6 +33,7 @@ import type { WorkspaceService } from './workspaces/service.js';
 export interface BuildAppOptions {
   oidc?: OidcService;
   auth?: AuthService;
+  apiTokens?: ApiTokenService;
   providers?: ProviderConnections;
   invitations?: InvitationService;
   authenticationAttempts?: AuthenticationAttemptLimiter;
@@ -120,6 +123,7 @@ function sendAuthenticatedSession(
 export function buildApp({
   oidc,
   auth,
+  apiTokens,
   providers,
   invitations,
   authenticationAttempts = new AuthenticationAttemptLimiter(),
@@ -137,7 +141,7 @@ export function buildApp({
         ? false
         : {
             serializers: {
-              req: (request) => ({
+              req: (request: FastifyRequest) => ({
                 method: request.method,
                 url: String(request.url).split('?', 1)[0] ?? '/',
                 hostname: request.hostname,
@@ -155,6 +159,9 @@ export function buildApp({
   });
 
   registerOidcRoutes(app, oidc, webOrigin);
+  app.setNotFoundHandler((_request, reply) =>
+    reply.code(404).send({ error: { code: 'not_found' } }),
+  );
 
   app.get('/api/v1/status', async (_request, reply) => {
     const checks = await readiness.check();
@@ -167,8 +174,10 @@ export function buildApp({
     });
   });
 
+  if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
     if (groups) registerGroupRoutes(app, auth, groups, webOrigin);
+    if (apiTokens) registerApiTokenRoutes(app, auth, apiTokens, webOrigin);
     if (members) registerWorkspaceMemberRoutes(app, auth, members, webOrigin);
     registerProviderRoutes(app, auth, providers, webOrigin);
     if (invitations) registerInvitationRoutes(app, auth, invitations, webOrigin);

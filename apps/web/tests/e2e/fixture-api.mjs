@@ -1,3 +1,4 @@
+import { handleApiTokenFixture, resetApiTokenFixture } from './api-token-fixture.mjs';
 import { createServer } from 'node:http';
 import { handleGroupFixture, resetGroupFixture } from './group-fixture.mjs';
 import { handleProviderFixture, resetProviderFixture } from './provider-fixture.mjs';
@@ -40,6 +41,7 @@ function readJson(request, callback) {
 
 function resetAuth() {
   resetGroupFixture();
+  resetApiTokenFixture();
   resetProviderFixture();
   resetWorkspaceProviderFixture();
   resetMemberFixture();
@@ -75,6 +77,16 @@ function identity(user = owner, workspace = userWorkspaces(user)[0]) {
 }
 
 const server = createServer((request, response) => {
+  if (
+    handleApiTokenFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      memberships,
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
   if (
     handleWorkspaceProviderFixture(request, response, {
       user: sessions.get(readSession(request)),

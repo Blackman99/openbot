@@ -70,6 +70,26 @@ single-use transaction tied to an HttpOnly browser cookie. Invitation acceptance
 account, external identity, membership, session, and audits together. Callback errors return to
 clean application URLs without authorization codes or state in error messages.
 
+## Workspace API tokens
+
+Select **API tokens** in a workspace to create a named token with fixed scopes and an expiration
+(default 30 days, maximum 365 days). Copy the secret from the creation result; subsequent loads
+show only metadata. Revoke a token from the same page. You can manage only your own tokens.
+
+The public identity endpoint is `GET /v1/me`, authenticated with
+`Authorization: Bearer <your-token>` and the `me:read` scope. It returns the creator, the bound
+workspace and current role, and token ID/scopes. Browser session identity remains `/api/v1/me`.
+Tokens in URL query parameters are rejected. Invalid, expired, revoked, or orphaned tokens return
+401; a valid token without the required scope returns 403.
+
+The fixed scope catalogue is `me:read`, `bots:read`, `bots:write`, `groups:read`, `groups:write`,
+`tasks:read`, `tasks:write`, `tasks:approve`, and `events:read`. The resource scopes are reserved for
+the corresponding public resource endpoints. Scopes never add permissions to their creator:
+each operation must also enforce current workspace and resource access. Removing a workspace
+member permanently revokes their tokens, including if they later rejoin. Only SHA-256 digests
+are persisted, and creation, permitted or insufficient-scope use, and revocation produce audits
+without credential material.
+
 ## Personal model connections
 
 After signing in, select **Personal models** in the workspace, or open

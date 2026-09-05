@@ -43,6 +43,7 @@ describe('database migrations', () => {
       '0007_oidc',
       '0008_workspace_model_connections',
       '0009_groups_and_human_memberships',
+      '0010_scoped_api_tokens',
     ]);
 
     const database: DatabaseClient = {
@@ -77,6 +78,7 @@ describe('database migrations', () => {
       ORDER BY table_name
     `)) as { rows: Array<{ table_name: string }> };
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
+      'api_tokens',
       'audit_events',
       'group_memberships',
       'groups',
@@ -104,7 +106,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0009_groups_and_human_memberships' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0010_scoped_api_tokens' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

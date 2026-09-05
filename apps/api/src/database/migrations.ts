@@ -178,6 +178,25 @@ const MIGRATIONS = [
     statements: GROUP_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0010_scoped_api_tokens',
+    statements: [
+      `CREATE TABLE api_tokens (
+        id UUID PRIMARY KEY,
+        creator_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL CHECK (name <> ''),
+        scopes TEXT[] NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL CHECK (expires_at > created_at),
+        last_used_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        token_digest CHAR(64) NOT NULL UNIQUE
+      )`,
+      'CREATE INDEX api_tokens_creator_workspace_idx ON api_tokens(creator_user_id, workspace_id)',
+    ],
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

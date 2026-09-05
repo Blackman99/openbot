@@ -83,7 +83,7 @@ describe('repository contract', () => {
 
     expect(Object.keys(compose.services)).toEqual(['postgres', 'migrate', 'api', 'web']);
     expect(compose.services.postgres?.image).toBe('postgres:17.11-alpine');
-    expect(compose.services.postgres?.healthcheck?.test.join(' ')).toContain('pg_isready');
+    expect(compose.services.postgres?.healthcheck?.test[0]).toBe('CMD-SHELL');
     expect(compose.services.migrate?.depends_on?.postgres?.condition).toBe('service_healthy');
     expect(compose.services.api?.depends_on).toEqual({
       migrate: { condition: 'service_completed_successfully' },
@@ -182,6 +182,12 @@ describe('repository contract', () => {
     expect(grants).toContain('Runtime database privilege provisioning failed');
     expect(grants).not.toContain('throw error');
     expect(grants).toContain('GRANT INSERT ON audit_events TO openbot_runtime');
+    expect(grants).toContain('GRANT SELECT, INSERT ON api_tokens TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime',
+    );
+    expect(grants).not.toContain('GRANT UPDATE ON api_tokens');
+    expect(grants).not.toContain('GRANT DELETE ON api_tokens');
     expect(grants).toContain('GRANT UPDATE (name, description) ON workspaces TO openbot_runtime');
     expect(grants).toContain('GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime');
     expect(grants).toContain('GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime');

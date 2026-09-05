@@ -131,3 +131,13 @@ PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/a
 - [ ] Verify exact group/group-membership table and column privileges and the ordered migration ledger through0009, with all earlier provider/auth/OIDC checks green.
 
 Integrated `b7dc8fe` passed 445 unit/integration tests, 11 ordinary browser scenarios and one real signed-IdP journey, formatting, types and both builds. Both review axes are clean at e3677ad; root independently reviewed the new Compose lifecycle, nine expected group audits, privileges and historical migration fixture. Actual PostgreSQL/Compose remains pending on this revision; local fixtures are not external evidence.
+
+Verify33944259379 on remote c547c6c passed code, postgres-auth (including the three group cases), postgres-providers and postgres-oidc. Compose failed before group assertions in pre-authentication database seeding because the socket readiness probe admitted the temporary initialization server. The independently reviewed fix2ed018e, integrated4943df0, uses authenticated target-database TCP readiness with bounded probes in Compose, seeding and all three native services; its 10 focused checks, types/lint and 31 shell syntax checks pass. COL-01-E1 stays open pending an actual complete retry.
+
+## Open external gate — API-01-E1
+
+- [ ] Execute both native PostgreSQL API token cases for atomic audit rollback, concurrent creation/member removal, and identical-timestamp rejoin without credential revival.
+- [ ] Execute `infra/verify-api-tokens.mjs` against the deployed restricted runtime role, proving one-time plaintext/hash-only storage, public identity, fixed scopes, immutable SQL fields, idempotent revocation and permanent member-removal revocation.
+- [ ] Keep all earlier auth/OIDC/provider/group checks and fresh/upgrade Compose startup green through the ordered0010 migration.
+
+Integrated47a6008 passed478 unit/integration tests,12 ordinary browser scenarios and one real signed-IdP journey, formatting/types/builds. Original Standards and Spec reviews are clean at96ab273; root independently reviewed integration deltas and the bounded canonical member-removal audit followup498fdec (integrated3c7783d). These local checks do not replace actual PostgreSQL/Compose execution.

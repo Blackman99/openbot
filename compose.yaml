@@ -21,7 +21,13 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      # The initdb server accepts only Unix sockets; wait for the final TCP server.
+      test:
+        - CMD-SHELL
+        - >-
+          PGPASSWORD="$${POSTGRES_PASSWORD}" PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000'
+          psql --host postgres --username "$${POSTGRES_USER}" --dbname "$${POSTGRES_DB}"
+          --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null
       interval: 2s
       timeout: 3s
       retries: 20

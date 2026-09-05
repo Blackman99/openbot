@@ -54,6 +54,7 @@
     <h2 id="settings-heading">Workspace settings</h2>
     <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/models`}>Workspace models</a></p>
     <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/members`}>Workspace members</a></p>
+    <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/settings/api-tokens`}>API tokens</a></p>
     {#if data.workspace.role === 'owner' || data.workspace.role === 'administrator'}
       <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/invitations`}>Manage invitations</a></p>
       <form method="POST" action="?/updateWorkspace">

@@ -5,6 +5,8 @@ import type { OidcConfig } from './oidc/config.js';
 import cors, { type FastifyCorsOptionsDelegate } from '@fastify/cors';
 import pg, { type PoolConfig } from 'pg';
 
+import { ApiTokenService } from './api-tokens/service.js';
+import { PostgresApiTokenRepository } from './api-tokens/postgres-repository.js';
 import { InvitationService } from './invitations/service.js';
 import { PostgresInvitationRepository } from './invitations/postgres-invitation-repository.js';
 import { WorkspaceMemberService } from './members/service.js';
@@ -84,6 +86,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     groups: new GroupService(new PostgresGroupRepository(pool)),
+    apiTokens: new ApiTokenService(new PostgresApiTokenRepository(pool)),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),
     ...(options.oidc
       ? {
