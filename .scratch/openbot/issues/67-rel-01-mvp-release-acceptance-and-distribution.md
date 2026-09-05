@@ -176,18 +176,20 @@ BOT-04-E1 closed by [Verify33948405362](https://github.com/Blackman99/openbot/ac
 
 ## Open external gate — BOT-02-E1
 
-- [ ] Execute the eight `bot-avatars-runtime.test.ts` cases against actual PostgreSQL using the deployed restricted role, preserving the preceding identity and ACL suites in separate serial commands.
+- [x] Execute the eight `bot-avatars-runtime.test.ts` cases against actual PostgreSQL using the deployed restricted role, preserving the preceding identity and ACL suites in separate serial commands.
 - [ ] Execute the shared local/S3 immutable save/read/replace/delete contract and unsigned-read denial against the private S3-compatible fixture (six actual S3 cases).
-- [ ] Execute fresh/upgrade Compose through0013, exact object/reference privileges, the runtime-user private-volume roundtrip and actual Alpine Sharp decoder; preserve all earlier checks.
+- [x] Execute fresh/upgrade Compose through0013, exact object/reference privileges, the runtime-user private-volume roundtrip and actual Alpine Sharp decoder; preserve all earlier checks.
 
 BOT-02 integrated as `9eb8f89c78afdca995280f2cbbb53784e2901027`, tree `4c1c7aaca906a9c0122c75bb6ee229b8c6473b26`. Both independent review axes are CLEAN at final `7466346f3b45ff1857f3d7d5de6fdebd2af22265`; the sole P3 unknown-outcome message was fixed and independently rechecked. The dedicated merged full `pnpm verify` exited0:704 unit/integration tests (API88unit+260integration, Web35unit+321integration),18 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the three-file additive integration delta preserving both route families, exact BOT-04 grants, three serial Bot native commands and the S3 job. Frozen install, YAML/34 Bash steps/two embedded JS blocks/MJS syntax passed. Native PostgreSQL eight cases, actual S3 six cases and Compose remain the explicit BOT-02-E1 release gate; local skips are not execution evidence.
 
-## Open external gate — COL-03-E1
+## Closed external gate — COL-03-E1
 
-- [ ] Execute all ten `conversations-runtime.test.ts` cases against actual PostgreSQL with the deployed role, including concurrent idempotency/order/edit CAS, required audit/dependent-write rollback, current admission and exact immutable-ledger privileges.
-- [ ] Execute fresh/upgrade Compose through0014 with conversation last_sequence-only UPDATE and event/subject guard privileges, preserving all prior avatar/ACL/provider/auth checks.
+- [x] Execute all ten `conversations-runtime.test.ts` cases against actual PostgreSQL with the deployed role, including concurrent idempotency/order/edit CAS, required audit/dependent-write rollback, current admission and exact immutable-ledger privileges.
+- [x] Execute fresh/upgrade Compose through0014 with conversation last_sequence-only UPDATE and event/subject guard privileges, preserving all prior avatar/ACL/provider/auth checks.
 
 COL-03 integrated as `d559da23b4ae19429304f3a124f93f187025df42`, tree `26dc19629b52d56076128aeb7b64538a7fb6c396`. Both independent review axes are CLEAN at source `e599f4ca96474a47c59dfe140bb9e29f2b7547fa`; final author `3a3511e342978dfe9f607d33a77062202e6fd7e7` adds only evidence. Dedicated integrated full `pnpm verify` exited0:755 unit/integration tests (API88unit+275integration, Web40unit+352integration),21 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the seven-file additive integration delta; conversation core/source tests match the reviewed candidate exactly. YAML/36 Bash steps/two embedded JS/three MJS syntax checks passed. Native PostgreSQL ten cases and actual Compose remain the explicit COL-03-E1 release gate.
+
+COL-03-E1 closed by [Verify33949842135](https://github.com/Blackman99/openbot/actions/runs/33949842135), completed2026-09-05 at06:30:19 UTC on remote `990895839c34523aea53e80b8cd007925f785aa3`. Its tree `46791daf51c6b6b91e357cf120978b7e182129c9` exactly matches accepted local `2279a31eb7e23708ae464a2ec1e73e11e1adca73`, verified by fetch and pinned diff. Code passed764 unit/integration tests and22 browser scenarios. Dedicated postgres-conversations job101262649188 executed all10 cases successfully using the deployed restricted role. Compose job101262649137 passed fresh/upgrade through0014, last_sequence-only UPDATE, append-only event/subject guard privileges and all prior runtime/application/outage checks. All five PostgreSQL jobs succeeded. The overall workflow failed only its separate object-storage job, so this closes the scoped conversation gate but does not close BOT-02-E1 or claim a green overall workflow.
 
 ## Avatar service retry remains required
 

@@ -2,7 +2,7 @@
 sequence: 20
 id: COL-03
 title: "Store conversations in an immutable event ledger"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - COL-01
   - BOT-01
@@ -60,3 +60,7 @@ See [COL-03-VERIFICATION](../COL-03-VERIFICATION.md) for red/green evidence, rev
 ## Accepted integration
 
 COL-03 integrated as `d559da23b4ae19429304f3a124f93f187025df42`, tree `26dc19629b52d56076128aeb7b64538a7fb6c396`. Both independent review axes are CLEAN at source `e599f4ca96474a47c59dfe140bb9e29f2b7547fa`; final author `3a3511e342978dfe9f607d33a77062202e6fd7e7` adds only evidence. Dedicated integrated full `pnpm verify` exited0:755 unit/integration tests (API88unit+275integration, Web40unit+352integration),21 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the seven-file additive integration delta; conversation core/source tests match the reviewed candidate exactly. YAML/36 Bash steps/two embedded JS/three MJS syntax checks passed. Native PostgreSQL ten cases and actual Compose remain the explicit COL-03-E1 release gate.
+
+## Actual service gate closure
+
+COL-03-E1 closed by [Verify33949842135](https://github.com/Blackman99/openbot/actions/runs/33949842135), completed2026-09-05 at06:30:19 UTC on remote `990895839c34523aea53e80b8cd007925f785aa3`. Its tree `46791daf51c6b6b91e357cf120978b7e182129c9` exactly matches accepted local `2279a31eb7e23708ae464a2ec1e73e11e1adca73`, verified by fetch and pinned diff. Code passed764 unit/integration tests and22 browser scenarios. Dedicated postgres-conversations job101262649188 executed all10 cases successfully using the deployed restricted role. Compose job101262649137 passed fresh/upgrade through0014, last_sequence-only UPDATE, append-only event/subject guard privileges and all prior runtime/application/outage checks. All five PostgreSQL jobs succeeded. The overall workflow failed only its separate object-storage job, so this closes the scoped conversation gate but does not close BOT-02-E1 or claim a green overall workflow.

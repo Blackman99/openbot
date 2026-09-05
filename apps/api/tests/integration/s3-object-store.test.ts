@@ -37,6 +37,37 @@ function configured(endpoint: string, timeoutMs = 1_000) {
     { maxObjectBytes: 64, timeoutMs },
   );
 }
+it.each(['overwrite', 'concurrent'] as const)(
+  'reads the retained object when a service retires the %s conflict connection',
+  async (mode) => {
+    const fixture = await s3WireFixture();
+    const store = configured(fixture.endpoint);
+    try {
+      fixture.behavior.resetAfterConflict = true;
+      const key = createObjectKey(randomUUID());
+      const first = Buffer.from('first'),
+        second = Buffer.from('second');
+      if (mode === 'overwrite') {
+        await store.save(key, first);
+        await expect(store.save(key, second)).rejects.toMatchObject({
+          code: 'object_already_exists',
+        });
+      } else {
+        const results = await Promise.allSettled([store.save(key, first), store.save(key, second)]);
+        expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+        expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+          reason: { code: 'object_already_exists' },
+        });
+      }
+      const saved = await store.read(key, 64);
+      expect([first.toString(), second.toString()]).toContain(saved.toString());
+      expect(fixture.calls.map(({ method }) => method)).toEqual(['PUT', 'PUT', 'GET']);
+    } finally {
+      store.destroy();
+      await fixture.close();
+    }
+  },
+);
 it('sends conditional immutable writes without public ACL grants and bounds chunked object bodies', async () => {
   const fixture = await s3WireFixture();
   const store = configured(fixture.endpoint);
@@ -151,6 +182,28 @@ it('bounds SDK error-response consumption before deserialization', async () => {
     expect(error).not.toHaveProperty('$response');
     expect(error).not.toHaveProperty('$metadata');
     expect(fixture.behavior.errorBytesSent).toBeLessThan(1_048_576);
+  } finally {
+    store.destroy();
+    await fixture.close();
+  }
+});
+
+it('validates S3 checksum bytes and rejects corruption without retrying or exposing SDK details', async () => {
+  const fixture = await s3WireFixture();
+  const store = configured(fixture.endpoint);
+  try {
+    const key = createObjectKey(randomUUID());
+    await store.save(key, Buffer.from('hello'));
+    // Independent CRC32 vector for hello, followed by a deliberately corrupt response.
+    fixture.behavior.checksum = 'NhCmhg==';
+    expect(await store.read(key, 64)).toEqual(Buffer.from('hello'));
+    fixture.behavior.checksum = 'AAAAAA==';
+    const failure = await store.read(key, 64).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ message: 'object_store_unavailable' });
+    expect(failure).not.toHaveProperty('$response');
+    expect(failure).not.toHaveProperty('$metadata');
+    expect(String(failure)).not.toMatch(/hello|NhCmhg|AAAAAA|secret|fixture/u);
+    expect(fixture.calls).toHaveLength(3);
   } finally {
     store.destroy();
     await fixture.close();

@@ -93,6 +93,10 @@ export class S3ObjectStore implements ObjectStore {
       forcePathStyle: true,
       maxAttempts: 1,
       requestHandler: {
+        // Compatible services can retire a conditional-write connection before
+        // the client sees its close. Avoid pooling it into the following read.
+        httpAgent: { keepAlive: false },
+        httpsAgent: { keepAlive: false },
         connectionTimeout: this.options.timeoutMs,
         requestTimeout: this.options.timeoutMs,
       },

@@ -1,7 +1,9 @@
 // Deterministic HTTP protocol fixture. This is not a real S3 service acceptance gate.
 import { createServer } from 'node:http';
+import type { Socket } from 'node:net';
 export async function s3WireFixture() {
   const objects = new Map<string, Buffer>();
+  const retiredSockets = new WeakSet<Socket>();
   const calls: Array<{
     method: string;
     key: string;
@@ -15,6 +17,7 @@ export async function s3WireFixture() {
     chunked: false,
     endlessError: false,
     errorBytesSent: 0,
+    resetAfterConflict: false,
   };
   let bodyStartedResolve: () => void = () => undefined;
   const bodyStarted = new Promise<void>((resolve) => {
@@ -30,6 +33,12 @@ export async function s3WireFixture() {
       ifNoneMatch: request.headers['if-none-match'] as string | undefined,
       acl: request.headers['x-amz-acl'] as string | undefined,
     });
+    // Model a compatible service retiring the connection after an early
+    // conditional-write rejection. A reused connection fails before headers.
+    if (retiredSockets.has(request.socket)) {
+      request.socket.resetAndDestroy();
+      return;
+    }
     const failure = (status: number, code: string) => {
       response
         .writeHead(status, { 'content-type': 'application/xml' })
@@ -53,6 +62,7 @@ export async function s3WireFixture() {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       if (objects.has(key) && request.headers['if-none-match'] === '*') {
+        if (behavior.resetAfterConflict) retiredSockets.add(request.socket);
         failure(412, 'PreconditionFailed');
         return;
       }
