@@ -518,7 +518,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
               conversationId: f.conversation.id,
             },
             () => new Date(),
-            'inspect',
+            'use',
           )
         ).edit(f.source.messageId, {
           idempotencyKey: 'concurrent-edit',
@@ -527,6 +527,17 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
         }),
     );
     expect(result).toMatchObject({ status: 'rejected', reason: expect.any(MemoryAccessError) });
+    expect(
+      (
+        await admin.query(
+          'SELECT event_type,message_version,body FROM conversation_events WHERE conversation_id=$1 AND message_id=$2 ORDER BY sequence',
+          [f.conversation.id, f.source.messageId],
+        )
+      ).rows,
+    ).toEqual([
+      { event_type: 'message.created', message_version: 1, body: 'Native cobalt evidence.' },
+      { event_type: 'message.edited', message_version: 2, body: 'Current replacement source' },
+    ]);
     expect((await f.memories.list(f.access, {})).memories).toEqual([]);
   });
   it('records exactly claimed source IDs, rejects forged Run provenance, and rolls back failed terminal publication', async () => {
@@ -737,6 +748,16 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       (await admin.query('SELECT body FROM conversation_events WHERE id=$1', [source.eventId]))
         .rows[0].body,
     ).toBe(command.body);
+    const retainedEvents = (
+      await admin.query(
+        'SELECT id,message_id,event_type,sequence,actor_user_id FROM conversation_events WHERE conversation_id=$1 AND message_id=$2 ORDER BY sequence',
+        [f.conversation.id, source.messageId],
+      )
+    ).rows;
+    expect(retainedEvents.map((row) => row.event_type)).toEqual([
+      'message.created',
+      'message.deleted',
+    ]);
     await attachments.cleanup(100);
     expect(
       (
@@ -754,11 +775,18 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     expect(
       (
         await admin.query(
-          'SELECT body,command_hash FROM conversation_events WHERE conversation_id=$1 AND message_id=$2',
+          'SELECT id,message_id,event_type,sequence,actor_user_id,body,reason,command_hash FROM conversation_events WHERE conversation_id=$1 AND message_id=$2 ORDER BY sequence',
           [f.conversation.id, source.messageId],
         )
-      ).rows.every((row) => row.body === null && row.command_hash === null),
-    ).toBe(true);
+      ).rows,
+    ).toEqual(
+      retainedEvents.map((row) => ({
+        ...row,
+        body: null,
+        reason: null,
+        command_hash: '0'.repeat(64),
+      })),
+    );
     expect((await f.memories.list(f.access, {})).memories).toEqual([]);
     await expect(
       f.memories.create(f.access, {

@@ -1155,13 +1155,28 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           canDelete: false,
           canAudit: false,
         });
-        const audits = (await snapshot(f)).audits.filter(
+        const audits: { event_type: string; actor_user_id: string }[] = (
+          await snapshot(f)
+        ).audits.filter(
           (audit: { event_type: string }) =>
             audit.event_type.startsWith('task.') ||
             audit.event_type === 'conversation.bot_message_created',
         );
-        expect(audits.map((audit: { actor_user_id: string }) => audit.actor_user_id)).toEqual(
-          Array(4).fill(f.memberId),
+        expect(
+          audits
+            .map((audit: { event_type: string; actor_user_id: string }) => ({
+              eventType: audit.event_type,
+              actorUserId: audit.actor_user_id,
+            }))
+            .sort((left, right) => left.eventType.localeCompare(right.eventType)),
+        ).toEqual(
+          [
+            'conversation.bot_message_created',
+            'task.completed',
+            'task.queued',
+            'task.routed',
+            'task.running',
+          ].map((eventType) => ({ eventType, actorUserId: f.memberId })),
         );
         expect(JSON.stringify([final, audits])).not.toMatch(
           /native-task-fixture|models\.example|pinned instructions|sealed|private native transport/u,
@@ -1847,7 +1862,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       ).toMatchObject({ revision: 1, canManage: false });
       expect(
         (
-          await runtime.query(
+          await admin.query(
             "SELECT id FROM audit_events WHERE event_type='group.routing_updated' AND metadata->>'groupId'=$1",
             [f.grant!.groupId],
           )

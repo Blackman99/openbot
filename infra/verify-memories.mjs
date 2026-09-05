@@ -90,19 +90,10 @@ try {
     (await search.json()).memories.map((item) => item.id),
     [memory.id],
   );
-  stage = 'scope denial audit';
+  stage = 'scope denial';
   assert.equal(
     (await request('/search', { query: 'do-not-audit-this-body' }, outsiderToken)).status,
     403,
-  );
-  assert.deepEqual(
-    (
-      await pool.query(
-        "SELECT metadata FROM audit_events WHERE actor_user_id=$1 AND event_type='memory.access_denied'",
-        [outsider],
-      )
-    ).rows,
-    [{ metadata: { operation: 'search', workspaceId, groupId: group.id } }],
   );
   stage = 'current source revocation';
   await conversations.edit(owner, workspaceId, conversation.id, source.messageId, {
@@ -137,7 +128,22 @@ try {
       truncate: false,
     });
   }
-  console.log('Memory Compose save, provenance, source revocation and audited scope denial passed');
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT current_user AS role,has_table_privilege(current_user,'audit_events','SELECT') AS read,has_table_privilege(current_user,'audit_events','INSERT') AS append",
+      )
+    ).rows,
+    [{ role: 'openbot_runtime', read: false, append: true }],
+  );
+  // The CI observer checks this exact audit through the PostgreSQL container.
+  // The API keeps its append-only audit privilege and never receives observer credentials.
+  console.log(
+    JSON.stringify({
+      actorUserId: outsider,
+      expectedAudits: [{ metadata: { operation: 'search', workspaceId, groupId: group.id } }],
+    }),
+  );
 } catch {
   console.error(`Memory Compose verification failed: ${stage}`);
   process.exitCode = 1;
