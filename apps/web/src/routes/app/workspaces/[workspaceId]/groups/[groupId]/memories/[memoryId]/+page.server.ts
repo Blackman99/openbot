@@ -12,7 +12,12 @@ export const actions: Actions = {
   editMemory: (event) =>
     editMemoryAction(event, event.params.workspaceId, event.params.groupId, event.params.memoryId),
   forgetMemory: (event) =>
-    forgetMemoryAction(event, event.params.workspaceId, event.params.groupId, event.params.memoryId),
+    forgetMemoryAction(
+      event,
+      event.params.workspaceId,
+      event.params.groupId,
+      event.params.memoryId,
+    ),
   previewPromotion: (event) =>
     previewPromotionAction(
       event,
