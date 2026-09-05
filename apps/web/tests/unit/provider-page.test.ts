@@ -9,7 +9,8 @@ it('renders personal connection management, masked credentials, and dated probe 
         connections: [
           {
             id: 'model-id',
-            protocol: 'openai-responses',
+            protocol: 'anthropic-messages',
+            anthropicVersion: '2023-01-01',
             name: 'Private model',
             baseUrl: 'https://models.example/v1',
             modelId: 'chat-model',
@@ -43,6 +44,10 @@ it('renders personal connection management, masked credentials, and dated probe 
     'name="headers"',
     'name="protocol"',
     'OpenAI Responses',
+    'Anthropic Messages',
+    'name="anthropicVersion"',
+    'value="2023-01-01"',
+    'pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"',
   ])
     expect(rendered.body).toContain(text);
   expect(rendered.body).not.toContain('value="configured"');

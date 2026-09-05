@@ -3,7 +3,7 @@
 OpenBot is an AGPL-licensed, self-hosted multi-bot collaboration system. The current
 implementation includes the deployable foundation, local-owner authentication, and isolated
 workspaces with creation, switching, settings, and audit records: a SvelteKit web app, a Fastify
-API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat Completions and Responses-compatible
+API, PostgreSQL migrations, and a Docker Compose development stack. Personal OpenAI Chat Completions, Responses, and Anthropic Messages-compatible
 model connections support credential-safe settings and live text/action compatibility probes.
 
 The approved implementation backlog lives in
@@ -65,15 +65,21 @@ also requires its CIDR in `OPENBOT_PROVIDER_PRIVATE_CIDRS`. Every resolved addre
 before connecting, DNS answers are pinned for the request, and redirects are rejected. For a
 local provider, allow its hostname, scheme, and private CIDR explicitly.
 
-Create a connection with an explicit protocol (**OpenAI Chat Completions** or **OpenAI Responses**),
+Create a connection with an explicit protocol (**OpenAI Chat Completions**, **OpenAI Responses**, or **Anthropic Messages**),
 a name, base URL (for example `https://api.openai.com/v1`), model ID,
 optional API key, and optional custom headers as a JSON object. **Test and save** first probes a
 live text stream and a structured action, then stores timestamped, sanitized evidence. Failed
 text probes save a disabled connection; working text remains usable when structured actions are
 unsupported. Existing connections default to Chat Completions; protocols are never guessed from the
-endpoint. Both adapters normalize text, live deltas, function actions, usage, and completion through a
+endpoint. All adapters normalize text, live deltas, function actions, usage, and completion through a
 shared model-event contract with cancellation and rate-limit classification. Settings allow inspection, editing, retesting, disabling, and deletion. Blank secret
 fields on edit retain existing values; use **Clear saved API key** or `{}` headers to remove them.
+
+Anthropic connections use the `anthropic-messages` protocol, send the API key as `x-api-key`, and
+append `/messages` to the configured base URL. Set **Anthropic version** (`anthropicVersion` in
+the API) to the compatibility endpoint's supported version; the default is `2023-06-01`.
+Custom headers cannot override that version or duplicate a supplied API key. Streamed local
+`tool_use` blocks become structured actions; hosted tools and Computer Use are not executed.
 
 API keys and all custom header values use AES-256-GCM encryption with per-save random nonces and
 owner/connection binding. Reads expose only configured markers and header names. Personal

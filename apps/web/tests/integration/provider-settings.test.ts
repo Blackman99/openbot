@@ -32,7 +32,8 @@ it('forwards a test-and-save action and never echoes failed API keys or header i
     request: new Request('http://localhost:3000/app/settings/models?/save', {
       method: 'POST',
       body: new URLSearchParams({
-        protocol: 'openai-responses',
+        protocol: 'anthropic-messages',
+        anthropicVersion: '2023-01-01',
         name: 'Model',
         baseUrl: 'https://models.example/v1',
         modelId: 'model',
@@ -47,7 +48,8 @@ it('forwards a test-and-save action and never echoes failed API keys or header i
   });
   expect(JSON.stringify(response)).not.toMatch(/api-secret-value|header-secret-value/u);
   expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
-    protocol: 'openai-responses',
+    protocol: 'anthropic-messages',
+    anthropicVersion: '2023-01-01',
     apiKey: 'api-secret-value',
     headers: { 'x-secret': 'header-secret-value' },
   });

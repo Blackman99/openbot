@@ -60,3 +60,20 @@ it('drops upstream error text and unknown codes instead of leaking secret values
     await new ProviderApiClient(request, 'http://api', 'http://localhost:3000').list('token'),
   ).toEqual({ ok: false, code: 'provider_unavailable' });
 });
+
+it('accepts explicit Anthropic metadata while rejecting absent or secret-shaped version fields', async () => {
+  const metadata = {
+    ...connection,
+    protocol: 'anthropic-messages',
+    anthropicVersion: '2023-06-01',
+  };
+  const request = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json([metadata]))
+    .mockResolvedValueOnce(Response.json([{ ...metadata, anthropicVersion: { apiKey: 'secret' } }]))
+    .mockResolvedValueOnce(Response.json([{ ...connection, protocol: 'anthropic-messages' }]));
+  const client = new ProviderApiClient(request, 'http://api', 'http://localhost:3000');
+  expect(await client.list('token')).toEqual({ ok: true, value: [metadata] });
+  expect(await client.list('token')).toEqual({ ok: false, code: 'provider_unavailable' });
+  expect(await client.list('token')).toEqual({ ok: false, code: 'provider_unavailable' });
+});

@@ -5,6 +5,7 @@ export interface ProbeInput extends ProviderCredentials {
   baseUrl: string;
   modelId: string;
   protocol?: ProviderProtocol;
+  anthropicVersion?: string;
 }
 export interface ProbeResult {
   ok: boolean;

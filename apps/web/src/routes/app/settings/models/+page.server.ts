@@ -57,6 +57,9 @@ export const actions = {
     }
     const input = {
       protocol: field('protocol') || 'openai-chat',
+      ...(field('protocol') === 'anthropic-messages'
+        ? { anthropicVersion: field('anthropicVersion') || '2023-06-01' }
+        : {}),
       name: field('name'),
       baseUrl: field('baseUrl'),
       modelId: field('modelId'),

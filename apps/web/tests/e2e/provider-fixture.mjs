@@ -45,9 +45,16 @@ export function handleProviderFixture(
   } else {
     readJson(request, (input) => {
       const connectionId = id ?? `connection-${connections.size + 1}`;
+      const protocol = input.protocol ?? existing?.protocol ?? 'openai-chat';
       const metadata = {
         id: connectionId,
-        protocol: input.protocol ?? existing?.protocol ?? 'openai-chat',
+        protocol,
+        ...(protocol === 'anthropic-messages'
+          ? {
+              anthropicVersion:
+                input.anthropicVersion ?? existing?.anthropicVersion ?? '2023-06-01',
+            }
+          : {}),
         name: input.name,
         baseUrl: input.baseUrl,
         modelId: input.modelId,

@@ -1,9 +1,10 @@
 import type { ProviderCredentials } from './secrets.js';
 
-export type ProviderProtocol = 'openai-chat' | 'openai-responses';
+export type ProviderProtocol = 'openai-chat' | 'openai-responses' | 'anthropic-messages';
 export interface ModelInput extends ProviderCredentials {
   baseUrl: string;
   modelId: string;
+  anthropicVersion?: string;
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
   stream: boolean;
   tools?: { name: string; description?: string; parameters: Record<string, unknown> }[];

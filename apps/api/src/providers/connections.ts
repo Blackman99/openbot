@@ -6,6 +6,7 @@ import { ProviderError, ProviderUrlPolicy } from './url-policy.js';
 
 export interface ConnectionInput {
   protocol: ProviderProtocol;
+  anthropicVersion?: string;
   name: string;
   baseUrl: string;
   modelId: string;
@@ -14,6 +15,7 @@ export interface ConnectionInput {
 }
 export interface ConnectionMetadata {
   protocol: ProviderProtocol;
+  anthropicVersion?: string;
   id: string;
   name: string;
   baseUrl: string;
@@ -44,7 +46,21 @@ export function parseConnectionInput(value: unknown): ConnectionInput {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return invalid();
   const input = value as Record<string, unknown>;
   const protocol = input.protocol ?? 'openai-chat';
-  if (protocol !== 'openai-chat' && protocol !== 'openai-responses') return invalid();
+  if (
+    protocol !== 'openai-chat' &&
+    protocol !== 'openai-responses' &&
+    protocol !== 'anthropic-messages'
+  )
+    return invalid();
+  const anthropicVersion = input.anthropicVersion ?? '2023-06-01';
+  if (
+    protocol === 'anthropic-messages' &&
+    (typeof anthropicVersion !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/u.test(anthropicVersion) ||
+      !Number.isFinite(Date.parse(anthropicVersion)) ||
+      new Date(anthropicVersion).toISOString().slice(0, 10) !== anthropicVersion)
+  )
+    return invalid();
   for (const name of ['name', 'baseUrl', 'modelId', 'apiKey']) {
     if (
       typeof input[name] !== 'string' ||
@@ -89,9 +105,16 @@ export function parseConnectionInput(value: unknown): ConnectionInput {
     headers[normalized] = value;
   }
   const apiKey = input.apiKey as string;
-  if (/[^\x20-\x7e]/u.test(apiKey) || (apiKey && headers.authorization)) return invalid();
+  const authenticationHeader = protocol === 'anthropic-messages' ? 'x-api-key' : 'authorization';
+  if (
+    /[^\x20-\x7e]/u.test(apiKey) ||
+    (apiKey && headers[authenticationHeader]) ||
+    (protocol === 'anthropic-messages' && headers['anthropic-version'])
+  )
+    return invalid();
   return {
     protocol,
+    ...(protocol === 'anthropic-messages' ? { anthropicVersion: anthropicVersion as string } : {}),
     name,
     modelId,
     apiKey,
@@ -116,6 +139,7 @@ export class ProviderConnections {
     const metadata: ConnectionMetadata = {
       id,
       protocol: input.protocol,
+      ...(input.anthropicVersion === undefined ? {} : { anthropicVersion: input.anthropicVersion }),
       name: input.name,
       baseUrl: input.baseUrl,
       modelId: input.modelId,
@@ -168,6 +192,7 @@ export class ProviderConnections {
     const metadata: ConnectionMetadata = {
       id,
       protocol: input.protocol,
+      ...(input.anthropicVersion === undefined ? {} : { anthropicVersion: input.anthropicVersion }),
       name: input.name,
       baseUrl: input.baseUrl,
       modelId: input.modelId,

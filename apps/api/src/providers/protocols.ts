@@ -2,6 +2,7 @@ import type { ModelAdapter, ProviderProtocol } from './model-events.js';
 import { ModelConnectionProbe, type ConnectionProbe, type ProbeInput } from './model-probe.js';
 import { OpenAiChatAdapter } from './openai-chat.js';
 import { OpenAiResponsesAdapter } from './openai-responses.js';
+import { AnthropicMessagesAdapter } from './anthropic-messages.js';
 import { ProviderError, type ProviderUrlPolicy } from './url-policy.js';
 
 export function createModelAdapter(
@@ -11,6 +12,7 @@ export function createModelAdapter(
 ): ModelAdapter {
   if (protocol === 'openai-chat') return new OpenAiChatAdapter(policy, options);
   if (protocol === 'openai-responses') return new OpenAiResponsesAdapter(policy, options);
+  if (protocol === 'anthropic-messages') return new AnthropicMessagesAdapter(policy, options);
   throw new ProviderError('provider_protocol_unsupported');
 }
 

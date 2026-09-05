@@ -2,7 +2,7 @@
 sequence: 9
 id: PROV-03
 title: "Support OpenAI Responses-compatible models"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - PROV-01
 labels:
@@ -46,6 +46,5 @@ transport/SSE review fixes `271aa4a`. All 172 unit/integration tests, formatting
 API build, and the unchanged web build pass; all 6 browser scenarios pass. Independent review
 results and red/green evidence are recorded in [PROV-03 verification](../PROV-03-VERIFICATION.md).
 
-Actual PostgreSQL and Compose checks on the combined PROV-03 revision remain external gate
-`PROV-03-E1` in REL-01. Existing PROV-01 evidence does not close this later revision's gate.
+External gate `PROV-03-E1` closed under [Verify33941574408](https://github.com/Blackman99/openbot/actions/runs/33941574408) on remote commit `8f7e47f50a935cffc849e29c73b48a89d75ee449`, completed on 2026-09-05 at 03:22:16 UTC. Code, authentication/invitation PostgreSQL, provider protocol persistence under the restricted role, and Compose all passed. The integrated local gate passed 213 unit/integration tests and 7 browser scenarios.
 No migration was required; saved protocol metadata defaults legacy records to Chat Completions.

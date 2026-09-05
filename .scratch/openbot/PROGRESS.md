@@ -35,17 +35,19 @@ Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` pa
 
 Latest feature CI: [Verify33941168646](https://github.com/Blackman99/openbot/actions/runs/33941168646) passed all four jobs on remote `98f15fc88cdc44bc6cd14ac5542a9aad3fb58166` (tree matches local `014320d`), completed on 2026-09-05 at 03:13:55 UTC. Five real PostgreSQL tests passed across the isolated authentication/invitation and provider jobs, alongside the restricted-role Compose smoke. PROV-01 and WS-02 are now fully complete.
 
-PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenarios, formatting, types and production builds pass. Both independent review axes are clean at code revision `271aa4a`; Responses protocol, general live generation, bounded diagnostic capture and SSE framing are covered. New actual PostgreSQL/Compose gate `PROV-03-E1` remains explicit pending publication CI.
+PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenarios, formatting, types and production builds pass. Both independent review axes are clean at code revision `271aa4a`; Responses protocol, general live generation, bounded diagnostic capture and SSE framing are covered. Actual PostgreSQL/Compose gate `PROV-03-E1` is closed by [Verify33941574408](https://github.com/Blackman99/openbot/actions/runs/33941574408), all four jobs successful on remote `8f7e47f50a935cffc849e29c73b48a89d75ee449`, completed on 2026-09-05 at 03:22:16 UTC.
 
 ## Active frontier
 
 - WS-03: workspace member roles, invitation provenance and session identity independent of membership; worktree `.worktrees/ws-03`, migration0006 reserved if required.
 - AUTH-02: optional OIDC sign-in, explicit linking and invitation-only registration; prep complete, integrated WS-02 baseline available; migration0007 reserved if required.
-- PROV-04: Anthropic candidate `e811f8b` passed 208 tests and 7 browser scenarios; separate standards/spec reviews are running. Shared PROV-03 transport and model events are already integrated.
+- PROV-04 integrated as `87632a1`: 249 unit/integration tests and 8 browser scenarios, formatting, types and builds pass. Both independent reviews completed; the standards P3 protocol-switch issue was fixed and rechecked at `b58ec82`. Actual PostgreSQL/Compose gate `PROV-04-E1` awaits CI.
+- WS-03 reviewed candidate `4ac4fbc` passed 221 tests and 8 browser scenarios; both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. Integrate next, then unlock PROV-02, COL-01 and API-01.
+- PROV-02 is being prepared read-only until the WS-03 integration baseline is available.
 - PROV-01 is integrated; migration0004 is `personal_model_connections`.
 - WS-02 is integrated; migration0005 is `workspace_invitations`. AUTH-02 research and transaction handoff are in `OIDC-NOTES.md` and the WS-02 ticket.
 - Use a separate worktree and ticket branch for each implementation. Merge and verify one completed ticket at a time. Keep API/Web build commands serial within each worktree.
-- E2E ports4399/4173 are serialized by root; No browser lease is currently held; request root before use. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
+- E2E ports4399/4173 are serialized by root; AUTH-02 owns the current browser lease. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
 - GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch; unified draft PR: https://github.com/Blackman99/openbot/pull/1.
 
 ## Integration handoffs
@@ -62,3 +64,7 @@ The CI monitoring request is separate from implementation. An empty remote repos
 ## External release evidence
 
 FND-01-E1, AUTH-01-E1, and WS-01-E1 are closed by the successful baseline CI above. Record any new unexecuted evidence in REL-01. Fixture-based browser tests and pg-mem do not substitute for real PostgreSQL or Compose execution on later changes.
+
+## BFF HTTP handoff
+
+Send JSON Content-Type only with an actual JSON body; Fastify rejects empty JSON DELETE requests. Keep AbortController deadlines active through response-body parsing. WS-03 adds real client-to-Fastify and stalled-HTTP regressions for both member and invitation clients; browser fixtures alone had masked these defects. Preserve these contracts in subsequent API clients.

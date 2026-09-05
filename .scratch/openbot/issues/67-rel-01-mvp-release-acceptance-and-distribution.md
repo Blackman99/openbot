@@ -77,11 +77,20 @@ Both gates closed under [Verify33941168646](https://github.com/Blackman99/openbo
 - Features outside the MVP contract
 
 
-## Open external gate — PROV-03-E1
+## Closed external gate — PROV-03-E1
 
-- [ ] Run the combined `postgres-providers` job on the PROV-03 revision, including explicit
+- [x] Run the combined `postgres-providers` job on the PROV-03 revision, including explicit
   Responses protocol round-trip through the real restricted runtime role and encrypted storage.
-- [ ] Keep `postgres-auth` and Compose green on that combined revision. Earlier PROV-01/WS-02
+- [x] Keep `postgres-auth` and Compose green on that combined revision. Earlier PROV-01/WS-02
   evidence does not certify later provider protocol/transport changes.
 
 Local evidence and independent reviews are recorded in [PROV-03 verification](../PROV-03-VERIFICATION.md).
+
+PROV-03-E1 closed by [Verify33941574408](https://github.com/Blackman99/openbot/actions/runs/33941574408), all four jobs successful on remote `8f7e47f50a935cffc849e29c73b48a89d75ee449`, completed on 2026-09-05 at 03:22:16 UTC.
+
+## Open external gate — PROV-04-E1
+
+- [ ] Execute the combined provider PostgreSQL test with both Responses and Anthropic, including persisted Anthropic version metadata and restricted-role storage, ownership, stale revisions and audit rollback.
+- [ ] Keep authentication/invitation PostgreSQL and Compose green on the same integrated revision.
+
+Local combined verification at `87632a1` passed 249 unit/integration tests and 8 browser scenarios; prior protocol CI does not certify this later change.

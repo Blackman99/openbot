@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { newDb } from 'pg-mem';
 import { afterEach, expect, it, vi } from 'vitest';
 import { migrateDatabase } from '../../src/database/migrations.js';
-import { ProviderConnections } from '../../src/providers/connections.js';
+import { parseConnectionInput, ProviderConnections } from '../../src/providers/connections.js';
 import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { ProviderUrlPolicy } from '../../src/providers/url-policy.js';
@@ -23,6 +23,58 @@ const report = {
   text: { ok: true, code: 'passed', raw: 'OK' },
   action: { ok: false, code: 'provider_action_unsupported', raw: '{}' },
 };
+
+it('persists explicit Anthropic version and encrypted credentials while retaining unsupported action evidence', async () => {
+  const { service, owner, pool, probe } = await fixture();
+  const created = await service.save(owner, {
+    ...input,
+    protocol: 'anthropic-messages',
+    anthropicVersion: '2023-06-01',
+  });
+  expect(created).toMatchObject({
+    protocol: 'anthropic-messages',
+    anthropicVersion: '2023-06-01',
+    enabled: true,
+    lastProbe: { action: { ok: false, code: 'provider_action_unsupported' } },
+  });
+  expect(await service.get(owner, created.id)).toEqual(created);
+  const updated = await service.update(owner, created.id, { anthropicVersion: '2023-01-01' });
+  expect(updated.anthropicVersion).toBe('2023-01-01');
+  await service.test(owner, created.id);
+  expect(probe.run).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      protocol: 'anthropic-messages',
+      anthropicVersion: '2023-01-01',
+      apiKey: 'secret-api-key',
+    }),
+    undefined,
+  );
+  const rows = await pool.query(
+    'SELECT metadata,sealed_credentials FROM personal_model_connections',
+  );
+  expect(JSON.stringify(rows.rows)).not.toMatch(/secret-api-key|secret-header-value/u);
+  const switched = await service.update(owner, created.id, { protocol: 'openai-chat' });
+  expect(switched.anthropicVersion).toBeUndefined();
+});
+
+it('validates Anthropic version and rejects ambiguous authentication or version headers', () => {
+  const anthropic = { ...input, protocol: 'anthropic-messages' };
+  for (const value of ['', 'latest', '2023-02-30', '2023-06-01\r\nx-secret: unsafe', 12]) {
+    expect(() => parseConnectionInput({ ...anthropic, anthropicVersion: value })).toThrow(
+      'invalid_connection',
+    );
+  }
+  for (const headers of [{ 'x-api-key': 'other-key' }, { 'anthropic-version': '2023-01-01' }]) {
+    expect(() => parseConnectionInput({ ...anthropic, headers })).toThrow('invalid_connection');
+  }
+  expect(
+    parseConnectionInput({ ...anthropic, headers: { authorization: 'Bearer gateway-secret' } }),
+  ).toMatchObject({
+    anthropicVersion: '2023-06-01',
+    apiKey: 'secret-api-key',
+    headers: { authorization: 'Bearer gateway-secret' },
+  });
+});
 
 async function fixture() {
   const adapter = newDb({ noAstCoverageCheck: true }).adapters.createPg();

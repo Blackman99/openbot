@@ -9,7 +9,8 @@ export interface ProviderProbeReport {
   action: ProviderProbeResult;
 }
 export interface PersonalConnection {
-  protocol: 'openai-chat' | 'openai-responses';
+  protocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
+  anthropicVersion?: string;
   id: string;
   name: string;
   baseUrl: string;
@@ -62,8 +63,14 @@ function connection(value: unknown): value is PersonalConnection {
       'apiKeyConfigured',
       'headerNames',
       'lastProbe',
+      ...(value.protocol === 'anthropic-messages' ? ['anthropicVersion'] : []),
     ]) &&
-    (value.protocol === 'openai-chat' || value.protocol === 'openai-responses') &&
+    (value.protocol === 'openai-chat' ||
+      value.protocol === 'openai-responses' ||
+      value.protocol === 'anthropic-messages') &&
+    (value.protocol !== 'anthropic-messages' ||
+      (typeof value.anthropicVersion === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/u.test(value.anthropicVersion))) &&
     ['id', 'name', 'baseUrl', 'modelId'].every((key) => typeof value[key] === 'string') &&
     typeof value.enabled === 'boolean' &&
     typeof value.apiKeyConfigured === 'boolean' &&
