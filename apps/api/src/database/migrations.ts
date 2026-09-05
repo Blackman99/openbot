@@ -10,6 +10,7 @@ import {
   WORKSPACE_MODEL_CONNECTION_STATEMENTS,
 } from '../providers/schema.js';
 import { GROUP_SCHEMA_STATEMENTS } from '../groups/schema.js';
+import { GROUP_BOT_SCHEMA_STATEMENTS, GROUP_BOT_POSTGRES_GUARDS } from '../group-bots/schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -225,6 +226,11 @@ const MIGRATIONS = [
     version: '0014_conversation_ledger',
     statements: CONVERSATION_SCHEMA_STATEMENTS,
     postgresStatements: CONVERSATION_POSTGRES_GUARDS,
+  },
+  {
+    version: '0015_group_bot_grants',
+    statements: GROUP_BOT_SCHEMA_STATEMENTS,
+    postgresStatements: GROUP_BOT_POSTGRES_GUARDS,
   },
 ] as const;
 

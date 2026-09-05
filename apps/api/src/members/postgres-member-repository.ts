@@ -1,4 +1,5 @@
 import { revokeMembershipApiTokens } from '../api-tokens/postgres-repository.js';
+import { GroupBotRevocations } from '../group-bots/postgres-closures.js';
 import type { SqlPool } from '../auth/postgres-auth-repository.js';
 import type { WorkspaceRole } from '../workspaces/service.js';
 import {
@@ -90,6 +91,12 @@ export class PostgresWorkspaceMemberRepository implements WorkspaceMemberReposit
         if ((owners.rows[0]?.count ?? 0) <= 1) throw new LastWorkspaceOwnerError();
       }
       if (role === null) {
+        const groupBotGrants = await GroupBotRevocations.forWorkspaceRemoval(
+          connection,
+          record,
+          () => new Date(),
+        );
+        await groupBotGrants.close();
         await revokeMembershipApiTokens(connection, record);
         await connection.query(
           'DELETE FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',

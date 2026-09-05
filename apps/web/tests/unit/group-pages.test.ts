@@ -98,5 +98,6 @@ describe('group pages', () => {
     expect(readonly).toContain('grace@example.com');
     expect(readonly).not.toContain('action="?/');
     expect(readonly).toContain('Only group owners and admins can manage');
+    expect(readonly).toContain('/groups/group-1/bots');
   });
 });

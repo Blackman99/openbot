@@ -223,6 +223,8 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
             changes: { name: 'Concurrent edit' },
           }),
         );
+        void actions[0]!.catch(() => undefined);
+        const editPid = await waitForBlocked(a.name, pid);
         actions.push(
           new BotVersionService(b.pool, f.avatars).restore(f.access, {
             expectedCurrentVersionId: f.versionId,
@@ -230,8 +232,9 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
           }),
         );
         const settled = Promise.allSettled(actions);
-        await waitForBlocked(a.name, pid);
-        await waitForBlocked(b.name, pid);
+        // A second row-lock waiter queues behind the first waiter, so observe
+        // that dependency rather than requiring both to name the original TX.
+        await waitForBlocked(b.name, editPid);
         await blocker.query('COMMIT');
         const results = await settled;
         expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);

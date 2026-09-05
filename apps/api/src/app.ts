@@ -34,6 +34,8 @@ import { registerWorkspaceMemberRoutes } from './members/routes.js';
 import type { WorkspaceMemberService } from './members/service.js';
 import { registerGroupRoutes } from './groups/routes.js';
 import type { GroupService } from './groups/service.js';
+import type { GroupBotService } from './group-bots/service.js';
+import { registerGroupBotRoutes } from './group-bots/routes.js';
 import type { ReadinessProbe } from './readiness.js';
 import type { ProviderConnections } from './providers/connections.js';
 import { registerProviderRoutes } from './providers/routes.js';
@@ -54,6 +56,7 @@ export interface BuildAppOptions {
   workspaces?: WorkspaceService;
   members?: WorkspaceMemberService;
   groups?: GroupService;
+  groupBots?: GroupBotService;
   bots?: BotService;
   botAcl?: BotAclService;
   avatars?: BotAvatarService;
@@ -149,6 +152,7 @@ export function buildApp({
   workspaces,
   members,
   groups,
+  groupBots,
   bots,
   botAcl,
   avatars,
@@ -197,6 +201,7 @@ export function buildApp({
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (auth) {
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
+    if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
     if (avatars) registerBotAvatarRoutes(app, auth, avatars, webOrigin);
     if (conversations) registerConversationRoutes(app, auth, conversations, webOrigin);
     if (bots) registerBotRoutes(app, auth, bots, webOrigin);

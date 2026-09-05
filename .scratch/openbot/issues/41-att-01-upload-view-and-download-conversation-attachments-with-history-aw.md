@@ -2,7 +2,7 @@
 sequence: 41
 id: ATT-01
 title: "Upload, view, and download conversation attachments with history-aware access"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - BOT-02
   - COL-02

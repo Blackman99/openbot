@@ -11,6 +11,7 @@ import {
   type BotVisibilityChange,
 } from './acl-service.js';
 import type { BotRole } from './service.js';
+import { GroupBotRevocations } from '../group-bots/postgres-closures.js';
 
 type MemberRow = {
   user_id: string;
@@ -35,13 +36,25 @@ export class PostgresBotAclRepository implements BotAclRepository {
   ) {}
   private async manage<T>(
     access: BotAccess,
-    operation: (connection: SqlConnection, bot: BotRow) => Promise<T>,
+    operation: (
+      connection: SqlConnection,
+      bot: BotRow,
+      revocations?: GroupBotRevocations,
+    ) => Promise<T>,
+    revokingUserId?: string,
   ): Promise<T> {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
+      const revocations = revokingUserId
+        ? await GroupBotRevocations.forBotRevocation(
+            connection,
+            { ...access, targetUserId: revokingUserId },
+            this.now,
+          )
+        : undefined;
       const bot = await lockAuthorizedBot(connection, access, 'manageAcl');
-      const result = await operation(connection, bot);
+      const result = await operation(connection, bot, revocations);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
@@ -67,66 +80,71 @@ export class PostgresBotAclRepository implements BotAclRepository {
     await this.mutateMember(record, null);
   }
   private mutateMember(record: BotAclRemoval, role: BotRole | null) {
-    return this.manage(record, async (connection, bot) => {
-      const target = (
-        await connection.query<MemberRow>(
-          `SELECT a.user_id,u.email,u.display_name,a.role,a.created_at,(wm.user_id IS NOT NULL) AS has_workspace_access FROM bot_acl a INNER JOIN users u ON u.id=a.user_id LEFT JOIN workspace_memberships wm ON wm.user_id=a.user_id AND wm.workspace_id=$1 WHERE a.bot_id=$2 AND a.user_id=$3`,
-          [bot.workspace_id, bot.id, record.targetUserId],
-        )
-      ).rows[0];
-      if (!target) throw new BotAclMemberNotFoundError();
-      const rank = { user: 1, editor: 2, owner: 3 } as const;
-      if (!target.has_workspace_access && role !== null && rank[role] > rank[target.role])
-        throw new BotAclMemberNotFoundError();
-      if (target.role === 'owner' && target.has_workspace_access && role !== 'owner') {
-        const owners =
-          (
-            await connection.query<{ count: number }>(
-              "SELECT COUNT(*)::int AS count FROM bot_acl a INNER JOIN workspace_memberships m ON m.user_id=a.user_id AND m.workspace_id=$1 WHERE a.bot_id=$2 AND a.role='owner'",
-              [bot.workspace_id, bot.id],
-            )
-          ).rows[0]?.count ?? 0;
-        if (owners <= 1) throw new LastBotOwnerError();
-      }
-      if (role === target.role) return member(target);
-      const occurredAt = this.now();
-      const metadata = {
-        workspaceId: bot.workspace_id,
-        botId: bot.id,
-        targetUserId: target.user_id,
-      };
-      if (role === null) {
-        await connection.query('DELETE FROM bot_acl WHERE bot_id=$1 AND user_id=$2', [
-          bot.id,
-          target.user_id,
-        ]);
-        await connection.query(
-          "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'bot.acl_revoked',$2,$3,$4::jsonb)",
-          [
-            record.auditId,
-            record.actorUserId,
-            occurredAt,
-            JSON.stringify({ ...metadata, role: target.role }),
-          ],
-        );
-      } else {
-        await connection.query('UPDATE bot_acl SET role=$3 WHERE bot_id=$1 AND user_id=$2', [
-          bot.id,
-          target.user_id,
-          role,
-        ]);
-        await connection.query(
-          "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'bot.acl_role_changed',$2,$3,$4::jsonb)",
-          [
-            record.auditId,
-            record.actorUserId,
-            occurredAt,
-            JSON.stringify({ ...metadata, fromRole: target.role, toRole: role }),
-          ],
-        );
-      }
-      return member({ ...target, role: role ?? target.role });
-    });
+    return this.manage(
+      record,
+      async (connection, bot, revocations) => {
+        const target = (
+          await connection.query<MemberRow>(
+            `SELECT a.user_id,u.email,u.display_name,a.role,a.created_at,(wm.user_id IS NOT NULL) AS has_workspace_access FROM bot_acl a INNER JOIN users u ON u.id=a.user_id LEFT JOIN workspace_memberships wm ON wm.user_id=a.user_id AND wm.workspace_id=$1 WHERE a.bot_id=$2 AND a.user_id=$3`,
+            [bot.workspace_id, bot.id, record.targetUserId],
+          )
+        ).rows[0];
+        if (!target) throw new BotAclMemberNotFoundError();
+        const rank = { user: 1, editor: 2, owner: 3 } as const;
+        if (!target.has_workspace_access && role !== null && rank[role] > rank[target.role])
+          throw new BotAclMemberNotFoundError();
+        if (target.role === 'owner' && target.has_workspace_access && role !== 'owner') {
+          const owners =
+            (
+              await connection.query<{ count: number }>(
+                "SELECT COUNT(*)::int AS count FROM bot_acl a INNER JOIN workspace_memberships m ON m.user_id=a.user_id AND m.workspace_id=$1 WHERE a.bot_id=$2 AND a.role='owner'",
+                [bot.workspace_id, bot.id],
+              )
+            ).rows[0]?.count ?? 0;
+          if (owners <= 1) throw new LastBotOwnerError();
+        }
+        if (role === target.role) return member(target);
+        const occurredAt = this.now();
+        const metadata = {
+          workspaceId: bot.workspace_id,
+          botId: bot.id,
+          targetUserId: target.user_id,
+        };
+        if (role === null) {
+          await revocations!.close();
+          await connection.query('DELETE FROM bot_acl WHERE bot_id=$1 AND user_id=$2', [
+            bot.id,
+            target.user_id,
+          ]);
+          await connection.query(
+            "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'bot.acl_revoked',$2,$3,$4::jsonb)",
+            [
+              record.auditId,
+              record.actorUserId,
+              occurredAt,
+              JSON.stringify({ ...metadata, role: target.role }),
+            ],
+          );
+        } else {
+          await connection.query('UPDATE bot_acl SET role=$3 WHERE bot_id=$1 AND user_id=$2', [
+            bot.id,
+            target.user_id,
+            role,
+          ]);
+          await connection.query(
+            "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'bot.acl_role_changed',$2,$3,$4::jsonb)",
+            [
+              record.auditId,
+              record.actorUserId,
+              occurredAt,
+              JSON.stringify({ ...metadata, fromRole: target.role, toRole: role }),
+            ],
+          );
+        }
+        return member({ ...target, role: role ?? target.role });
+      },
+      role === null ? record.targetUserId : undefined,
+    );
   }
   changeVisibility(record: BotVisibilityChange) {
     return this.manage(record, async (connection, bot) => {

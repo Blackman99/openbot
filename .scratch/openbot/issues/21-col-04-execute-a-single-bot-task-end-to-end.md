@@ -2,7 +2,7 @@
 sequence: 21
 id: COL-04
 title: "Execute a single-Bot Task end to end"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-02
   - COL-03

@@ -19,6 +19,7 @@
   <p>Only group metadata is available. Ask a group owner or admin to add you.</p>
  {:else}
   <p>Your group role: {data.group.role}</p>
+  <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/bots`}>Group Bots</a></p>
   {#if manager}
    <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Group settings</h2>

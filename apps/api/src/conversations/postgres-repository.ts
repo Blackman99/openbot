@@ -5,6 +5,7 @@ import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
 import { BotAccessError } from '../bots/service.js';
 import { currentPage, messageVersion, readMessageEvents } from './projection.js';
+import { appendMessageEvent } from './append-event.js';
 import { encodeMessageCursor, messageCursor } from './cursor.js';
 import {
   ConversationAccessError,
@@ -215,52 +216,19 @@ export class ConversationTransaction {
       (current.message_version !== expectedVersion || current.event_type === 'message.deleted')
     )
       throw new ConversationConflictError('message_version_conflict');
-    const counter = (
-      await this.connection.query<{ last_sequence: number | string }>(
-        'UPDATE conversations SET last_sequence=last_sequence+1 WHERE id=$1 RETURNING last_sequence',
-        [this.access.conversationId],
-      )
-    ).rows[0]!;
-    const receipt = {
-      messageId: messageId ?? randomUUID(),
-      eventId: randomUUID(),
-      sequence: Number(counter.last_sequence),
-    };
-    const occurredAt = this.now();
-    await this.connection.query(
-      'INSERT INTO conversation_events (id,conversation_id,sequence,message_id,event_type,actor_user_id,occurred_at,body,idempotency_key,command_hash,message_version,reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-      [
-        receipt.eventId,
-        this.access.conversationId,
-        receipt.sequence,
-        receipt.messageId,
+    const receipt = await appendMessageEvent(
+      this.connection,
+      this.access,
+      {
+        messageId: messageId ?? randomUUID(),
         type,
-        this.access.actorUserId,
-        occurredAt,
-        command.body,
-        command.idempotencyKey,
+        body: command.body,
+        idempotencyKey: command.idempotencyKey,
         hash,
-        current ? current.message_version + 1 : 1,
+        version: current ? current.message_version + 1 : 1,
         reason,
-      ],
-    );
-    await this.connection.query(
-      'INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)',
-      [
-        randomUUID(),
-        deleting
-          ? 'conversation.message_deleted'
-          : messageId
-            ? 'conversation.message_edited'
-            : 'conversation.message_created',
-        this.access.actorUserId,
-        occurredAt,
-        JSON.stringify({
-          workspaceId: this.access.workspaceId,
-          conversationId: this.access.conversationId,
-          ...receipt,
-        }),
-      ],
+      },
+      this.now,
     );
     return { receipt, replayed: false };
   }
@@ -334,40 +302,7 @@ export class PostgresConversationRepository implements ConversationRepository {
   ): Promise<Conversation> {
     return this.transaction(async (connection) => {
       await authorizeSubject(connection, actorUserId, workspaceId, subject, 'inspect');
-      const existing = (
-        await connection.query<ConversationRow>(
-          subject.kind === 'group'
-            ? 'SELECT * FROM conversations WHERE workspace_id=$1 AND group_id=$2'
-            : 'SELECT * FROM conversations WHERE workspace_id=$1 AND bot_id=$2 AND creator_user_id=$3',
-          subject.kind === 'group'
-            ? [workspaceId, subject.id]
-            : [workspaceId, subject.id, actorUserId],
-        )
-      ).rows[0];
-      if (existing) return conversation(existing);
-      const id = randomUUID(),
-        occurredAt = this.now();
-      await connection.query(
-        'INSERT INTO conversations (id,workspace_id,group_id,bot_id,creator_user_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)',
-        [
-          id,
-          workspaceId,
-          subject.kind === 'group' ? subject.id : null,
-          subject.kind === 'direct-bot' ? subject.id : null,
-          actorUserId,
-          occurredAt,
-        ],
-      );
-      await connection.query(
-        "INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,'conversation.created',$2,$3,$4::jsonb)",
-        [
-          randomUUID(),
-          actorUserId,
-          occurredAt,
-          JSON.stringify({ workspaceId, conversationId: id, subject }),
-        ],
-      );
-      return { id, workspaceId, subject, createdAt: occurredAt };
+      return openAdmittedConversation(connection, actorUserId, workspaceId, subject, this.now);
     });
   }
   append(access: ConversationAccess, command: MessageCommand): Promise<MessageReceipt> {
@@ -416,4 +351,62 @@ export class PostgresConversationRepository implements ConversationRepository {
         ).receipt,
     );
   }
+}
+
+// Membership callers already hold fresh workspace/group/Bot admission in their
+// existing transaction. This only opens that group's ledger, never content access.
+export function openGroupMembershipConversation(
+  connection: SqlConnection,
+  actorUserId: string,
+  workspaceId: string,
+  groupId: string,
+  now: () => Date,
+) {
+  return openAdmittedConversation(
+    connection,
+    actorUserId,
+    workspaceId,
+    { kind: 'group', id: groupId },
+    now,
+  );
+}
+async function openAdmittedConversation(
+  connection: SqlConnection,
+  actorUserId: string,
+  workspaceId: string,
+  subject: ConversationSubject,
+  now: () => Date,
+): Promise<Conversation> {
+  const existing = (
+    await connection.query<ConversationRow>(
+      subject.kind === 'group'
+        ? 'SELECT * FROM conversations WHERE workspace_id=$1 AND group_id=$2'
+        : 'SELECT * FROM conversations WHERE workspace_id=$1 AND bot_id=$2 AND creator_user_id=$3',
+      subject.kind === 'group' ? [workspaceId, subject.id] : [workspaceId, subject.id, actorUserId],
+    )
+  ).rows[0];
+  if (existing) return conversation(existing);
+  const id = randomUUID(),
+    occurredAt = now();
+  await connection.query(
+    'INSERT INTO conversations (id,workspace_id,group_id,bot_id,creator_user_id,created_at) VALUES ($1,$2,$3,$4,$5,$6)',
+    [
+      id,
+      workspaceId,
+      subject.kind === 'group' ? subject.id : null,
+      subject.kind === 'direct-bot' ? subject.id : null,
+      actorUserId,
+      occurredAt,
+    ],
+  );
+  await connection.query(
+    "INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,'conversation.created',$2,$3,$4::jsonb)",
+    [
+      randomUUID(),
+      actorUserId,
+      occurredAt,
+      JSON.stringify({ workspaceId, conversationId: id, subject }),
+    ],
+  );
+  return { id, workspaceId, subject, createdAt: occurredAt };
 }

@@ -133,26 +133,32 @@ function access(
     conversationId: conversationUuid(conversationId),
   };
 }
+export function messageRead(query: unknown): MessageRead {
+  const value = object(query, ['limit', 'cursor']);
+  if (
+    value.limit !== undefined &&
+    (typeof value.limit !== 'string' ||
+      !/^[1-9][0-9]{0,2}$/u.test(value.limit) ||
+      Number(value.limit) > 100)
+  )
+    throw new InvalidConversationInputError();
+  if (
+    value.cursor !== undefined &&
+    (typeof value.cursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/u.test(value.cursor))
+  )
+    throw new InvalidConversationInputError();
+  return {
+    limit: value.limit === undefined ? 30 : Number(value.limit),
+    ...(typeof value.cursor === 'string' ? { cursor: value.cursor } : {}),
+  };
+}
 export class ConversationService {
   constructor(private readonly repository: ConversationRepository) {}
   get(actorUserId: string, workspaceId: string, conversationId: string, query: unknown) {
-    const value = object(query, ['limit', 'cursor']);
-    if (
-      value.limit !== undefined &&
-      (typeof value.limit !== 'string' ||
-        !/^[1-9][0-9]{0,2}$/u.test(value.limit) ||
-        Number(value.limit) > 100)
-    )
-      throw new InvalidConversationInputError();
-    if (
-      value.cursor !== undefined &&
-      (typeof value.cursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/u.test(value.cursor))
-    )
-      throw new InvalidConversationInputError();
-    return this.repository.get(access(actorUserId, workspaceId, conversationId), {
-      limit: value.limit === undefined ? 30 : Number(value.limit),
-      ...(typeof value.cursor === 'string' ? { cursor: value.cursor } : {}),
-    });
+    return this.repository.get(
+      access(actorUserId, workspaceId, conversationId),
+      messageRead(query),
+    );
   }
   open(actorUserId: string, workspaceId: string, input: unknown) {
     const value = object(input, ['subject']);
