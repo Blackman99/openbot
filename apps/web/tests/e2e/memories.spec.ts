@@ -101,3 +101,45 @@ test('reviews a pending candidate from the conversation inbox and confirms a wor
   await expect(page.getByRole('heading', { name: 'approved', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Confirm this approval' })).toHaveCount(0);
 });
+
+test('rejects a pending inbox candidate so later automatic approval cannot revive it', async ({
+  page,
+  request,
+}) => {
+  await request.post(api + '/__scenario', { data: { scenario: 'unclaimed' } });
+  await page.request.post(api + '/__conversation/setup');
+  await page.goto(`/app/workspaces/${workspaceId}/conversations`);
+  await page.getByRole('button', { name: 'Open Research group', exact: true }).click();
+  const conversationId = new URL(page.url()).pathname.split('/').at(-1)!;
+  expect(
+    (await page.request.post(api + '/__memory/setup-inbox', { data: { conversationId } })).status(),
+  ).toBe(200);
+  await page.getByRole('link', { name: 'Memory review inbox', exact: true }).click();
+  await expect(page.getByText('keep the edited evidence.')).toBeVisible();
+  await page.getByRole('button', { name: 'Reject candidate', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'rejected', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reject candidate' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Approve into this group' })).toHaveCount(0);
+});
+
+test('edits a pending candidate and approves it into the origin group', async ({
+  page,
+  request,
+}) => {
+  await request.post(api + '/__scenario', { data: { scenario: 'unclaimed' } });
+  await page.request.post(api + '/__conversation/setup');
+  await page.goto(`/app/workspaces/${workspaceId}/conversations`);
+  await page.getByRole('button', { name: 'Open Research group', exact: true }).click();
+  const conversationId = new URL(page.url()).pathname.split('/').at(-1)!;
+  expect(
+    (await page.request.post(api + '/__memory/setup-inbox', { data: { conversationId } })).status(),
+  ).toBe(200);
+  await page.getByRole('link', { name: 'Memory review inbox', exact: true }).click();
+  await page.getByLabel('Reviewed text').fill('keep the reviewed group fact.');
+  await page.getByRole('button', { name: 'Save edited candidate', exact: true }).click();
+  await expect(page.getByText('keep the reviewed group fact.')).toBeVisible();
+  await page.getByLabel('Reviewer confidence').first().fill('0.8');
+  await page.getByRole('button', { name: 'Approve into this group', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'approved', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve into this group' })).toHaveCount(0);
+});
