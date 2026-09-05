@@ -489,6 +489,46 @@ describe('candidate review inbox', () => {
     expect(captured.some((content) => content.includes('"kind":"approved_facts"'))).toBe(false);
   });
 
+  it('drops an approved fact after a bound source tombstone', async () => {
+    const base = await memoryFixture(cleanup);
+    const { candidateId, revision } = await extractedGroupCandidate(
+      base,
+      'Remember: tombstone must hide the fact.',
+      'tombstone',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: revision,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.6,
+      idempotencyKey: 'approve-tombstone',
+    });
+    const groupAccess = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      groupId: base.group.id,
+    };
+    expect(
+      (await base.memories.list(groupAccess, { query: 'tombstone must hide' }, true)).memories,
+    ).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'tombstone must hide the fact.' }),
+    ]);
+    await base.conversations.tombstone(
+      base.owner.user.id,
+      base.owner.workspace.id,
+      base.conversation.id,
+      base.source.messageId,
+      { expectedVersion: 1, idempotencyKey: 'tombstone-source' },
+    );
+    expect(
+      (await base.memories.list(groupAccess, { query: 'tombstone must hide' }, true)).memories,
+    ).toEqual([]);
+  });
+
   it('requires confirmation to publish a direct-conversation candidate onto its origin Bot', async () => {
     const base = await memoryFixture(cleanup);
     const extracted = await extractedDirectCandidate(

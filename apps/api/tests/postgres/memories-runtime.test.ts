@@ -26,7 +26,11 @@ import { GroupBotService } from '../../src/group-bots/service.js';
 import { PostgresGroupRepository } from '../../src/groups/postgres-group-repository.js';
 import { GroupService } from '../../src/groups/service.js';
 import { MemoryService } from '../../src/memories/service.js';
-import { BOT_PRIVATE_VISIBILITY_SUMMARY, MemoryAccessError } from '../../src/memories/types.js';
+import {
+  BOT_PRIVATE_VISIBILITY_SUMMARY,
+  MemoryAccessError,
+  MemoryConflictError,
+} from '../../src/memories/types.js';
 import { LocalObjectStore } from '../../src/objects/local-store.js';
 import { ProviderConnections } from '../../src/providers/connections.js';
 import { PostgresProviderRepository } from '../../src/providers/postgres-repository.js';
@@ -1395,5 +1399,136 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
         text: 'native reviewed evidence.',
       }),
     ]);
+  });
+  it('serializes competing approve and reject to one candidate decision and rolls back when the review audit cannot write', async () => {
+    const f = await fixture();
+    await execution(f);
+    expect(
+      await new TaskWorker(runtime, {
+        secrets,
+        createAdapter: () => ({
+          generate: async () => ({
+            events: [
+              { type: 'text', text: 'Remember: native reviewed fact.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          }),
+        }),
+      }).runOnce(),
+    ).toBe(true);
+    const candidate = (
+      await admin.query<{ id: string; current_revision: number }>(
+        `SELECT c.id,c.current_revision FROM memory_candidates c
+         JOIN tasks t ON t.id=c.origin_task_id WHERE t.conversation_id=$1`,
+        [f.conversation.id],
+      )
+    ).rows[0]!;
+    const access = {
+      actorUserId: f.memberId,
+      workspaceId: f.workspaceId,
+      conversationId: f.conversation.id,
+    };
+    const destination = { kind: 'group' as const, id: f.group.id };
+    const raced = await Promise.allSettled([
+      f.memories.approveCandidate(access, candidate.id, {
+        expectedRevision: Number(candidate.current_revision),
+        destination,
+        confidence: 0.8,
+        idempotencyKey: 'native-approve-race',
+      }),
+      f.memories.rejectCandidate(access, candidate.id, {
+        expectedRevision: Number(candidate.current_revision),
+        idempotencyKey: 'native-reject-race',
+      }),
+    ]);
+    const accepted = raced.filter((result) => result.status === 'fulfilled');
+    const denied = raced.filter((result) => result.status === 'rejected');
+    expect(accepted).toHaveLength(1);
+    expect(denied).toHaveLength(1);
+    expect(denied[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(MemoryConflictError),
+    });
+    const decided = (
+      await admin.query<{ decision: string; approved_fact_id: string | null }>(
+        'SELECT decision,approved_fact_id FROM memory_candidate_decisions WHERE candidate_id=$1',
+        [candidate.id],
+      )
+    ).rows;
+    expect(decided).toHaveLength(1);
+    expect(
+      (await admin.query('SELECT status FROM memory_candidates WHERE id=$1', [candidate.id])).rows,
+    ).toEqual([{ status: decided[0]!.decision }]);
+    expect(
+      (
+        await admin.query('SELECT id FROM approved_memory_facts WHERE candidate_id=$1', [
+          candidate.id,
+        ])
+      ).rows,
+    ).toHaveLength(decided[0]!.decision === 'approved' ? 1 : 0);
+    const other = await fixture();
+    const otherExec = await execution(other);
+    expect(
+      await new TaskWorker(runtime, {
+        secrets,
+        createAdapter: () => ({
+          generate: async () => ({
+            events: [
+              { type: 'text', text: 'Remember: audit must roll back.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          }),
+        }),
+      }).runOnce(),
+    ).toBe(true);
+    const pending = (
+      await admin.query<{ id: string; current_revision: number }>(
+        `SELECT c.id,c.current_revision FROM memory_candidates c
+         JOIN tasks t ON t.id=c.origin_task_id WHERE t.conversation_id=$1`,
+        [other.conversation.id],
+      )
+    ).rows[0]!;
+    await admin.query('REVOKE INSERT ON audit_events FROM openbot_runtime');
+    try {
+      await expect(
+        other.memories.approveCandidate(
+          {
+            actorUserId: other.memberId,
+            workspaceId: other.workspaceId,
+            conversationId: other.conversation.id,
+          },
+          pending.id,
+          {
+            expectedRevision: Number(pending.current_revision),
+            destination: { kind: 'group', id: other.group.id },
+            confidence: 0.55,
+            idempotencyKey: 'native-audit-fail',
+          },
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await admin.query('GRANT INSERT ON audit_events TO openbot_runtime');
+    }
+    expect(
+      (await admin.query('SELECT status FROM memory_candidates WHERE id=$1', [pending.id])).rows,
+    ).toEqual([{ status: 'pending' }]);
+    expect(
+      (
+        await admin.query(
+          'SELECT candidate_id FROM memory_candidate_decisions WHERE candidate_id=$1',
+          [pending.id],
+        )
+      ).rows,
+    ).toEqual([]);
+    expect(
+      (
+        await admin.query('SELECT id FROM approved_memory_facts WHERE candidate_id=$1', [
+          pending.id,
+        ])
+      ).rows,
+    ).toEqual([]);
+    expect(otherExec.task.id).toBeTruthy();
   });
 });

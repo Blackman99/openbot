@@ -57,6 +57,7 @@ import {
   insertDecision,
   loadCandidate,
   lockCandidateRow,
+  lockPendingCandidate,
   lockReviewScopes,
   lockWorkspaceMember,
   projectApprovedFact,
@@ -678,12 +679,15 @@ export class MemoryService {
           undefined,
           this.now,
         );
-        await lockCandidateRow(connection, row);
-        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
-          throw new MemoryConflictError('source_version_conflict');
+        const pending = await lockPendingCandidate(
+          connection,
+          access,
+          row,
+          command.expectedRevision,
+        );
         const updated = await connection.query(
           "UPDATE memory_candidates SET current_revision=current_revision+1 WHERE id=$1 AND status='pending' AND current_revision=$2 RETURNING current_revision",
-          [row.id, command.expectedRevision],
+          [pending.id, command.expectedRevision],
         );
         if (!updated.rows.length) throw new MemoryConflictError('source_version_conflict');
         await connection.query(
@@ -703,12 +707,6 @@ export class MemoryService {
       'reject-candidate',
       { candidateId },
       async (connection) => {
-        const replayHash = reviewCommandHash({
-          type: 'memory.candidate.reject',
-          candidateId,
-          revision: command.expectedRevision,
-          bodyHash: '',
-        });
         const row = await loadCandidate(connection, access, candidateId);
         await lockReviewScopes(
           connection,
@@ -718,28 +716,32 @@ export class MemoryService {
           this.now,
         );
         await lockCandidateRow(connection, row);
+        const pending = await loadCandidate(connection, access, candidateId);
         const replay = await replayDecision(
           connection,
           access,
           command.idempotencyKey,
           reviewCommandHash({
             type: 'memory.candidate.reject',
-            candidateId: row.id,
-            revision: Number(row.current_revision),
-            bodyHash: reviewTextHash(row.body),
+            candidateId: pending.id,
+            revision: Number(pending.current_revision),
+            bodyHash: reviewTextHash(pending.body),
           }),
         );
         if (replay) return { candidate: replay.candidate, replayed: true };
-        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+        if (
+          pending.status !== 'pending' ||
+          Number(pending.current_revision) !== command.expectedRevision
+        )
           throw new MemoryConflictError('source_version_conflict');
-        void replayHash;
-        await connection.query(
-          "UPDATE memory_candidates SET status='rejected' WHERE id=$1 AND status='pending' AND current_revision=$2",
-          [row.id, command.expectedRevision],
+        const updated = await connection.query(
+          "UPDATE memory_candidates SET status='rejected' WHERE id=$1 AND status='pending' AND current_revision=$2 RETURNING id",
+          [pending.id, command.expectedRevision],
         );
+        if (!updated.rows.length) throw new MemoryConflictError('source_version_conflict');
         await insertDecision(connection, {
           access,
-          row,
+          row: pending,
           decision: 'rejected',
           idempotencyKey: command.idempotencyKey,
           now: this.now(),
@@ -769,30 +771,34 @@ export class MemoryService {
           this.now,
         );
         await lockCandidateRow(connection, row);
+        const pending = await loadCandidate(connection, access, candidateId);
         const hash = reviewCommandHash({
           type: 'memory.candidate.approve',
-          candidateId: row.id,
-          revision: Number(row.current_revision),
-          bodyHash: reviewTextHash(row.body),
+          candidateId: pending.id,
+          revision: Number(pending.current_revision),
+          bodyHash: reviewTextHash(pending.body),
           destination: command.destination,
           confidence: command.confidence,
         });
         const replay = await replayDecision(connection, access, command.idempotencyKey, hash);
         if (replay) return { candidate: replay.candidate, fact: replay.fact, replayed: true };
-        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+        if (
+          pending.status !== 'pending' ||
+          Number(pending.current_revision) !== command.expectedRevision
+        )
           throw new MemoryConflictError('source_version_conflict');
-        if (requiresSeparateConfirmation(row.group_id, command.destination))
+        if (requiresSeparateConfirmation(pending.group_id, command.destination))
           throw new MemoryAccessError();
         const fact = await publishApprovedFact(connection, {
           access,
-          row,
+          row: pending,
           destination: command.destination,
           confidence: command.confidence,
           now: this.now(),
         });
         await insertDecision(connection, {
           access,
-          row,
+          row: pending,
           decision: 'approved',
           destination: command.destination,
           factId: fact.id,
@@ -827,9 +833,12 @@ export class MemoryService {
           command.destination,
           this.now,
         );
-        await lockCandidateRow(connection, row);
-        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
-          throw new MemoryConflictError('source_version_conflict');
+        const pending = await lockPendingCandidate(
+          connection,
+          access,
+          row,
+          command.expectedRevision,
+        );
         const createdAt = this.now(),
           expiresAt = new Date(createdAt.getTime() + REVIEW_PREVIEW_TTL_MS),
           intentId = randomUUID();
@@ -841,10 +850,10 @@ export class MemoryService {
             intentId,
             access.workspaceId,
             access.actorUserId,
-            row.id,
-            Number(row.current_revision),
-            reviewTextHash(row.body),
-            candidateLineageDigest(row),
+            pending.id,
+            Number(pending.current_revision),
+            reviewTextHash(pending.body),
+            candidateLineageDigest(pending),
             command.destination.kind,
             command.destination.id,
             destinationBot?.version_id ?? null,
@@ -858,7 +867,7 @@ export class MemoryService {
           preview: {
             id: intentId,
             expiresAt,
-            content: row.body,
+            content: pending.body,
             destination: command.destination,
             visibility: destinationAudience(command.destination),
             disclosureVersion: REVIEW_DISCLOSURE_VERSION,
@@ -909,10 +918,11 @@ export class MemoryService {
           this.now,
         );
         await lockCandidateRow(connection, row);
+        const pending = await loadCandidate(connection, access, candidateId);
         if (
-          reviewTextHash(row.body) !== intent.reviewed_body_hash ||
-          candidateLineageDigest(row) !== intent.lineage_digest ||
-          Number(row.current_revision) !== Number(intent.expected_revision)
+          reviewTextHash(pending.body) !== intent.reviewed_body_hash ||
+          candidateLineageDigest(pending) !== intent.lineage_digest ||
+          Number(pending.current_revision) !== Number(intent.expected_revision)
         )
           throw new MemoryConflictError('source_version_conflict');
         if (
@@ -924,9 +934,9 @@ export class MemoryService {
           throw new MemoryConflictError('source_version_conflict');
         const hash = reviewCommandHash({
           type: 'memory.candidate.approve',
-          candidateId: row.id,
-          revision: Number(row.current_revision),
-          bodyHash: reviewTextHash(row.body),
+          candidateId: pending.id,
+          revision: Number(pending.current_revision),
+          bodyHash: reviewTextHash(pending.body),
           destination,
           confidence: intent.confidence,
         });
@@ -952,21 +962,21 @@ export class MemoryService {
               })
             )
               .map(projectApprovedFact)
-              .find((fact) => fact.candidateId === row.id),
+              .find((fact) => fact.candidateId === pending.id),
             replayed: true,
           };
         }
-        if (row.status !== 'pending') throw new MemoryConflictError('source_version_conflict');
+        if (pending.status !== 'pending') throw new MemoryConflictError('source_version_conflict');
         const fact = await publishApprovedFact(connection, {
           access,
-          row,
+          row: pending,
           destination,
           confidence: intent.confidence,
           now: this.now(),
         });
         await insertDecision(connection, {
           access,
-          row,
+          row: pending,
           decision: 'approved',
           destination,
           factId: fact.id,
@@ -976,7 +986,7 @@ export class MemoryService {
         });
         await connection.query(
           'INSERT INTO memory_candidate_review_confirmations(intent_id,candidate_id,confirmed_at) VALUES($1,$2,$3)',
-          [intent.id, row.id, this.now()],
+          [intent.id, pending.id, this.now()],
         );
         return {
           candidate: projectCandidate(await loadCandidate(connection, access, candidateId)),

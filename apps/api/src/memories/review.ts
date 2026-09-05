@@ -267,6 +267,19 @@ export async function lockCandidateRow(
   if (!locked) throw new MemoryAccessError();
 }
 
+export async function lockPendingCandidate(
+  connection: SqlConnection,
+  access: CandidateAccess,
+  row: CandidateRow,
+  expectedRevision: number,
+): Promise<CandidateRow> {
+  await lockCandidateRow(connection, row);
+  const locked = await loadCandidate(connection, access, row.id);
+  if (locked.status !== 'pending' || Number(locked.current_revision) !== expectedRevision)
+    throw new MemoryConflictError('source_version_conflict');
+  return locked;
+}
+
 export async function selectApprovedFactRows(
   connection: SqlConnection,
   filter: {
@@ -429,10 +442,11 @@ export async function publishApprovedFact(
 ): Promise<ApprovedFact> {
   const factId = randomUUID(),
     versionId = randomUUID();
-  await connection.query(
-    "UPDATE memory_candidates SET status='approved' WHERE id=$1 AND status='pending' AND current_revision=$2",
+  const updated = await connection.query(
+    "UPDATE memory_candidates SET status='approved' WHERE id=$1 AND status='pending' AND current_revision=$2 RETURNING id",
     [input.row.id, Number(input.row.current_revision)],
   );
+  if (!updated.rows.length) throw new MemoryConflictError('source_version_conflict');
   await connection.query(
     `INSERT INTO approved_memory_facts(
       id,workspace_id,scope_kind,scope_id,candidate_id,revision,body,confidence,confidence_source,approver_user_id,approved_at,version,version_id,lineage_digest
