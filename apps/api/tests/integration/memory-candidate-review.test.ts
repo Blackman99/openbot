@@ -64,6 +64,55 @@ async function extractedGroupCandidate(
   };
 }
 
+async function extractedDirectCandidate(
+  base: Awaited<ReturnType<typeof memoryFixture>>,
+  text: string,
+  key: string,
+) {
+  const conversation = await base.conversations.open(base.owner.user.id, base.owner.workspace.id, {
+    subject: { kind: 'direct-bot', id: base.bot.id },
+  });
+  const tasks = new TaskService(base.pool);
+  await tasks.submit(base.owner.user.id, base.owner.workspace.id, conversation.id, {
+    body: 'Extract a private candidate.',
+    idempotencyKey: `direct-run-${key}`,
+  });
+  const worker = new TaskWorker(base.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => ({
+        events: [
+          { type: 'text', text },
+          { type: 'complete', stopReason: 'stop' },
+        ],
+        raw: '',
+      }),
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const row = (
+    await base.pool.query<{
+      id: string;
+      status: string;
+      current_revision: number;
+      proposed_scope_kind: string;
+      proposed_scope_id: string;
+    }>(
+      `SELECT c.id,c.status,c.current_revision,c.proposed_scope_kind,c.proposed_scope_id
+       FROM memory_candidates c
+       JOIN tasks t ON t.id=c.origin_task_id WHERE t.conversation_id=$1 ORDER BY c.created_at DESC`,
+      [conversation.id],
+    )
+  ).rows[0];
+  return {
+    conversation,
+    tasks,
+    candidateId: row!.id,
+    revision: Number(row!.current_revision),
+    proposedScope: { kind: row!.proposed_scope_kind, id: row!.proposed_scope_id },
+  };
+}
+
 describe('candidate review inbox', () => {
   it('edits then approves a same-group candidate into searchable context and keeps pending text inert', async () => {
     const base = await memoryFixture(cleanup);
@@ -438,5 +487,71 @@ describe('candidate review inbox', () => {
     });
     expect(await later.runOnce()).toBe(true);
     expect(captured.some((content) => content.includes('"kind":"approved_facts"'))).toBe(false);
+  });
+
+  it('requires confirmation to publish a direct-conversation candidate onto its origin Bot', async () => {
+    const base = await memoryFixture(cleanup);
+    const extracted = await extractedDirectCandidate(
+      base,
+      'Remember: keep this private Bot fact.',
+      'direct',
+    );
+    expect(extracted.proposedScope).toEqual({ kind: 'bot', id: base.bot.id });
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: extracted.conversation.id,
+    };
+    const destination = { kind: 'bot' as const, id: base.bot.id };
+    await expect(
+      base.memories.approveCandidate(access, extracted.candidateId, {
+        expectedRevision: extracted.revision,
+        destination,
+        confidence: 0.64,
+        idempotencyKey: 'direct-to-bot',
+      }),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const preview = await base.memories.previewCandidate(access, extracted.candidateId, {
+      expectedRevision: extracted.revision,
+      destination,
+      confidence: 0.64,
+    });
+    expect(preview.preview.visibility.summary).toBe(BOT_FACT_VISIBILITY_SUMMARY);
+    const confirmed = await base.memories.confirmCandidate(access, extracted.candidateId, {
+      intentId: preview.preview.id,
+      idempotencyKey: 'confirm-direct-bot',
+      acknowledged: true,
+    });
+    expect(confirmed.fact).toMatchObject({
+      kind: 'approved_fact',
+      scope: { kind: 'bot', id: base.bot.id },
+      text: 'keep this private Bot fact.',
+    });
+    expect(
+      (
+        await base.memories.listPrivate(
+          {
+            actorUserId: base.owner.user.id,
+            workspaceId: base.owner.workspace.id,
+            botId: base.bot.id,
+          },
+          { query: 'private Bot fact' },
+          true,
+        )
+      ).memories,
+    ).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'keep this private Bot fact.' }),
+    ]);
+    const stranger = await base.addUser();
+    await expect(
+      base.memories.listCandidates(
+        {
+          actorUserId: stranger.id,
+          workspaceId: base.owner.workspace.id,
+          conversationId: extracted.conversation.id,
+        },
+        {},
+      ),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
   });
 });
