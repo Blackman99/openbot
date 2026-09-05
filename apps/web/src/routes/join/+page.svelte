@@ -36,6 +36,16 @@
     <p>To use a different account, sign out from your workspace, then reopen the original invitation link.</p>
     <a href="/app">Your workspaces</a>
   {:else}
+    {#if data.oidcEnabled}
+      <section>
+        <h2>Join using your sign-in provider</h2>
+        <form method="POST" action="/auth/oidc/start">
+          <input type="hidden" name="purpose" value="invite" />
+          <input type="hidden" name="invitationToken" value={token} />
+          <button type="submit" disabled={!token || pending}>Join with OIDC</button>
+        </form>
+      </section>
+    {/if}
     <section>
       <h2>Create account and join</h2>
       <form method="POST" action="?/accept" use:enhance={submit}>

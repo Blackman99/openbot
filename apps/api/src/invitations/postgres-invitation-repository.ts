@@ -53,102 +53,9 @@ export class PostgresInvitationRepository implements InvitationRepository {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
-      const initial = (
-        await connection.query<{ workspace_id: string }>(
-          'SELECT workspace_id FROM workspace_invitations WHERE token_digest = $1',
-          [record.tokenDigest],
-        )
-      ).rows[0];
-      if (!initial) throw new InvitationUnavailableError();
-      const workspace = (
-        await connection.query<{ id: string; name: string }>(
-          'SELECT id, name FROM workspaces WHERE id = $1 FOR UPDATE',
-          [initial.workspace_id],
-        )
-      ).rows[0];
-      const invitation = (
-        await connection.query<Invitation>(
-          `SELECT ${columns} FROM workspace_invitations WHERE token_digest = $1 FOR UPDATE`,
-          [record.tokenDigest],
-        )
-      ).rows[0];
-      const acceptedAt = new Date(Math.max(record.now.getTime(), this.clock().getTime()));
-      if (
-        !workspace ||
-        !invitation ||
-        invitation.revokedAt ||
-        invitation.consumedAt ||
-        invitation.expiresAt <= acceptedAt ||
-        invitation.email !== record.email
-      )
-        throw new InvitationUnavailableError();
-      let user: SessionIdentity['user'];
-      if (record.newAccount && record.session) {
-        const existing = await connection.query(
-          'SELECT id FROM users WHERE normalized_email = $1',
-          [record.email],
-        );
-        if (existing.rows[0]) throw new InvitationUnavailableError();
-        user = {
-          id: record.userId,
-          displayName: record.newAccount.displayName,
-          email: record.email,
-        };
-        await connection.query(
-          'INSERT INTO users (id,email,normalized_email,display_name,created_at) VALUES ($1,$2,$2,$3,$4)',
-          [user.id, user.email, user.displayName, acceptedAt],
-        );
-        await connection.query(
-          'INSERT INTO local_credentials (user_id,password_hash,updated_at) VALUES ($1,$2,$3)',
-          [user.id, record.newAccount.passwordHash, acceptedAt],
-        );
-        await connection.query(
-          'INSERT INTO sessions (token_digest,user_id,created_at,expires_at) VALUES ($1,$2,$3,$4)',
-          [record.session.tokenDigest, user.id, acceptedAt, record.session.expiresAt],
-        );
-        await connection.query(
-          "INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at) VALUES ($1,'session.signed_in',$2,$3)",
-          [record.session.auditId, user.id, acceptedAt],
-        );
-      } else {
-        const existing = (
-          await connection.query<{ id: string; email: string; displayName: string }>(
-            'SELECT id,email,display_name AS "displayName" FROM users WHERE id = $1 AND normalized_email = $2',
-            [record.userId, record.email],
-          )
-        ).rows[0];
-        if (!existing) throw new InvitationUnavailableError();
-        user = existing;
-      }
-      const member = await connection.query(
-        'SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
-        [workspace.id, user.id],
-      );
-      if (member.rows[0]) throw new InvitationUnavailableError();
-      await connection.query(
-        'INSERT INTO workspace_memberships (workspace_id,user_id,role,created_at,invitation_id) VALUES ($1,$2,$3,$4,$5)',
-        [workspace.id, user.id, invitation.role, acceptedAt, invitation.id],
-      );
-      const consumed = await connection.query(
-        'UPDATE workspace_invitations SET consumed_at = $2, consumed_by_user_id = $3 WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $2 RETURNING id',
-        [invitation.id, acceptedAt, user.id],
-      );
-      if (!consumed.rows[0]) throw new InvitationUnavailableError();
-      await connection.query(
-        "INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,'invitation.accepted',$2,$3,$4::jsonb)",
-        [
-          record.auditId,
-          user.id,
-          acceptedAt,
-          JSON.stringify({
-            workspaceId: workspace.id,
-            invitationId: invitation.id,
-            role: invitation.role,
-          }),
-        ],
-      );
+      const identity = await acceptInvitationWithinTransaction(connection, record, this.clock);
       await connection.query('COMMIT');
-      return { user, workspace };
+      return identity;
     } catch (error) {
       await connection.query('ROLLBACK');
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505')
@@ -239,4 +146,127 @@ export class PostgresInvitationRepository implements InvitationRepository {
       connection.release();
     }
   }
+}
+
+export async function acceptInvitationWithinTransaction(
+  connection: SqlConnection,
+  record: InvitationAccept,
+  clock: () => Date = () => new Date(),
+): Promise<SessionIdentity> {
+  const initial = (
+    await connection.query<{ workspace_id: string }>(
+      'SELECT workspace_id FROM workspace_invitations WHERE token_digest = $1',
+      [record.tokenDigest],
+    )
+  ).rows[0];
+  if (!initial) throw new InvitationUnavailableError();
+  const workspace = (
+    await connection.query<{ id: string; name: string }>(
+      'SELECT id, name FROM workspaces WHERE id = $1 FOR UPDATE',
+      [initial.workspace_id],
+    )
+  ).rows[0];
+  const invitation = (
+    await connection.query<Invitation>(
+      `SELECT ${columns} FROM workspace_invitations WHERE token_digest = $1 FOR UPDATE`,
+      [record.tokenDigest],
+    )
+  ).rows[0];
+  const acceptedAt = new Date(Math.max(record.now.getTime(), clock().getTime()));
+  if (
+    !workspace ||
+    !invitation ||
+    invitation.revokedAt ||
+    invitation.consumedAt ||
+    invitation.expiresAt <= acceptedAt ||
+    invitation.email !== record.email
+  )
+    throw new InvitationUnavailableError();
+  let user: SessionIdentity['user'];
+  if (record.newAccount && record.session) {
+    const existing = await connection.query('SELECT id FROM users WHERE normalized_email = $1', [
+      record.email,
+    ]);
+    if (existing.rows[0]) throw new InvitationUnavailableError();
+    user = {
+      id: record.userId,
+      displayName: record.newAccount.displayName,
+      email: record.email,
+    };
+    await connection.query(
+      'INSERT INTO users (id,email,normalized_email,display_name,created_at) VALUES ($1,$2,$2,$3,$4)',
+      [user.id, user.email, user.displayName, acceptedAt],
+    );
+    if ('passwordHash' in record.newAccount)
+      await connection.query(
+        'INSERT INTO local_credentials (user_id,password_hash,updated_at) VALUES ($1,$2,$3)',
+        [user.id, record.newAccount.passwordHash, acceptedAt],
+      );
+    if ('oidc' in record.newAccount) {
+      const external = record.newAccount.oidc;
+      await connection.query(
+        'INSERT INTO oidc_identities(issuer,subject,user_id,created_at) VALUES ($1,$2,$3,$4)',
+        [external.issuer, external.subject, user.id, acceptedAt],
+      );
+      await connection.query(
+        "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,'auth.oidc_linked',$2,$3,$4::jsonb)",
+        [external.auditId, user.id, acceptedAt, JSON.stringify({ issuer: external.issuer })],
+      );
+    }
+    await connection.query(
+      'INSERT INTO sessions (token_digest,user_id,created_at,expires_at) VALUES ($1,$2,$3,$4)',
+      [record.session.tokenDigest, user.id, acceptedAt, record.session.expiresAt],
+    );
+    await connection.query(
+      'INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)',
+      [
+        record.session.auditId,
+        'oidc' in record.newAccount ? 'auth.signed_in' : 'session.signed_in',
+        user.id,
+        acceptedAt,
+        JSON.stringify(
+          'oidc' in record.newAccount
+            ? { method: 'oidc', issuer: record.newAccount.oidc.issuer }
+            : { method: 'local' },
+        ),
+      ],
+    );
+  } else {
+    const existing = (
+      await connection.query<{ id: string; email: string; displayName: string }>(
+        'SELECT id,email,display_name AS "displayName" FROM users WHERE id = $1 AND normalized_email = $2',
+        [record.userId, record.email],
+      )
+    ).rows[0];
+    if (!existing) throw new InvitationUnavailableError();
+    user = existing;
+  }
+  const member = await connection.query(
+    'SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
+    [workspace.id, user.id],
+  );
+  if (member.rows[0]) throw new InvitationUnavailableError();
+  await connection.query(
+    'INSERT INTO workspace_memberships (workspace_id,user_id,role,created_at,invitation_id) VALUES ($1,$2,$3,$4,$5)',
+    [workspace.id, user.id, invitation.role, acceptedAt, invitation.id],
+  );
+  const consumed = await connection.query(
+    'UPDATE workspace_invitations SET consumed_at = $2, consumed_by_user_id = $3 WHERE id = $1 AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $2 RETURNING id',
+    [invitation.id, acceptedAt, user.id],
+  );
+  if (!consumed.rows[0]) throw new InvitationUnavailableError();
+  await connection.query(
+    "INSERT INTO audit_events (id,event_type,actor_user_id,occurred_at,metadata) VALUES ($1,'invitation.accepted',$2,$3,$4::jsonb)",
+    [
+      record.auditId,
+      user.id,
+      acceptedAt,
+      JSON.stringify({
+        workspaceId: workspace.id,
+        invitationId: invitation.id,
+        role: invitation.role,
+      }),
+    ],
+  );
+  return { user, workspace };
 }

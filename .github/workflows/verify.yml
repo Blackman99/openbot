@@ -86,6 +86,36 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api run test:postgres
 
+  postgres-oidc:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_oidc_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openbot -d openbot_oidc_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_OIDC_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_oidc_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api run test:postgres
+
   compose:
     needs: code
     runs-on: ubuntu-latest
@@ -125,7 +155,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume

@@ -7,7 +7,7 @@
     "build": "vite build",
     "dev": "vite dev",
     "start": "node build",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test && playwright test --config playwright.oidc.config.ts",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:unit": "vitest run tests/unit --passWithNoTests",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"

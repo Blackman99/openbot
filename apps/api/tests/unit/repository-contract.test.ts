@@ -30,6 +30,9 @@ describe('repository contract', () => {
     );
 
     expect(environment).toEqual({
+      OIDC_ISSUER_URL: '',
+      OIDC_CLIENT_ID: '',
+      OIDC_CLIENT_SECRET: '',
       API_BASE_URL: 'http://localhost:3001',
       API_HOST: '127.0.0.1',
       API_PORT: '3001',

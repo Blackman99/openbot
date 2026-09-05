@@ -2,7 +2,7 @@
 sequence: 5
 id: WS-03
 title: "Manage workspace members and roles"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - WS-02
 labels:
@@ -58,10 +58,10 @@ The transaction mechanism is implemented and has explicit real PostgreSQL concur
 - Independent standards review found two Web transport defects, both also present in the invitation client. Real HTTP regressions first proved bodyless DELETE was rejected by Fastify's empty-JSON parser and that stalled response bodies outlived the client's timeout. Both clients now set JSON Content-Type only for requests with bodies and consume JSON within their existing 30-second deadline. Four added regressions cross actual HTTP, including persisted membership removal, persisted invitation revocation, and stalled-body deadlines for both clients; all passed after the fixes.
 - Independent standards review is clean through `7d6d0dd6fc7840d75132c4208749d146d0991152`, including an independent rerun of 10 API and 29 Web client tests. Independent spec review was clean at `a55ca3b`; root reviewed the five-file transport fix delta through `7d6d0dd` and confirmed preserved status, cookie, payload, and acceptance-criteria contracts. The final browser run passed after both fixes, and test ports 4399/4173 were confirmed closed.
 
-## External verification exception — WS-03-E1
+## Closed external verification — WS-03-E1
 
-- [ ] Execute `TEST_DATABASE_URL=postgresql://… pnpm --filter @openbot/api run test:postgres` against actual PostgreSQL, including all three membership concurrency/rollback cases.
-- [ ] Execute the root integration's Compose membership lifecycle smoke under `openbot_runtime`: list provenance, promote/demote/remove, reject administrator changes to owners, reject last-owner removal/demotion, retain the removed user's session, return `/me` HTTP 200 with `workspace: null`, and return former-workspace HTTP 403.
-- [ ] Verify runtime membership DELETE and column `role` UPDATE privileges, reject table-wide UPDATE and UPDATE of `workspace_id`, `user_id`, `created_at`, and `invitation_id`, and retain immutable audit protection.
+- [x] Execute `TEST_DATABASE_URL=postgresql://… pnpm --filter @openbot/api run test:postgres` against actual PostgreSQL, including all three membership concurrency/rollback cases.
+- [x] Execute the root integration's Compose membership lifecycle smoke under `openbot_runtime`: list provenance, promote/demote/remove, reject administrator changes to owners, reject last-owner removal/demotion, retain the removed user's session, return `/me` HTTP 200 with `workspace: null`, and return former-workspace HTTP 403.
+- [x] Verify runtime membership DELETE and column `role` UPDATE privileges, reject table-wide UPDATE and UPDATE of `workspace_id`, `user_id`, `created_at`, and `invitation_id`, and retain immutable audit protection.
 
-These are mandatory `REL-01` release gates. Root integration is responsible for adding the Compose smoke and ordered `0006` migration-ledger assertion before marking this ticket fully complete. Administrative PostgreSQL tests alone do not close the deployed-role gate.
+All gates closed by [Verify33942927588](https://github.com/Blackman99/openbot/actions/runs/33942927588), successful on remote `027afbfb71e29d7f27d8249d5a72ddaa39adb332` at 2026-09-05 03:52:14 UTC. All four jobs passed, including seven real authentication/invitation/member tests and the deployed-role Compose member smoke and exact migration-ledger assertions. Final REL-01 acceptance remains required on the final integrated revision.

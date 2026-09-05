@@ -40,6 +40,7 @@ describe('database migrations', () => {
       '0004_personal_model_connections',
       '0005_workspace_invitations',
       '0006_workspace_member_provenance',
+      '0007_oidc',
     ]);
 
     const database: DatabaseClient = {
@@ -77,6 +78,8 @@ describe('database migrations', () => {
       'audit_events',
       'instance_claims',
       'local_credentials',
+      'oidc_identities',
+      'oidc_transactions',
       'openbot_schema_migrations',
       'personal_model_connections',
       'sessions',
@@ -96,7 +99,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0006_workspace_member_provenance' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0007_oidc' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -193,9 +196,15 @@ describe('database migrations', () => {
     const pool = new (database.adapters.createPg().Pool)();
     pools.push(pool);
     await migrateDatabase(pool, { installPostgresGuards: false });
+    for (const table of ['oidc_transactions', 'oidc_identities']) {
+      for (const index of database.public.getTable(table).listIndices()) {
+        await pool.query(`DROP INDEX "${index.name}"`);
+      }
+      await pool.query(`DROP TABLE ${table}`);
+    }
     await pool.query('ALTER TABLE workspace_memberships DROP COLUMN invitation_id');
     await pool.query(
-      "DELETE FROM openbot_schema_migrations WHERE version = '0006_workspace_member_provenance'",
+      "DELETE FROM openbot_schema_migrations WHERE version >= '0006_workspace_member_provenance'",
     );
     const ownerId = '00000000-0000-4000-8000-000000000001';
     const userId = '00000000-0000-4000-8000-000000000002';

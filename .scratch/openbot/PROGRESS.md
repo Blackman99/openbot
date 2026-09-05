@@ -39,10 +39,10 @@ PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenar
 
 ## Active frontier
 
-- WS-03: workspace member roles, invitation provenance and session identity independent of membership; worktree `.worktrees/ws-03`, migration0006 reserved if required.
-- AUTH-02: optional OIDC sign-in, explicit linking and invitation-only registration; candidate `80ffeb1` passed 257 tests and 8 browser scenarios including real Fastify and a signed mock IdP; both independent reviews are clean. Final candidate `936641e` is ready for integration by cherry-picking `8d2b727`, `80ffeb1`, `936641e` only; migration0007 follows the integrated0006.
+- AUTH-02 integrated as `84f05b2`: 352 unit/integration tests, 9 ordinary browser scenarios and one real Fastify/signed-IdP journey pass, alongside formatting, types and builds. Both independent reviews are clean; root also reviewed three narrow integration fixes for configuration-first startup, deterministic body-deadline testing and bounded API test workers. Migration0007 follows0006. Real PostgreSQL/Compose gate `AUTH-02-E1` remains explicit in REL-01.
 - PROV-04 integrated as `87632a1`: 249 unit/integration tests and 8 browser scenarios, formatting, types and builds pass. Both independent reviews completed; the standards P3 protocol-switch issue was fixed and rechecked at `b58ec82`. Actual PostgreSQL/Compose gate `PROV-04-E1` closed by all-green [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC.
-- WS-03 integrated as `faea29a`: 284 tests and 9 browser scenarios, formatting, types and builds pass. Both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. WS-03-E1 is explicit in REL-01; actual PostgreSQL/Compose remains pending. PROV-02, COL-01 and API-01 are now unblocked.
+- WS-03 integrated as `faea29a`: 284 tests and 9 browser scenarios, formatting, types and builds pass. Both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. PROV-02, COL-01 and API-01 are unblocked.
+- WS-03-E1 closed by all-green [Verify33942927588](https://github.com/Blackman99/openbot/actions/runs/33942927588), completed 2026-09-05 at 03:52:14 UTC on remote `027afbfb71e29d7f27d8249d5a72ddaa39adb332`, tree `50dbae9c4a730854e72ccd08935bb53459175485`, exactly matching local `2baa188`. Seven real authentication/invitation/member PostgreSQL tests, the separate provider suite and deployed-role Compose member smoke passed.
 - PROV-02: shared workspace model connections; isolated worktree `.worktrees/prov-02`, provisional migration0008.
 - COL-01: private/workspace-visible group lifecycle and human memberships; worktree `.worktrees/col-01`, provisional migration0009.
 - API-01: scoped token lifecycle and public `/v1/me`; worktree `.worktrees/api-01`, provisional migration0010.
@@ -50,7 +50,7 @@ PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenar
 - PROV-01 is integrated; migration0004 is `personal_model_connections`.
 - WS-02 is integrated; migration0005 is `workspace_invitations`. AUTH-02 research and transaction handoff are in `OIDC-NOTES.md` and the WS-02 ticket.
 - Use a separate worktree and ticket branch for each implementation. Merge and verify one completed ticket at a time. Keep API/Web build commands serial within each worktree.
-- E2E ports4399/4173 are serialized by root; No browser lease is currently held; request root before use. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
+- E2E ports4399/4173 are serialized by root; API-01 holds the next lease, then PROV-02, then COL-01. Confirm current ownership with root before use. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
 - GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch; unified draft PR: https://github.com/Blackman99/openbot/pull/1.
 
 ## Integration handoffs

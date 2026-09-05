@@ -1,3 +1,5 @@
+import { registerOidcRoutes } from './oidc/routes.js';
+import type { OidcService } from './oidc/service.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -25,6 +27,7 @@ import { registerWorkspaceRoutes } from './workspaces/routes.js';
 import type { WorkspaceService } from './workspaces/service.js';
 
 export interface BuildAppOptions {
+  oidc?: OidcService;
   auth?: AuthService;
   providers?: ProviderConnections;
   invitations?: InvitationService;
@@ -112,6 +115,7 @@ function sendAuthenticatedSession(
 }
 
 export function buildApp({
+  oidc,
   auth,
   providers,
   invitations,
@@ -128,6 +132,14 @@ export function buildApp({
       logger === false
         ? false
         : {
+            serializers: {
+              req: (request) => ({
+                method: request.method,
+                url: String(request.url).split('?', 1)[0] ?? '/',
+                hostname: request.hostname,
+                remoteAddress: request.ip,
+              }),
+            },
             redact: [
               'req.headers.cookie',
               'req.headers.authorization',
@@ -137,6 +149,8 @@ export function buildApp({
           },
     trustProxy: false,
   });
+
+  registerOidcRoutes(app, oidc, webOrigin);
 
   app.get('/api/v1/status', async (_request, reply) => {
     const checks = await readiness.check();

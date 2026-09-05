@@ -50,6 +50,26 @@ schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
 Stop the stack with `docker compose down`. Add `--volumes` only when you intentionally want to
 remove local PostgreSQL data.
 
+## Optional OIDC
+
+OIDC stays disabled when its environment values are empty. To enable a provider, register a
+confidential Authorization Code client using `client_secret_post` with the exact redirect URI
+`WEB_ORIGIN/auth/oidc/callback`, then set `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and
+`OIDC_CLIENT_SECRET` and restart the API. The provider must support S256 PKCE, OIDC discovery,
+and signed ID tokens with a JWKS endpoint. Issuer and backend provider endpoints must use HTTPS.
+The loopback HTTP exception is limited to the automated test environment.
+
+Existing users sign in locally and open **Security settings** to explicitly link their provider
+identity. Later OIDC sign-in matches the exact issuer and subject; an email match never merges
+accounts. New users can join only through a valid workspace invitation, with a verified provider
+email matching the invitation. OIDC-only accounts cannot unlink their final credential.
+Security settings remain available if a user has no workspace memberships.
+
+The client uses Authorization Code, PKCE, state, nonce, signature verification, and a ten-minute
+single-use transaction tied to an HttpOnly browser cookie. Invitation acceptance commits the
+account, external identity, membership, session, and audits together. Callback errors return to
+clean application URLs without authorization codes or state in error messages.
+
 ## Personal model connections
 
 After signing in, select **Personal models** in the workspace, or open
@@ -109,7 +129,7 @@ pnpm verify
 ```
 
 This runs formatting checks, strict TypeScript and Svelte checks, unit tests, HTTP integration
-tests, Playwright coverage for readiness and the local-owner session lifecycle, and production
+tests, Playwright coverage for readiness, local authentication, and a signed mock OIDC provider, and production
 builds.
 
 CI additionally runs the real PostgreSQL authentication and personal-provider invariants. With a disposable PostgreSQL
@@ -140,3 +160,15 @@ API over a separate frontend network.
 ## License
 
 OpenBot is licensed under the [GNU Affero General Public License v3.0 only](LICENSE).
+
+OIDC runtime privilege checks use their own disposable database and the deployed grant script:
+
+```bash
+TEST_OIDC_DATABASE_URL=postgresql://openbot:password@localhost:5432/openbot_oidc_test \
+  pnpm --filter @openbot/api run test:postgres
+```
+
+The `postgres-auth` CI job runs OIDC callback/invitation concurrency, transaction rollback, and
+session-revocation checks. The `postgres-oidc` job verifies link, sign-in, invited registration,
+last-credential protection, and rollback using the restricted runtime role. These real PostgreSQL
+checks supplement the in-memory SQL browser fixture and must pass before release.

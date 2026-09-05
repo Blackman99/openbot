@@ -1,3 +1,4 @@
+import { readOidcConfig, type OidcConfig } from './oidc/config.js';
 import { createHash } from 'node:crypto';
 
 export type Environment = Readonly<Record<string, string | undefined>>;
@@ -13,6 +14,7 @@ export type DatabaseConnectionOptions =
     }>;
 
 export interface ApiConfig {
+  oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
   databaseQueryTimeoutMs: number;
@@ -126,7 +128,9 @@ export function readApiConfig(environment: Environment): ApiConfig {
   // most actionable configuration error first.
   const webOrigin = readWebOrigin(environment.WEB_ORIGIN ?? 'http://localhost:3000');
 
+  const oidc = readOidcConfig(environment, webOrigin);
   return {
+    ...(oidc ? { oidc } : {}),
     database: readDatabaseConfig(environment),
     databaseConnectionTimeoutMs: readInteger(
       environment,

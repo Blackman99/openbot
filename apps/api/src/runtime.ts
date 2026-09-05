@@ -1,3 +1,7 @@
+import { OpenIdProvider } from './oidc/provider.js';
+import { PostgresOidcRepository } from './oidc/postgres-repository.js';
+import { OidcService } from './oidc/service.js';
+import type { OidcConfig } from './oidc/config.js';
 import cors, { type FastifyCorsOptionsDelegate } from '@fastify/cors';
 import pg, { type PoolConfig } from 'pg';
 
@@ -27,6 +31,7 @@ import {
 const { Pool } = pg;
 
 export interface ProductionAppOptions {
+  oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
   databaseQueryTimeoutMs: number;
@@ -77,6 +82,17 @@ export function buildProductionApp(options: ProductionAppOptions) {
   const app = buildApp({
     auth,
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),
+    ...(options.oidc
+      ? {
+          oidc: new OidcService(
+            auth,
+            new PostgresOidcRepository(pool),
+            new OpenIdProvider(options.oidc),
+            options.oidc.issuer,
+            options.oidc.callbackUrl,
+          ),
+        }
+      : {}),
     ...(providers ? { providers } : {}),
     invitations: new InvitationService(new PostgresInvitationRepository(pool)),
     workspaces: new WorkspaceService(new PostgresWorkspaceRepository(pool)),

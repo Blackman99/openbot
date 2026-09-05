@@ -11,6 +11,7 @@ const [executablePath] = await Promise.all([inflate(chromiumArchive), inflate(sw
 
 export default defineConfig({
   testDir: './tests/e2e',
+  testIgnore: '**/oidc.spec.ts',
   fullyParallel: false,
   // The live fixture represents one instance; scenarios reset its shared state.
   workers: 1,

@@ -7,6 +7,7 @@ import {
   storeSessionCookie,
 } from './session-cookie.js';
 import { createAuthApiClient } from './auth-api.js';
+import { createOidcApiClient } from './oidc-api.js';
 import { loadWorkspacePage } from './workspace-page.js';
 
 type PageContext = Pick<RequestEvent, 'cookies' | 'fetch' | 'setHeaders'>;
@@ -143,9 +144,9 @@ export async function loadJoinPage({ cookies, fetch, setHeaders }: PageContext) 
   if (result.status === 'unavailable') error(503, 'Authentication service unavailable');
   if (result.status === 'anonymous') {
     if (readSessionCookie(cookies)) clearSessionCookie(cookies);
-    return { user: null };
+    return { user: null, oidcEnabled: await createOidcApiClient(fetch).enabled() };
   }
-  return { user: result.identity.user };
+  return { user: result.identity.user, oidcEnabled: false };
 }
 export async function signInForInvitationAction({
   cookies,

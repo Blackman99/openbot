@@ -30,6 +30,7 @@
   </header>
 
   <p><a href="/app/settings/models">Personal models</a></p>
+  <p><a href="/app/security">Security settings</a></p>
 
   <nav aria-label="Workspaces">
     <h2>Your workspaces</h2>

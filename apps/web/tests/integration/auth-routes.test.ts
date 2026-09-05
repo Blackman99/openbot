@@ -234,8 +234,29 @@ describe('authentication page server routes', () => {
       .mockResolvedValueOnce(Response.json({ claimed: true }));
 
     await expect(
-      loadSignIn({ cookies: cookieStore(), fetch: request, setHeaders } as never),
-    ).resolves.toEqual({});
+      loadSignIn({
+        cookies: cookieStore(),
+        fetch: request,
+        setHeaders,
+        url: new URL('http://localhost:3000/sign-in'),
+      } as never),
+    ).resolves.toEqual({ oidcEnabled: false, oidcError: null });
     expect(setHeaders).toHaveBeenCalledWith({ 'cache-control': 'private, no-store' });
+  });
+  it('loads conditional OIDC sign-in and renders only allowlisted error messages', async () => {
+    const request = vi.fn<typeof fetch>(async (url) =>
+      Response.json(String(url).endsWith('/oidc') ? { enabled: true } : { claimed: true }),
+    );
+    await expect(
+      loadSignIn({
+        cookies: cookieStore(),
+        fetch: request,
+        setHeaders: vi.fn(),
+        url: new URL('http://localhost:3000/sign-in?oidcError=invalid_flow&code=secret-code'),
+      } as never),
+    ).resolves.toEqual({
+      oidcEnabled: true,
+      oidcError: 'This sign-in attempt expired or is invalid. Start again.',
+    });
   });
 });

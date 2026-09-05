@@ -1,6 +1,8 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 
 import { createAuthApiClient } from '$lib/server/auth-api.js';
+import { createOidcApiClient, isOidcErrorCode } from '$lib/server/oidc-api.js';
+import { oidcErrorMessage } from '$lib/server/oidc-errors.js';
 import {
   preventAuthenticationCaching,
   readSessionCookie,
@@ -9,7 +11,7 @@ import {
 
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ cookies, fetch, setHeaders }) => {
+export const load: PageServerLoad = async ({ cookies, fetch, setHeaders, url }) => {
   preventAuthenticationCaching(setHeaders);
   const auth = createAuthApiClient(fetch);
   const state = await auth.getClaimState();
@@ -22,13 +24,18 @@ export const load: PageServerLoad = async ({ cookies, fetch, setHeaders }) => {
 
   const identity = await auth.getIdentity(readSessionCookie(cookies));
   if (identity.status === 'authenticated') {
+    const oidcError = url.searchParams.get('oidcError');
+    if (isOidcErrorCode(oidcError)) redirect(303, `/app/security?oidcError=${oidcError}`);
     redirect(303, '/app');
   }
   if (identity.status === 'unavailable') {
     error(503, 'Authentication service unavailable');
   }
 
-  return {};
+  return {
+    oidcEnabled: await createOidcApiClient(fetch).enabled(),
+    oidcError: oidcErrorMessage(url.searchParams.get('oidcError')),
+  };
 };
 
 export const actions = {

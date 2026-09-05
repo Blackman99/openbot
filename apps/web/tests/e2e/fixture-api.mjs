@@ -117,6 +117,11 @@ const server = createServer((request, response) => {
     return;
   }
 
+  if (request.method === 'GET' && request.url === '/api/v1/oidc') {
+    sendJson(response, 200, { enabled: false });
+    return;
+  }
+
   if (request.method === 'GET' && request.url === '/api/v1/auth/state') {
     sendJson(response, 200, { claimed });
     return;

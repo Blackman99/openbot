@@ -69,6 +69,8 @@ describe('authentication pages', () => {
     expect(rendered.body).toContain('method="POST"');
     expect(rendered.body).toContain('action="?/signOut"');
     expect(rendered.body).toContain('Sign out');
+    expect(rendered.body).toContain('href="/app/security"');
+    expect(rendered.body).toContain('Security settings');
     expect(rendered.body).toContain('action="?/createWorkspace"');
     expect(rendered.body).toContain('/app/workspaces/workspace-id');
     expect(rendered.body).toContain('action="?/updateWorkspace"');

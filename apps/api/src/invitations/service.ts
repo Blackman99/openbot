@@ -28,7 +28,9 @@ export interface InvitationAccept {
   tokenDigest: string;
   email: string;
   userId: string;
-  newAccount?: { displayName: string; passwordHash: string };
+  newAccount?: { displayName: string } & (
+    { passwordHash: string } | { oidc: { issuer: string; subject: string; auditId: string } }
+  );
   now: Date;
   auditId: string;
   session?: { tokenDigest: string; expiresAt: Date; auditId: string };

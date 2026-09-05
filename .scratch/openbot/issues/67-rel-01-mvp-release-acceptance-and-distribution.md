@@ -95,10 +95,20 @@ PROV-03-E1 closed by [Verify33941574408](https://github.com/Blackman99/openbot/a
 
 Local combined verification at `87632a1` passed 249 unit/integration tests and 8 browser scenarios. [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) passed all four jobs on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC, closing PROV-04-E1.
 
-## Open external gate — WS-03-E1
+## Closed external gate — WS-03-E1
 
-- [ ] Execute the real PostgreSQL membership concurrency and rollback tests, including simultaneous last-owner changes and actor rechecks.
-- [ ] Execute the integrated Compose member provenance, role boundaries, last-owner rejection, removal with retained authentication, preserved history and audit checks using the deployed runtime role.
-- [ ] Verify membership DELETE and role-only UPDATE privileges, and the ordered migration ledger through `0006_workspace_member_provenance`.
+- [x] Execute the real PostgreSQL membership concurrency and rollback tests, including simultaneous last-owner changes and actor rechecks.
+- [x] Execute the integrated Compose member provenance, role boundaries, last-owner rejection, removal with retained authentication, preserved history and audit checks using the deployed runtime role.
+- [x] Verify membership DELETE and role-only UPDATE privileges, and the ordered migration ledger through `0006_workspace_member_provenance`.
 
 Integrated revision `faea29a` passed 284 unit/integration tests, 9 browser scenarios, formatting, types and builds. The new deployment smoke was independently reviewed and all 20 workflow shell steps passed syntax checks. Actual PostgreSQL/Compose execution remains required; this explicit exception unlocks local PROV-02, COL-01 and API-01 work.
+
+WS-03-E1 closed by [Verify33942927588](https://github.com/Blackman99/openbot/actions/runs/33942927588) on remote `027afbfb71e29d7f27d8249d5a72ddaa39adb332`, completed successfully on 2026-09-05 at 03:52:14 UTC. All four jobs passed, including seven real authentication/invitation/member PostgreSQL tests, the separate restricted-role provider suite and the complete Compose member smoke. This closes the earlier local-only exception; final release acceptance still runs against the final combined revision.
+
+## Open external gate — AUTH-02-E1
+
+- [ ] Execute actual PostgreSQL OIDC callback/invitation concurrency, atomic rollback and session revocation tests alongside the existing auth/invitation/member invariants.
+- [ ] Execute the isolated `postgres-oidc` job using the deployment grant script and restricted runtime role; verify link, sign-in, invited registration, unlink, final-credential protection, rollback and least privilege.
+- [ ] Keep provider PostgreSQL and Compose fresh/upgrade, runtime-role and application smoke checks green through the ordered `0007_oidc` migration.
+
+Integrated revision `84f05b2` passed 352 unit/integration tests, 9 ordinary browser scenarios and one real Fastify/signed-IdP journey, formatting, types and production builds. Both review axes are clean; root independently reviewed the configuration-first startup import, deterministic response-body deadline regression and resource-bounded API integration test workers. The PostgreSQL/Compose gate remains unexecuted locally; pg-mem and browser fixtures do not replace it.

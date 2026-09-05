@@ -30,6 +30,9 @@ test.describe('local owner authentication', () => {
     await expect(page).toHaveURL(/\/app\/workspaces\/workspace-id$/u);
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page).toHaveURL(/\/sign-in$/u);
+    await expect(page.getByRole('button', { name: 'Sign in with OIDC', exact: true })).toHaveCount(
+      0,
+    );
 
     await page.goto('/app');
     await expect(page).toHaveURL(/\/sign-in$/u);

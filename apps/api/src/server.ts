@@ -1,12 +1,13 @@
 import { readApiConfig } from './config.js';
-import { buildProductionApp } from './runtime.js';
 import { readProviderConfig } from './providers/config.js';
 
 try {
   const config = readApiConfig(process.env);
   const providers = readProviderConfig(process.env);
+  const { buildProductionApp } = await import('./runtime.js');
   const app = buildProductionApp({
     database: config.database,
+    ...(config.oidc ? { oidc: config.oidc } : {}),
     databaseConnectionTimeoutMs: config.databaseConnectionTimeoutMs,
     databaseQueryTimeoutMs: config.databaseQueryTimeoutMs,
     logger: true,

@@ -1,3 +1,4 @@
+import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
 import { PERSONAL_MODEL_CONNECTION_STATEMENTS } from '../providers/schema.js';
 
 interface MigrationConnection {
@@ -161,6 +162,7 @@ const MIGRATIONS = [
     ],
     postgresStatements: [],
   },
+  { version: '0007_oidc', statements: OIDC_SCHEMA_STATEMENTS, postgresStatements: [] },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);

@@ -128,7 +128,7 @@ describe('invitation page boundaries', () => {
 
   it('loads an optional identity without requesting the fragment and signs in without redirecting away from the invitation', async () => {
     expect(await loadJoinPage({ cookies: cookies(), fetch: vi.fn(), setHeaders: vi.fn() })).toEqual(
-      { user: null },
+      { user: null, oidcEnabled: false },
     );
     const jar = cookies();
     const request = vi.fn<typeof globalThis.fetch>(async () =>

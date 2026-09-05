@@ -4,7 +4,7 @@
     error?: string;
   }
 
-  let { form = {} }: { form?: SignInForm } = $props();
+  let { data = { oidcEnabled: false, oidcError: null }, form = {} }: { data?: { oidcEnabled: boolean; oidcError: string | null }; form?: SignInForm } = $props();
 </script>
 
 <svelte:head>
@@ -19,6 +19,13 @@
 
     {#if form?.error}
       <p class="error" role="alert">{form.error}</p>
+    {/if}
+    {#if data.oidcError}<p class="error" role="alert">{data.oidcError}</p>{/if}
+    {#if data.oidcEnabled}
+      <form method="POST" action="/auth/oidc/start">
+        <input type="hidden" name="purpose" value="signin" />
+        <button type="submit">Sign in with OIDC</button>
+      </form>
     {/if}
 
     <form method="POST">

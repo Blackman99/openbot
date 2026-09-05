@@ -27,13 +27,17 @@ describe('invitation pages', () => {
     ).toContain('/app/workspaces/workspace-1/invitations');
   });
   it('provides new-account and existing-account join forms without an SSR token or populated password', () => {
-    const result = render(JoinPage, { props: { params: {}, form: null, data: { user: null } } });
+    const result = render(JoinPage, {
+      props: { params: {}, form: null, data: { user: null, oidcEnabled: false } },
+    });
     expect(result.body).toContain('Create account and join');
     expect(result.body).toContain('Sign in to join');
     expect(result.body).toContain('autocomplete="new-password"');
     expect(result.body).toContain('type="hidden"');
     expect(result.body).toContain('name="token" value=""');
-    const existing = render(JoinPage, { props: { params: {}, form: null, data: { user } } });
+    const existing = render(JoinPage, {
+      props: { params: {}, form: null, data: { user, oidcEnabled: false } },
+    });
     expect(existing.body).toContain('grace@example.com');
     expect(existing.body).toContain('Join workspace');
     expect(existing.body).not.toContain('name="password"');
