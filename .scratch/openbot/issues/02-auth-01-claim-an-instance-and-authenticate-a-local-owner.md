@@ -2,7 +2,7 @@
 sequence: 2
 id: AUTH-01
 title: "Claim an instance and authenticate a local owner"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - FND-01
 labels:
@@ -10,8 +10,6 @@ labels:
   - security
   - vertical-slice
   - mvp
-  - in-review
-  - external-verification
 ---
 
 # AUTH-01 — Claim an instance and authenticate a local owner
@@ -28,12 +26,12 @@ An unclaimed instance can atomically create its local administrator, default wor
 
 ## Acceptance criteria
 
-- [ ] The setup page atomically creates the first administrator, default workspace, and owner membership, then signs the user in.
-- [ ] All subsequent and concurrent setup attempts are rejected without creating another instance administrator.
+- [x] The setup page atomically creates the first administrator, default workspace, and owner membership, then signs the user in.
+- [x] All subsequent and concurrent setup attempts are rejected without creating another instance administrator.
 - [x] Passwords use Argon2id, and persistent session cookies are HttpOnly and SameSite, with Secure enabled in production.
 - [x] Protected pages and APIs consistently redirect or return HTTP 401 for anonymous, expired, and signed-out sessions.
 - [x] State-changing requests enforce Origin or CSRF checks, and tests prove a cross-site request cannot reuse the session.
-- [ ] Append-only audit_events record setup, sign-in, and sign-out without passwords, cookies, tokens, or model secrets.
+- [x] Append-only audit_events record setup, sign-in, and sign-out without passwords, cookies, tokens, or model secrets.
 
 ## Verification
 
@@ -50,3 +48,7 @@ An unclaimed instance can atomically create its local administrator, default wor
 - OIDC authentication
 - Public registration or email delivery
 - Password recovery or administrator-initiated resets
+
+## External evidence closed — 2026-09-05
+
+Verify [33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) on published commit `ecc586a8d3b528728af2308e247c4c3c4fb75ffa` passed `code`, `postgres-auth`, and `compose` at 02:17 UTC. This closes the previously documented external verification exception. The complete gate includes real PostgreSQL atomicity/rollback, workspace isolation, append-only audit enforcement, fresh and upgrade Compose startup, runtime-role/password/session checks, workspace changes, and database outage behavior. Earlier unavailable-runtime notes above describe the local implementation stage; they no longer block this ticket.

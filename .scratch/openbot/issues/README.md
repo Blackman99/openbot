@@ -19,9 +19,9 @@ This directory contains the approved implementation backlog for the open-source 
 
 | Seq | Ticket | Status | Blocked by |
 |---:|---|---|---|
-| 01 | [FND-01 — Ship the first deployable end-to-end slice](01-fnd-01-ship-the-first-deployable-end-to-end-slice.md) | complete-with-external-verification | — |
-| 02 | [AUTH-01 — Claim an instance and authenticate a local owner](02-auth-01-claim-an-instance-and-authenticate-a-local-owner.md) | complete-with-external-verification | [FND-01](01-fnd-01-ship-the-first-deployable-end-to-end-slice.md) |
-| 03 | [WS-01 — Create and switch isolated workspaces](03-ws-01-create-and-switch-isolated-workspaces.md) | complete-with-external-verification | [AUTH-01](02-auth-01-claim-an-instance-and-authenticate-a-local-owner.md) |
+| 01 | [FND-01 — Ship the first deployable end-to-end slice](01-fnd-01-ship-the-first-deployable-end-to-end-slice.md) | complete | — |
+| 02 | [AUTH-01 — Claim an instance and authenticate a local owner](02-auth-01-claim-an-instance-and-authenticate-a-local-owner.md) | complete | [FND-01](01-fnd-01-ship-the-first-deployable-end-to-end-slice.md) |
+| 03 | [WS-01 — Create and switch isolated workspaces](03-ws-01-create-and-switch-isolated-workspaces.md) | complete | [AUTH-01](02-auth-01-claim-an-instance-and-authenticate-a-local-owner.md) |
 | 04 | [WS-02 — Join a workspace through a one-time invitation](04-ws-02-join-a-workspace-through-a-one-time-invitation.md) | ready-for-agent | [WS-01](03-ws-01-create-and-switch-isolated-workspaces.md) |
 | 05 | [WS-03 — Manage workspace members and roles](05-ws-03-manage-workspace-members-and-roles.md) | blocked | [WS-02](04-ws-02-join-a-workspace-through-a-one-time-invitation.md) |
 | 06 | [AUTH-02 — Sign in or accept invitations through optional OIDC](06-auth-02-sign-in-or-accept-invitations-through-optional-oidc.md) | blocked | [WS-02](04-ws-02-join-a-workspace-through-a-one-time-invitation.md) |

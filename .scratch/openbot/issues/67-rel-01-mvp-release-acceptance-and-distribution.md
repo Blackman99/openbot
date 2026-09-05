@@ -53,14 +53,9 @@ A clean-instance acceptance suite proves the complete multi-user, multi-model co
 
 ## Required external evidence
 
-Release completion requires closing `FND-01-E1` (fresh Docker Compose runtime) and `AUTH-01-E1` (real PostgreSQL claim rollback/concurrency and append-only audits, plus Compose role/session checks). Locally passing unit, integration, and fixture-based browser tests do not substitute for these jobs. No code has been pushed as part of the local implementation workflow.
+`FND-01-E1`, `AUTH-01-E1`, and `WS-01-E1` are closed by [Verify33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) on published commit `ecc586a8d3b528728af2308e247c4c3c4fb75ffa`, completed successfully on2026-09-05 at02:17 UTC. The `code`, `postgres-auth`, and `compose` jobs all passed, including the real workspace isolation/failed-audit rollback and restricted runtime-role workspace smoke tests.
 
-`WS-01-E1` is also required before release:
-
-- [ ] Run the real PostgreSQL workspace isolation and failed-audit rollback test in `apps/api/tests/postgres/auth-runtime.test.ts`.
-- [ ] Run the Compose workspace create/update smoke using `openbot_runtime`; prove workspace UPDATE privileges are restricted to name/description and audit records omit those contents.
-
-Both checks are wired into Verify but have not executed locally because PostgreSQL/Docker are unavailable. Passing pg-mem and fixture-based browser tests does not close this gate.
+This evidence covers the first three tickets only. Each subsequently implemented ticket must retain any unexecuted external gate here, and the complete release acceptance criteria above must still pass against the final integrated revision.
 
 ## Non-goals
 
