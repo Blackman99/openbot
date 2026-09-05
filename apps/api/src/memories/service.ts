@@ -25,6 +25,12 @@ import {
   BOT_PRIVATE_VISIBILITY_SUMMARY,
   MemoryAccessError,
   MemoryConflictError,
+  MemoryInputError,
+  candidateAccess,
+  candidateApproveInput,
+  candidateEditInput,
+  candidatePreviewInput,
+  candidateRejectInput,
   memoryAccess,
   memoryCommand,
   memoryCommandHash,
@@ -33,13 +39,35 @@ import {
   privateMemoryAccess,
   promotionConfirmInput,
   promotionPreviewInput,
+  type ApprovedFact,
+  type CandidateAccess,
   type MemoryAccess,
+  type MemoryCandidate,
   type MemoryProjection,
   type MemoryPromotionPreview,
   type MemoryRow,
   type PrivateMemoryAccess,
   type PrivateMemoryProjection,
 } from './types.js';
+import {
+  PREVIEW_TTL_MS as REVIEW_PREVIEW_TTL_MS,
+  REVIEW_DISCLOSURE_VERSION,
+  candidateLineageDigest,
+  destinationAudience,
+  insertDecision,
+  loadCandidate,
+  lockCandidateRow,
+  lockReviewScopes,
+  lockWorkspaceMember,
+  projectApprovedFact,
+  projectCandidate,
+  publishApprovedFact,
+  replayDecision,
+  requiresSeparateConfirmation,
+  reviewCommandHash,
+  selectApprovedFactRows,
+  textHash as reviewTextHash,
+} from './review.js';
 
 type Admission = {
   conversationId?: string;
@@ -55,7 +83,13 @@ type Operation =
   | 'promote'
   | 'list-private'
   | 'search-private'
-  | 'read-private';
+  | 'read-private'
+  | 'list-candidates'
+  | 'edit-candidate'
+  | 'reject-candidate'
+  | 'approve-candidate'
+  | 'preview-candidate'
+  | 'confirm-candidate';
 const PREVIEW_TTL_MS = 5 * 60 * 1000;
 function accessDenied(error: unknown) {
   return (
@@ -90,7 +124,13 @@ export class MemoryService {
     connection: SqlConnection,
     access: MemoryAccess,
     operation: Operation,
-    refs: { messageId?: string; memoryId?: string; botId?: string } = {},
+    refs: {
+      messageId?: string;
+      memoryId?: string;
+      botId?: string;
+      conversationId?: string;
+      candidateId?: string;
+    } = {},
   ) {
     await connection.query(
       'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
@@ -294,10 +334,21 @@ export class MemoryService {
         },
         { ...read, limit: read.limit + 1 },
       );
-      const selected = rows.slice(0, read.limit),
-        memories: MemoryProjection[] = [];
-      for (const row of selected) memories.push(await this.visible(row, admitted));
-      return { memories, nextAfter: rows.length > read.limit ? selected.at(-1)!.id : null };
+      const memories: Array<MemoryProjection | ApprovedFact> = [];
+      for (const row of rows) memories.push(await this.visible(row, admitted));
+      const facts = (
+        await selectApprovedFactRows(connection, {
+          workspaceId: access.workspaceId,
+          groupId: access.groupId,
+          includeWorkspace: true,
+          ...(read.query ? { query: read.query } : {}),
+          ...(read.after ? { after: read.after } : {}),
+          limit: read.limit + 1,
+        })
+      ).map(projectApprovedFact);
+      const merged = [...memories, ...facts].sort((left, right) => (left.id < right.id ? -1 : 1));
+      const page = merged.slice(0, read.limit);
+      return { memories: page, nextAfter: merged.length > read.limit ? page.at(-1)!.id : null };
     });
   }
   async preview(
@@ -555,6 +606,392 @@ export class MemoryService {
           memoryId,
           botId: access.botId,
         });
+        return { allowed: false as const };
+      }
+    });
+    if (!result.allowed) throw new MemoryAccessError();
+    return result.value;
+  }
+  async listCandidates(supplied: CandidateAccess, input: unknown) {
+    const access = candidateAccess(supplied),
+      read = memoryRead(input, false);
+    return this.withCandidateAdmission(access, 'list-candidates', {}, async (connection) => {
+      await ConversationTransaction.lock(
+        connection,
+        {
+          actorUserId: access.actorUserId,
+          workspaceId: access.workspaceId,
+          conversationId: access.conversationId,
+        },
+        this.now,
+        'inspect',
+      );
+      const parameters: unknown[] = [access.workspaceId, access.conversationId, read.limit + 1];
+      const after = read.after ? ` AND c.id>$${parameters.push(read.after)}` : '';
+      const rows = (
+        await connection.query<import('./review.js').CandidateRow>(
+          `SELECT c.id,c.run_id,c.workspace_id,c.status,c.current_revision,c.proposed_scope_kind,c.proposed_scope_id,c.confidence,c.output_event_id,c.origin_task_id,c.origin_bot_version_id,c.created_at,
+                  t.bot_id AS origin_bot_id,t.conversation_id,conv.group_id,r.body,src.source_count
+           FROM memory_candidates c
+           JOIN tasks t ON t.id=c.origin_task_id
+           JOIN conversations conv ON conv.id=t.conversation_id
+           JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+           JOIN (SELECT candidate_id,COUNT(*) AS source_count FROM memory_candidate_sources GROUP BY candidate_id) src ON src.candidate_id=c.id
+           WHERE c.workspace_id=$1 AND t.conversation_id=$2${after}
+           ORDER BY c.id LIMIT $3`,
+          parameters,
+        )
+      ).rows;
+      const selected = rows.slice(0, read.limit);
+      return {
+        candidates: selected.map(projectCandidate),
+        nextAfter: rows.length > read.limit ? selected.at(-1)!.id : null,
+      };
+    });
+  }
+  async editCandidate(supplied: CandidateAccess, id: string, input: unknown) {
+    const access = candidateAccess(supplied),
+      candidateId = memoryUuid(id),
+      command = candidateEditInput(input);
+    return this.withCandidateAdmission(
+      access,
+      'edit-candidate',
+      { candidateId },
+      async (connection) => {
+        const row = await loadCandidate(connection, access, candidateId);
+        await lockReviewScopes(
+          connection,
+          access,
+          { groupId: row.group_id, botId: row.origin_bot_id },
+          undefined,
+          this.now,
+        );
+        await lockCandidateRow(connection, row);
+        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+          throw new MemoryConflictError('source_version_conflict');
+        const updated = await connection.query(
+          "UPDATE memory_candidates SET current_revision=current_revision+1 WHERE id=$1 AND status='pending' AND current_revision=$2 RETURNING current_revision",
+          [row.id, command.expectedRevision],
+        );
+        if (!updated.rows.length) throw new MemoryConflictError('source_version_conflict');
+        await connection.query(
+          'INSERT INTO memory_candidate_revisions(candidate_id,revision,body,author_user_id,created_at) VALUES($1,$2,$3,$4,$5)',
+          [row.id, command.expectedRevision + 1, command.body, access.actorUserId, this.now()],
+        );
+        return projectCandidate(await loadCandidate(connection, access, candidateId));
+      },
+    );
+  }
+  async rejectCandidate(supplied: CandidateAccess, id: string, input: unknown) {
+    const access = candidateAccess(supplied),
+      candidateId = memoryUuid(id),
+      command = candidateRejectInput(input);
+    return this.withCandidateAdmission(
+      access,
+      'reject-candidate',
+      { candidateId },
+      async (connection) => {
+        const replayHash = reviewCommandHash({
+          type: 'memory.candidate.reject',
+          candidateId,
+          revision: command.expectedRevision,
+          bodyHash: '',
+        });
+        const row = await loadCandidate(connection, access, candidateId);
+        await lockReviewScopes(
+          connection,
+          access,
+          { groupId: row.group_id, botId: row.origin_bot_id },
+          undefined,
+          this.now,
+        );
+        await lockCandidateRow(connection, row);
+        const replay = await replayDecision(
+          connection,
+          access,
+          command.idempotencyKey,
+          reviewCommandHash({
+            type: 'memory.candidate.reject',
+            candidateId: row.id,
+            revision: Number(row.current_revision),
+            bodyHash: reviewTextHash(row.body),
+          }),
+        );
+        if (replay) return { candidate: replay.candidate, replayed: true };
+        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+          throw new MemoryConflictError('source_version_conflict');
+        void replayHash;
+        await connection.query(
+          "UPDATE memory_candidates SET status='rejected' WHERE id=$1 AND status='pending' AND current_revision=$2",
+          [row.id, command.expectedRevision],
+        );
+        await insertDecision(connection, {
+          access,
+          row,
+          decision: 'rejected',
+          idempotencyKey: command.idempotencyKey,
+          now: this.now(),
+        });
+        return {
+          candidate: projectCandidate(await loadCandidate(connection, access, candidateId)),
+          replayed: false,
+        };
+      },
+    );
+  }
+  async approveCandidate(supplied: CandidateAccess, id: string, input: unknown) {
+    const access = candidateAccess(supplied),
+      candidateId = memoryUuid(id),
+      command = candidateApproveInput(input);
+    return this.withCandidateAdmission(
+      access,
+      'approve-candidate',
+      { candidateId },
+      async (connection) => {
+        const row = await loadCandidate(connection, access, candidateId);
+        await lockReviewScopes(
+          connection,
+          access,
+          { groupId: row.group_id, botId: row.origin_bot_id },
+          command.destination,
+          this.now,
+        );
+        await lockCandidateRow(connection, row);
+        const hash = reviewCommandHash({
+          type: 'memory.candidate.approve',
+          candidateId: row.id,
+          revision: Number(row.current_revision),
+          bodyHash: reviewTextHash(row.body),
+          destination: command.destination,
+          confidence: command.confidence,
+        });
+        const replay = await replayDecision(connection, access, command.idempotencyKey, hash);
+        if (replay) return { candidate: replay.candidate, fact: replay.fact, replayed: true };
+        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+          throw new MemoryConflictError('source_version_conflict');
+        if (requiresSeparateConfirmation(row.group_id, command.destination))
+          throw new MemoryAccessError();
+        const fact = await publishApprovedFact(connection, {
+          access,
+          row,
+          destination: command.destination,
+          confidence: command.confidence,
+          now: this.now(),
+        });
+        await insertDecision(connection, {
+          access,
+          row,
+          decision: 'approved',
+          destination: command.destination,
+          factId: fact.id,
+          confidence: command.confidence,
+          idempotencyKey: command.idempotencyKey,
+          now: this.now(),
+        });
+        return {
+          candidate: projectCandidate(await loadCandidate(connection, access, candidateId)),
+          fact,
+          replayed: false,
+        };
+      },
+    );
+  }
+  async previewCandidate(supplied: CandidateAccess, id: string, input: unknown) {
+    const access = candidateAccess(supplied),
+      candidateId = memoryUuid(id),
+      command = candidatePreviewInput(input);
+    return this.withCandidateAdmission(
+      access,
+      'preview-candidate',
+      { candidateId },
+      async (connection) => {
+        const row = await loadCandidate(connection, access, candidateId);
+        if (!requiresSeparateConfirmation(row.group_id, command.destination))
+          throw new MemoryInputError();
+        const destinationBot = await lockReviewScopes(
+          connection,
+          access,
+          { groupId: row.group_id, botId: row.origin_bot_id },
+          command.destination,
+          this.now,
+        );
+        await lockCandidateRow(connection, row);
+        if (row.status !== 'pending' || Number(row.current_revision) !== command.expectedRevision)
+          throw new MemoryConflictError('source_version_conflict');
+        const createdAt = this.now(),
+          expiresAt = new Date(createdAt.getTime() + REVIEW_PREVIEW_TTL_MS),
+          intentId = randomUUID();
+        await connection.query(
+          `INSERT INTO memory_candidate_review_intents(
+            id,workspace_id,actor_user_id,candidate_id,expected_revision,reviewed_body_hash,lineage_digest,destination_scope_kind,destination_scope_id,destination_version_id,confidence,disclosure_version,expires_at,created_at
+          ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          [
+            intentId,
+            access.workspaceId,
+            access.actorUserId,
+            row.id,
+            Number(row.current_revision),
+            reviewTextHash(row.body),
+            candidateLineageDigest(row),
+            command.destination.kind,
+            command.destination.id,
+            destinationBot?.version_id ?? null,
+            command.confidence,
+            REVIEW_DISCLOSURE_VERSION,
+            expiresAt,
+            createdAt,
+          ],
+        );
+        return {
+          preview: {
+            id: intentId,
+            expiresAt,
+            content: row.body,
+            destination: command.destination,
+            visibility: destinationAudience(command.destination),
+            disclosureVersion: REVIEW_DISCLOSURE_VERSION,
+          },
+        };
+      },
+    );
+  }
+  async confirmCandidate(supplied: CandidateAccess, id: string, input: unknown) {
+    const access = candidateAccess(supplied),
+      candidateId = memoryUuid(id),
+      command = promotionConfirmInput(input);
+    return this.withCandidateAdmission(
+      access,
+      'confirm-candidate',
+      { candidateId },
+      async (connection) => {
+        const row = await loadCandidate(connection, access, candidateId);
+        const intent = (
+          await connection.query<{
+            id: string;
+            destination_scope_kind: CandidateAccess extends never ? never : string;
+            destination_scope_id: string;
+            destination_version_id: string | null;
+            reviewed_body_hash: string;
+            lineage_digest: string;
+            expected_revision: number;
+            confidence: number;
+            expires_at: Date;
+          }>(
+            `SELECT id,destination_scope_kind,destination_scope_id,destination_version_id,reviewed_body_hash,lineage_digest,expected_revision,confidence,expires_at
+             FROM memory_candidate_review_intents
+             WHERE id=$1 AND workspace_id=$2 AND actor_user_id=$3 AND candidate_id=$4`,
+            [command.intentId, access.workspaceId, access.actorUserId, candidateId],
+          )
+        ).rows[0];
+        if (!intent || intent.expires_at.getTime() <= this.now().getTime())
+          throw new MemoryAccessError();
+        const destination = {
+          kind: intent.destination_scope_kind as 'group' | 'bot' | 'workspace',
+          id: intent.destination_scope_id,
+        };
+        const destinationBot = await lockReviewScopes(
+          connection,
+          access,
+          { groupId: row.group_id, botId: row.origin_bot_id },
+          destination,
+          this.now,
+        );
+        await lockCandidateRow(connection, row);
+        if (
+          reviewTextHash(row.body) !== intent.reviewed_body_hash ||
+          candidateLineageDigest(row) !== intent.lineage_digest ||
+          Number(row.current_revision) !== Number(intent.expected_revision)
+        )
+          throw new MemoryConflictError('source_version_conflict');
+        if (
+          destination.kind === 'bot' &&
+          destinationBot &&
+          intent.destination_version_id &&
+          destinationBot.version_id !== intent.destination_version_id
+        )
+          throw new MemoryConflictError('source_version_conflict');
+        const hash = reviewCommandHash({
+          type: 'memory.candidate.approve',
+          candidateId: row.id,
+          revision: Number(row.current_revision),
+          bodyHash: reviewTextHash(row.body),
+          destination,
+          confidence: intent.confidence,
+        });
+        const replay = await replayDecision(connection, access, command.idempotencyKey, hash);
+        if (replay) return { candidate: replay.candidate, fact: replay.fact, replayed: true };
+        const consumed = (
+          await connection.query<{ candidate_id: string }>(
+            'SELECT candidate_id FROM memory_candidate_review_confirmations WHERE intent_id=$1',
+            [intent.id],
+          )
+        ).rows[0];
+        if (consumed) {
+          const existing = await loadCandidate(connection, access, consumed.candidate_id);
+          return {
+            candidate: projectCandidate(existing),
+            fact: (
+              await selectApprovedFactRows(connection, {
+                workspaceId: access.workspaceId,
+                ...(destination.kind === 'group' ? { groupId: destination.id } : {}),
+                ...(destination.kind === 'bot' ? { botId: destination.id } : {}),
+                includeWorkspace: destination.kind === 'workspace',
+                limit: 1,
+              })
+            )
+              .map(projectApprovedFact)
+              .find((fact) => fact.candidateId === row.id),
+            replayed: true,
+          };
+        }
+        if (row.status !== 'pending') throw new MemoryConflictError('source_version_conflict');
+        const fact = await publishApprovedFact(connection, {
+          access,
+          row,
+          destination,
+          confidence: intent.confidence,
+          now: this.now(),
+        });
+        await insertDecision(connection, {
+          access,
+          row,
+          decision: 'approved',
+          destination,
+          factId: fact.id,
+          confidence: intent.confidence,
+          idempotencyKey: command.idempotencyKey,
+          now: this.now(),
+        });
+        await connection.query(
+          'INSERT INTO memory_candidate_review_confirmations(intent_id,candidate_id,confirmed_at) VALUES($1,$2,$3)',
+          [intent.id, row.id, this.now()],
+        );
+        return {
+          candidate: projectCandidate(await loadCandidate(connection, access, candidateId)),
+          fact,
+          replayed: false,
+        };
+      },
+    );
+  }
+  private async withCandidateAdmission<T>(
+    access: CandidateAccess,
+    operation: Operation,
+    refs: { candidateId?: string },
+    action: (connection: SqlConnection) => Promise<T>,
+  ): Promise<T> {
+    const result = await this.transaction(async (connection) => {
+      try {
+        await lockWorkspaceMember(connection, access);
+        return { allowed: true as const, value: await action(connection) };
+      } catch (error) {
+        if (!accessDenied(error)) throw error;
+        await this.auditDenial(
+          connection,
+          { actorUserId: access.actorUserId, workspaceId: access.workspaceId, groupId: access.conversationId },
+          operation,
+          { conversationId: access.conversationId, ...refs },
+        );
         return { allowed: false as const };
       }
     });

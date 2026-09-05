@@ -149,10 +149,12 @@ export class ExtractionWorker {
       const now = this.now();
       for (const candidate of extracted.candidates) {
         const id = randomUUID();
-        await connection.query(
+        const inserted = await connection.query<{ id: string }>(
           `INSERT INTO memory_candidates(
              id,run_id,workspace_id,normalized_fingerprint,proposed_scope_kind,proposed_scope_id,status,confidence,confidence_source,extractor_version,origin_task_id,origin_bot_version_id,output_event_id,manifest_digest,current_revision,created_at
-           ) VALUES($1,$2,$3,$4,$5,$6,'pending',0.5,'local_rule',$7,$8,$9,$10,$11,1,$12)`,
+           ) VALUES($1,$2,$3,$4,$5,$6,'pending',0.5,'local_rule',$7,$8,$9,$10,$11,1,$12)
+           ON CONFLICT (run_id,normalized_fingerprint) DO NOTHING
+           RETURNING id`,
           [
             id,
             claimed.runId,
@@ -168,14 +170,22 @@ export class ExtractionWorker {
             now,
           ],
         );
+        if (!inserted.rows.length) continue;
+        const existingRevision = (
+          await connection.query(
+            'SELECT revision FROM memory_candidate_revisions WHERE candidate_id=$1 AND revision=1',
+            [inserted.rows[0]!.id],
+          )
+        ).rows[0];
+        if (existingRevision) continue;
         await connection.query(
           'INSERT INTO memory_candidate_revisions(candidate_id,revision,body,author_user_id,created_at) VALUES($1,1,$2,NULL,$3)',
-          [id, candidate.text, now],
+          [inserted.rows[0]!.id, candidate.text, now],
         );
         for (const eventId of sourceIds) {
           await connection.query(
             'INSERT INTO memory_candidate_sources(candidate_id,event_id) VALUES($1,$2)',
-            [id, eventId],
+            [inserted.rows[0]!.id, eventId],
           );
         }
       }

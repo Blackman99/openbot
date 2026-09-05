@@ -304,6 +304,11 @@ try {
     'memory_candidate_revisions',
     'memory_candidate_sources',
     'memory_extraction_jobs',
+    'approved_memory_facts',
+    'memory_candidate_decisions',
+    'memory_candidate_review_intents',
+    'memory_candidate_review_confirmations',
+    'run_approved_fact_references',
   ]) {
     const privileges = (
       await pool.query(
@@ -343,6 +348,31 @@ try {
       { column_name: 'run_id', allowed: false },
       { column_name: 'status', allowed: true },
       { column_name: 'updated_at', allowed: true },
+    ],
+  );
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT column_name,has_column_privilege(current_user,'memory_candidates',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='memory_candidates' ORDER BY column_name",
+      )
+    ).rows,
+    [
+      { column_name: 'confidence', allowed: false },
+      { column_name: 'confidence_source', allowed: false },
+      { column_name: 'created_at', allowed: false },
+      { column_name: 'current_revision', allowed: true },
+      { column_name: 'extractor_version', allowed: false },
+      { column_name: 'id', allowed: false },
+      { column_name: 'manifest_digest', allowed: false },
+      { column_name: 'normalized_fingerprint', allowed: false },
+      { column_name: 'origin_bot_version_id', allowed: false },
+      { column_name: 'origin_task_id', allowed: false },
+      { column_name: 'output_event_id', allowed: false },
+      { column_name: 'proposed_scope_id', allowed: false },
+      { column_name: 'proposed_scope_kind', allowed: false },
+      { column_name: 'run_id', allowed: false },
+      { column_name: 'status', allowed: true },
+      { column_name: 'workspace_id', allowed: false },
     ],
   );
   assert.deepEqual(

@@ -59,7 +59,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
-    expect(versions.at(-1)).toEqual({ version: '0026_memory_candidates' });
+    expect(versions.at(-1)).toEqual({ version: '0027_memory_candidate_review' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(
@@ -485,6 +485,11 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'memory_candidate_revisions',
       'memory_candidate_sources',
       'memory_extraction_jobs',
+      'approved_memory_facts',
+      'memory_candidate_decisions',
+      'memory_candidate_review_intents',
+      'memory_candidate_review_confirmations',
+      'run_approved_fact_references',
     ]) {
       for (const privilege of [
         'SELECT',
@@ -528,6 +533,30 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { column_name: 'status', allowed: true },
       { column_name: 'updated_at', allowed: true },
     ]);
+    expect(
+      (
+        await admin.query(
+          "SELECT column_name,has_column_privilege('openbot_runtime','memory_candidates',column_name,'UPDATE') AS allowed FROM information_schema.columns WHERE table_schema='public' AND table_name='memory_candidates' ORDER BY column_name",
+        )
+      ).rows,
+    ).toEqual([
+      { column_name: 'confidence', allowed: false },
+      { column_name: 'confidence_source', allowed: false },
+      { column_name: 'created_at', allowed: false },
+      { column_name: 'current_revision', allowed: true },
+      { column_name: 'extractor_version', allowed: false },
+      { column_name: 'id', allowed: false },
+      { column_name: 'manifest_digest', allowed: false },
+      { column_name: 'normalized_fingerprint', allowed: false },
+      { column_name: 'origin_bot_version_id', allowed: false },
+      { column_name: 'origin_task_id', allowed: false },
+      { column_name: 'output_event_id', allowed: false },
+      { column_name: 'proposed_scope_id', allowed: false },
+      { column_name: 'proposed_scope_kind', allowed: false },
+      { column_name: 'run_id', allowed: false },
+      { column_name: 'status', allowed: true },
+      { column_name: 'workspace_id', allowed: false },
+    ]);
     for (const fn of [
       'protect_group_memory()',
       'protect_memory_version()',
@@ -540,6 +569,11 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'protect_memory_extraction_job()',
       'protect_memory_candidate()',
       'protect_memory_candidate_revision()',
+      'protect_memory_candidate_update()',
+      'protect_approved_memory_fact()',
+      'protect_memory_candidate_decision()',
+      'protect_memory_candidate_review_confirmation()',
+      'protect_run_approved_fact_reference()',
     ])
       expect(
         (

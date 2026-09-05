@@ -501,6 +501,13 @@ export class MemoryApiClient {
       return { status: 'unavailable' };
     const memories: Memory[] = [];
     for (const item of value.memories) {
+      if (
+        item !== null &&
+        typeof item === 'object' &&
+        'kind' in item &&
+        (item as { kind?: unknown }).kind === 'approved_fact'
+      )
+        continue;
       const memory = parseMemory(item, scope);
       if (!memory || memory.id <= (memories.at(-1)?.id ?? read.after?.toLowerCase() ?? ''))
         return { status: 'unavailable' };

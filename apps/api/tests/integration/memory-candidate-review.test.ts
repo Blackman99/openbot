@@ -1,0 +1,252 @@
+import { randomUUID } from 'node:crypto';
+import { afterEach, describe, expect, it } from 'vitest';
+import { memoryFixture } from '../helpers/memory-fixture.js';
+import { TaskService } from '../../src/tasks/service.js';
+import { TaskWorker } from '../../src/tasks/worker.js';
+import { ProviderSecretBox } from '../../src/providers/secrets.js';
+import { MemoryAccessError, MemoryConflictError } from '../../src/memories/types.js';
+import { WORKSPACE_FACT_VISIBILITY_SUMMARY } from '../../src/memories/review-schema.js';
+
+const cleanup: Array<() => Promise<unknown>> = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close();
+});
+
+async function extractedGroupCandidate(
+  base: Awaited<ReturnType<typeof memoryFixture>>,
+  text: string,
+  key: string,
+  grant?: { id: string },
+) {
+  const admitted =
+    grant ??
+    (await base.grants.invite(base.owner.user.id, base.owner.workspace.id, base.group.id, {
+      botId: base.bot.id,
+      idempotencyKey: `grant-${key}`,
+      history: { mode: 'all' },
+    }));
+  const tasks = new TaskService(base.pool);
+  await tasks.submit(base.owner.user.id, base.owner.workspace.id, base.conversation.id, {
+    body: 'Extract a candidate.',
+    idempotencyKey: `run-${key}`,
+    groupGrantId: admitted.id,
+  });
+  const worker = new TaskWorker(base.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => ({
+        events: [
+          { type: 'text', text },
+          { type: 'complete', stopReason: 'stop' },
+        ],
+        raw: '',
+      }),
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const row = (
+    await base.pool.query<{ id: string; status: string; current_revision: number }>(
+      `SELECT c.id,c.status,c.current_revision FROM memory_candidates c
+       JOIN tasks t ON t.id=c.origin_task_id WHERE t.conversation_id=$1 ORDER BY c.created_at DESC`,
+      [base.conversation.id],
+    )
+  ).rows[0];
+  return {
+    grant: admitted,
+    tasks,
+    worker,
+    candidateId: row!.id,
+    revision: Number(row!.current_revision),
+  };
+}
+
+describe('candidate review inbox', () => {
+  it('edits then approves a same-group candidate into searchable context and keeps pending text inert', async () => {
+    const base = await memoryFixture(cleanup);
+    const { grant, tasks, candidateId, revision } = await extractedGroupCandidate(
+      base,
+      'Remember: pending must stay inert.',
+      'approve',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    const listed = await base.memories.listCandidates(access, {});
+    expect(listed.candidates).toEqual([
+      expect.objectContaining({
+        id: candidateId,
+        status: 'pending',
+        body: 'pending must stay inert.',
+        proposedScope: { kind: 'group', id: base.group.id },
+      }),
+    ]);
+    const groupAccess = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      groupId: base.group.id,
+    };
+    expect((await base.memories.list(groupAccess, { query: 'pending' }, true)).memories).toEqual(
+      [],
+    );
+    const edited = await base.memories.editCandidate(access, candidateId, {
+      expectedRevision: revision,
+      body: 'keep the edited evidence.',
+    });
+    expect(edited).toMatchObject({ revision: 2, body: 'keep the edited evidence.', status: 'pending' });
+    const approved = await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: 2,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.8,
+      idempotencyKey: 'approve-group',
+    });
+    expect(approved.replayed).toBe(false);
+    expect(approved.candidate.status).toBe('approved');
+    expect(approved.fact).toMatchObject({
+      kind: 'approved_fact',
+      text: 'keep the edited evidence.',
+      confidenceSource: 'human',
+      scope: { kind: 'group', workspaceId: base.owner.workspace.id, id: base.group.id },
+    });
+    const search = await base.memories.list(groupAccess, { query: 'edited evidence' }, true);
+    expect(search.memories).toEqual([
+      expect.objectContaining({ kind: 'approved_fact', text: 'keep the edited evidence.' }),
+    ]);
+    let captured: string[] = [];
+    await tasks.submit(base.owner.user.id, base.owner.workspace.id, base.conversation.id, {
+      body: 'Use reviewed facts.',
+      idempotencyKey: 'after-approve',
+      groupGrantId: grant.id,
+    });
+    const later = new TaskWorker(base.pool, {
+      secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+      createAdapter: () => ({
+        generate: async (input) => {
+          captured = input.messages.map((message) => message.content);
+          return {
+            events: [
+              { type: 'text', text: 'Using the fact.' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          };
+        },
+      }),
+    });
+    expect(await later.runOnce()).toBe(true);
+    const factContext = captured.find((content) => content.includes('"kind":"approved_facts"'));
+    expect(factContext).toContain('keep the edited evidence.');
+    expect(factContext).not.toContain('pending must stay inert.');
+    expect(captured.some((content) => content.includes('"kind":"group_memories"'))).toBe(false);
+    const replay = await base.memories.approveCandidate(access, candidateId, {
+      expectedRevision: 2,
+      destination: { kind: 'group', id: base.group.id },
+      confidence: 0.8,
+      idempotencyKey: 'approve-group',
+    });
+    expect(replay.replayed).toBe(true);
+    expect(replay.fact?.id).toBe(approved.fact?.id);
+  });
+
+  it('rejects a candidate, ignores extraction replay, and requires confirmation for workspace scope', async () => {
+    const base = await memoryFixture(cleanup);
+    const first = await extractedGroupCandidate(
+      base,
+      'Remember: reject this suggestion.',
+      'reject',
+    );
+    const access = {
+      actorUserId: base.owner.user.id,
+      workspaceId: base.owner.workspace.id,
+      conversationId: base.conversation.id,
+    };
+    const rejected = await base.memories.rejectCandidate(access, first.candidateId, {
+      expectedRevision: first.revision,
+      idempotencyKey: 'reject-one',
+    });
+    expect(rejected.candidate.status).toBe('rejected');
+    await base.pool.query(
+      "UPDATE memory_extraction_jobs SET status='queued',attempt_count=0,claim_token=NULL,lease_expires_at=NULL,last_error_code=NULL",
+    );
+    expect(await first.worker.runOnce()).toBe(true);
+    expect(
+      (
+        await base.pool.query('SELECT status FROM memory_candidates WHERE id=$1', [
+          first.candidateId,
+        ])
+      ).rows,
+    ).toEqual([{ status: 'rejected' }]);
+    expect(
+      (
+        await base.memories.list(
+          {
+            actorUserId: base.owner.user.id,
+            workspaceId: base.owner.workspace.id,
+            groupId: base.group.id,
+          },
+          { query: 'reject this' },
+          true,
+        )
+      ).memories,
+    ).toEqual([]);
+    const second = await extractedGroupCandidate(
+      base,
+      'Remember: publish across the workspace.',
+      'workspace',
+      first.grant,
+    );
+    await expect(
+      base.memories.approveCandidate(access, second.candidateId, {
+        expectedRevision: second.revision,
+        destination: { kind: 'workspace', id: base.owner.workspace.id },
+        confidence: 0.7,
+        idempotencyKey: 'need-preview',
+      }),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const preview = await base.memories.previewCandidate(access, second.candidateId, {
+      expectedRevision: second.revision,
+      destination: { kind: 'workspace', id: base.owner.workspace.id },
+      confidence: 0.7,
+    });
+    expect(preview.preview.visibility.summary).toBe(WORKSPACE_FACT_VISIBILITY_SUMMARY);
+    const confirmed = await base.memories.confirmCandidate(access, second.candidateId, {
+      intentId: preview.preview.id,
+      idempotencyKey: 'confirm-workspace',
+      acknowledged: true,
+    });
+    expect(confirmed.replayed).toBe(false);
+    expect(confirmed.fact).toMatchObject({
+      kind: 'approved_fact',
+      scope: { kind: 'workspace', id: base.owner.workspace.id },
+      text: 'publish across the workspace.',
+    });
+    await expect(
+      base.memories.editCandidate(access, first.candidateId, {
+        expectedRevision: 1,
+        body: 'cannot revive rejection.',
+      }),
+    ).rejects.toBeInstanceOf(MemoryConflictError);
+    const outsider = await base.addUser();
+    await expect(
+      base.memories.rejectCandidate(
+        {
+          actorUserId: outsider.id,
+          workspaceId: base.owner.workspace.id,
+          conversationId: base.conversation.id,
+        },
+        second.candidateId,
+        { expectedRevision: second.revision, idempotencyKey: 'stranger' },
+      ),
+    ).rejects.toBeInstanceOf(MemoryAccessError);
+    const inbox = await base.app.inject({
+      url: `/api/v1/workspaces/${base.owner.workspace.id}/conversations/${base.conversation.id}/memory-candidates`,
+      headers: base.headers,
+    });
+    expect(inbox.statusCode).toBe(200);
+    expect(inbox.json().candidates.map((row: { status: string }) => row.status).sort()).toEqual([
+      'approved',
+      'rejected',
+    ]);
+  });
+});

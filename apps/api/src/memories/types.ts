@@ -7,6 +7,41 @@ export class MemoryConflictError extends Error {
     super(code);
   }
 }
+export interface CandidateAccess {
+  actorUserId: string;
+  workspaceId: string;
+  conversationId: string;
+}
+export type MemoryScopeKind = 'group' | 'bot' | 'workspace';
+export interface CandidateDestination {
+  kind: MemoryScopeKind;
+  id: string;
+}
+export interface MemoryCandidate {
+  id: string;
+  runId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  revision: number;
+  body: string;
+  proposedScope: CandidateDestination;
+  confidence: number;
+  confidenceSource: 'local_rule';
+  sourceCount: number;
+  createdAt: Date;
+}
+export interface ApprovedFact {
+  kind: 'approved_fact';
+  id: string;
+  versionId: string;
+  version: 1;
+  candidateId: string;
+  scope: { kind: MemoryScopeKind; workspaceId: string; id: string };
+  creator: { id: string; displayName: string };
+  createdAt: Date;
+  confidence: number;
+  confidenceSource: 'human';
+  text: string;
+}
 export interface MemoryAccess {
   actorUserId: string;
   workspaceId: string;
@@ -119,6 +154,105 @@ export function memoryObject(input: unknown, keys: string[]): Record<string, unk
 export function promotionPreviewInput(input: unknown): { destinationBotId: string } {
   const value = memoryObject(input, ['destinationBotId']);
   return { destinationBotId: memoryUuid(value.destinationBotId) };
+}
+export function candidateAccess(supplied: CandidateAccess): Readonly<CandidateAccess> {
+  return Object.freeze({
+    actorUserId: memoryUuid(supplied.actorUserId),
+    workspaceId: memoryUuid(supplied.workspaceId),
+    conversationId: memoryUuid(supplied.conversationId),
+  });
+}
+export function candidateDestination(input: unknown): CandidateDestination {
+  const value = memoryObject(input, ['kind', 'id']);
+  if (value.kind !== 'group' && value.kind !== 'bot' && value.kind !== 'workspace')
+    throw new MemoryInputError();
+  return { kind: value.kind, id: memoryUuid(value.id) };
+}
+export function candidateEditInput(input: unknown): { expectedRevision: number; body: string } {
+  const value = memoryObject(input, ['expectedRevision', 'body']);
+  if (
+    typeof value.body !== 'string' ||
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 1
+  )
+    throw new MemoryInputError();
+  const body = value.body.normalize('NFC').replace(/\r\n/gu, '\n').trim();
+  if (
+    !body ||
+    [...body].length > 1000 ||
+    Buffer.byteLength(body) > 4096
+  )
+    throw new MemoryInputError();
+  return { expectedRevision: value.expectedRevision, body };
+}
+export function candidateRejectInput(input: unknown): {
+  expectedRevision: number;
+  idempotencyKey: string;
+} {
+  const value = memoryObject(input, ['expectedRevision', 'idempotencyKey']);
+  if (
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 1 ||
+    typeof value.idempotencyKey !== 'string' ||
+    !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
+  )
+    throw new MemoryInputError();
+  return { expectedRevision: value.expectedRevision, idempotencyKey: value.idempotencyKey };
+}
+export function candidateApproveInput(input: unknown): {
+  expectedRevision: number;
+  destination: CandidateDestination;
+  confidence: number;
+  idempotencyKey: string;
+} {
+  const value = memoryObject(input, [
+    'expectedRevision',
+    'destination',
+    'confidence',
+    'idempotencyKey',
+  ]);
+  if (
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 1 ||
+    typeof value.confidence !== 'number' ||
+    !Number.isFinite(value.confidence) ||
+    value.confidence < 0 ||
+    value.confidence > 1 ||
+    typeof value.idempotencyKey !== 'string' ||
+    !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
+  )
+    throw new MemoryInputError();
+  return {
+    expectedRevision: value.expectedRevision,
+    destination: candidateDestination(value.destination),
+    confidence: value.confidence,
+    idempotencyKey: value.idempotencyKey,
+  };
+}
+export function candidatePreviewInput(input: unknown): {
+  expectedRevision: number;
+  destination: CandidateDestination;
+  confidence: number;
+} {
+  const value = memoryObject(input, ['expectedRevision', 'destination', 'confidence']);
+  if (
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 1 ||
+    typeof value.confidence !== 'number' ||
+    !Number.isFinite(value.confidence) ||
+    value.confidence < 0 ||
+    value.confidence > 1
+  )
+    throw new MemoryInputError();
+  return {
+    expectedRevision: value.expectedRevision,
+    destination: candidateDestination(value.destination),
+    confidence: value.confidence,
+  };
 }
 export function promotionConfirmInput(input: unknown): {
   intentId: string;

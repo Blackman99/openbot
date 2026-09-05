@@ -14,6 +14,8 @@ type Params = {
   grantId?: string;
   memoryId?: string;
   botId?: string;
+  conversationId?: string;
+  candidateId?: string;
 };
 export function registerMemoryRoutes(
   app: FastifyInstance,
@@ -114,6 +116,92 @@ export function registerMemoryRoutes(
         if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
         const result = await memories.confirm(admitted, request.params.memoryId, request.body);
         return reply.code(result.replayed ? 200 : 201).send({ memory: result.memory });
+      },
+    );
+    const candidateBase =
+      '/api/v1/workspaces/:workspaceId/conversations/:conversationId/memory-candidates';
+    async function candidateActor(request: FastifyRequest<{ Params: Params }>) {
+      const token = readSessionToken(request.headers.cookie),
+        identity = token ? await auth.getSession(token) : undefined;
+      if (!identity) return undefined;
+      if (request.method !== 'GET' && request.headers.origin !== webOrigin)
+        await memories.deny(
+          {
+            actorUserId: identity.user.id,
+            workspaceId: request.params.workspaceId,
+            groupId: request.params.conversationId ?? '',
+          },
+          'list-candidates',
+        );
+      return {
+        actorUserId: identity.user.id,
+        workspaceId: request.params.workspaceId,
+        conversationId: request.params.conversationId!,
+      };
+    }
+    routes.get<{ Params: Params }>(candidateBase, async (request, reply) => {
+      const admitted = await candidateActor(request);
+      if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+      return memories.listCandidates(admitted, request.query);
+    });
+    routes.patch<{ Params: Params & { candidateId: string } }>(
+      `${candidateBase}/:candidateId`,
+      { bodyLimit: 16384 },
+      async (request, reply) => {
+        const admitted = await candidateActor(request);
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return { candidate: await memories.editCandidate(admitted, request.params.candidateId, request.body) };
+      },
+    );
+    routes.post<{ Params: Params & { candidateId: string } }>(
+      `${candidateBase}/:candidateId/rejections`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await candidateActor(request);
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        const result = await memories.rejectCandidate(
+          admitted,
+          request.params.candidateId,
+          request.body,
+        );
+        return reply.code(result.replayed ? 200 : 201).send({ candidate: result.candidate });
+      },
+    );
+    routes.post<{ Params: Params & { candidateId: string } }>(
+      `${candidateBase}/:candidateId/approvals`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await candidateActor(request);
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        const result = await memories.approveCandidate(
+          admitted,
+          request.params.candidateId,
+          request.body,
+        );
+        return reply.code(result.replayed ? 200 : 201).send(result);
+      },
+    );
+    routes.post<{ Params: Params & { candidateId: string } }>(
+      `${candidateBase}/:candidateId/approval-previews`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await candidateActor(request);
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return memories.previewCandidate(admitted, request.params.candidateId, request.body);
+      },
+    );
+    routes.post<{ Params: Params & { candidateId: string } }>(
+      `${candidateBase}/:candidateId/approval-confirmations`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await candidateActor(request);
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        const result = await memories.confirmCandidate(
+          admitted,
+          request.params.candidateId,
+          request.body,
+        );
+        return reply.code(result.replayed ? 200 : 201).send(result);
       },
     );
     const privateBase = '/api/v1/workspaces/:workspaceId/bots/:botId/private-memories';

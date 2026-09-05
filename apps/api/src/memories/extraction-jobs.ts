@@ -67,6 +67,7 @@ export async function persistRunSourceManifest(
     },
   ];
   for (const reference of input.memory.references) {
+    if (reference.kind === 'approved-fact') continue;
     items.push(
       reference.kind === 'group'
         ? {

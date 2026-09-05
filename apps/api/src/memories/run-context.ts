@@ -13,6 +13,7 @@ import {
   type PrivateMemoryRow,
 } from './current.js';
 import { MemoryAccessError, type MemoryRow } from './types.js';
+import { projectApprovedFact, selectApprovedFactRows } from './review.js';
 
 export class MemoryContextLimitError extends Error {}
 export const MAX_RUN_MEMORIES = 100;
@@ -26,7 +27,12 @@ interface PrivateMemoryReference {
   readonly privateMemoryId: string;
   readonly sourceEventId: string;
 }
-type MemoryReference = GroupMemoryReference | PrivateMemoryReference;
+interface ApprovedFactReference {
+  readonly kind: 'approved-fact';
+  readonly factId: string;
+  readonly versionId: string;
+}
+type MemoryReference = GroupMemoryReference | PrivateMemoryReference | ApprovedFactReference;
 export interface RunMemoryContribution {
   readonly runId: string;
   readonly messages: ReadonlyArray<{ readonly role: 'user'; readonly content: string }>;
@@ -86,6 +92,22 @@ async function currentPrivateReference(
       [run.task.workspace_id, run.task.bot_id, reference.privateMemoryId, reference.sourceEventId],
     )
   ).rows[0];
+  if (!row) throw new ConversationAccessError();
+  return row;
+}
+async function currentApprovedFact(
+  connection: SqlConnection,
+  run: AdmittedRun,
+  reference: ApprovedFactReference,
+) {
+  const rows = await selectApprovedFactRows(connection, {
+    workspaceId: run.task.workspace_id,
+    ...(run.task.group_id ? { groupId: run.task.group_id } : {}),
+    botId: run.task.bot_id,
+    includeWorkspace: true,
+    limit: MAX_RUN_MEMORIES + 1,
+  });
+  const row = rows.find((fact) => fact.id === reference.factId && fact.version_id === reference.versionId);
   if (!row) throw new ConversationAccessError();
   return row;
 }
@@ -150,7 +172,15 @@ export async function selectRunMemoryContribution(
     { workspaceId: task.workspace_id, botId: task.bot_id },
     { limit: MAX_RUN_MEMORIES + 1 },
   );
-  if (rows.length + privateRows.length > MAX_RUN_MEMORIES) throw new MemoryContextLimitError();
+  const factRows = await selectApprovedFactRows(connection, {
+    workspaceId: task.workspace_id,
+    ...(task.group_id ? { groupId: task.group_id } : {}),
+    botId: task.bot_id,
+    includeWorkspace: true,
+    limit: MAX_RUN_MEMORIES + 1,
+  });
+  if (rows.length + privateRows.length + factRows.length > MAX_RUN_MEMORIES)
+    throw new MemoryContextLimitError();
   const groupReferences = rows.map((row) =>
     Object.freeze({
       kind: 'group' as const,
@@ -165,13 +195,21 @@ export async function selectRunMemoryContribution(
       sourceEventId: row.source_event_id,
     }),
   );
-  const references = [...groupReferences, ...privateReferences];
+  const factReferences = factRows.map((row) =>
+    Object.freeze({
+      kind: 'approved-fact' as const,
+      factId: row.id,
+      versionId: row.version_id,
+    }),
+  );
+  const references = [...groupReferences, ...privateReferences, ...factReferences];
   const memories = [];
   for (const reference of groupReferences)
     memories.push(await currentReference(connection, run, reference));
   const privateMemories = [];
   for (const reference of privateReferences)
     privateMemories.push(await currentPrivateReference(connection, run, reference));
+  const facts = factRows.map(projectApprovedFact);
   const messages: Array<{ role: 'user'; content: string }> = [];
   if (memories.length)
     messages.push({ role: 'user', content: JSON.stringify({ kind: 'group_memories', memories }) });
@@ -180,13 +218,18 @@ export async function selectRunMemoryContribution(
       role: 'user',
       content: JSON.stringify({ kind: 'bot_private_memories', memories: privateMemories }),
     });
+  if (facts.length)
+    messages.push({
+      role: 'user',
+      content: JSON.stringify({ kind: 'approved_facts', memories: facts }),
+    });
   const bytes = messages.reduce((total, message) => total + Buffer.byteLength(message.content), 0);
   if (bytes > 1048576) throw new MemoryContextLimitError();
   return Object.freeze({
     runId: task.id,
     references: Object.freeze(references),
     messages: Object.freeze(messages.map((message) => Object.freeze(message))),
-    itemCount: memories.length + privateMemories.length,
+    itemCount: memories.length + privateMemories.length + facts.length,
     bytes,
   });
 }
@@ -204,11 +247,17 @@ export async function persistRunMemoryReferences(
         'INSERT INTO run_memory_references(run_id,memory_version_id,source_event_id,selected_at) VALUES($1,$2,$3,$4)',
         [run.task.id, reference.memoryVersionId, reference.sourceEventId, now()],
       );
-    } else {
+    } else if (reference.kind === 'bot-private') {
       await currentPrivateReference(connection, run, reference);
       await connection.query(
         'INSERT INTO run_private_memory_references(run_id,private_memory_id,source_event_id,selected_at) VALUES($1,$2,$3,$4)',
         [run.task.id, reference.privateMemoryId, reference.sourceEventId, now()],
+      );
+    } else {
+      await currentApprovedFact(connection, run, reference);
+      await connection.query(
+        'INSERT INTO run_approved_fact_references(run_id,fact_id,version_id,selected_at) VALUES($1,$2,$3,$4)',
+        [run.task.id, reference.factId, reference.versionId, now()],
       );
     }
   }
@@ -280,5 +329,23 @@ export async function assertRunMemoryReferencesCurrent(
     );
     if (currentPrivate.rows.length !== privateReferences.length)
       throw new ConversationAccessError();
+  }
+  const factReferences = (
+    await connection.query<{ fact_id: string; version_id: string }>(
+      'SELECT fact_id,version_id FROM run_approved_fact_references WHERE run_id=$1 ORDER BY fact_id LIMIT $2',
+      [run.task.id, MAX_RUN_MEMORIES + 1],
+    )
+  ).rows;
+  if (factReferences.length) {
+    const currentFacts = await connection.query(
+      `SELECT r.fact_id FROM run_approved_fact_references r
+       JOIN approved_memory_facts f ON f.id=r.fact_id AND f.version_id=r.version_id AND f.workspace_id=$2
+       JOIN memory_candidates c ON c.id=f.candidate_id
+       JOIN conversation_events e ON e.id=c.output_event_id AND e.body IS NOT NULL
+       LEFT JOIN message_purges p ON p.workspace_id=f.workspace_id AND p.message_id=e.message_id
+       WHERE r.run_id=$1 AND p.message_id IS NULL LIMIT $3`,
+      [run.task.id, run.task.workspace_id, MAX_RUN_MEMORIES + 1],
+    );
+    if (currentFacts.rows.length !== factReferences.length) throw new ConversationAccessError();
   }
 }

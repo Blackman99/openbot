@@ -60,6 +60,7 @@ describe('database migrations', () => {
       '0024_bot_private_memories',
       '0025_memory_extraction_jobs',
       '0026_memory_candidates',
+      '0027_memory_candidate_review',
     ]);
 
     const database: DatabaseClient = {
@@ -95,6 +96,7 @@ describe('database migrations', () => {
     `)) as { rows: Array<{ table_name: string }> };
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
       'api_tokens',
+      'approved_memory_facts',
       'attachment_objects',
       'audit_events',
       'avatar_objects',
@@ -114,6 +116,9 @@ describe('database migrations', () => {
       'groups',
       'instance_claims',
       'local_credentials',
+      'memory_candidate_decisions',
+      'memory_candidate_review_confirmations',
+      'memory_candidate_review_intents',
       'memory_candidate_revisions',
       'memory_candidate_sources',
       'memory_candidates',
@@ -126,6 +131,7 @@ describe('database migrations', () => {
       'oidc_transactions',
       'openbot_schema_migrations',
       'personal_model_connections',
+      'run_approved_fact_references',
       'run_memory_references',
       'run_private_memory_references',
       'run_source_manifest_items',
@@ -157,7 +163,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0026_memory_candidates' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0027_memory_candidate_review' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
