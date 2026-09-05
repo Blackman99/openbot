@@ -3,6 +3,7 @@ import {
   PERSONAL_MODEL_CONNECTION_STATEMENTS,
   WORKSPACE_MODEL_CONNECTION_STATEMENTS,
 } from '../providers/schema.js';
+import { GROUP_SCHEMA_STATEMENTS } from '../groups/schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -15,6 +16,7 @@ export interface MigrationPool {
 
 export interface MigrationOptions {
   installPostgresGuards?: boolean;
+  throughVersion?: string;
 }
 
 export const POSTGRES_AUDIT_APPEND_ONLY_STATEMENTS = [
@@ -171,6 +173,11 @@ const MIGRATIONS = [
     statements: WORKSPACE_MODEL_CONNECTION_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0009_groups_and_human_memberships',
+    statements: GROUP_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -187,8 +194,14 @@ function assertOrderedMigrationPrefix(appliedVersions: readonly string[]): void 
 
 export async function migrateDatabase(
   database: MigrationPool,
-  { installPostgresGuards = true }: MigrationOptions = {},
+  { installPostgresGuards = true, throughVersion }: MigrationOptions = {},
 ): Promise<void> {
+  const targetIndex =
+    throughVersion === undefined
+      ? MIGRATIONS.length - 1
+      : MIGRATIONS.findIndex(({ version }) => version === throughVersion);
+  if (targetIndex < 0) throw new Error('Unknown migration target');
+  const targetMigrations = MIGRATIONS.slice(0, targetIndex + 1);
   const connection = await database.connect();
 
   try {
@@ -209,9 +222,11 @@ export async function migrateDatabase(
     )) as { rows: Array<{ version: string }> };
     const appliedVersionList = appliedResult.rows.map(({ version }) => version);
     assertOrderedMigrationPrefix(appliedVersionList);
+    if (appliedVersionList.length > targetMigrations.length)
+      throw new Error('Database is newer than the requested migration target');
     const appliedVersions = new Set(appliedVersionList);
 
-    for (const migration of MIGRATIONS) {
+    for (const migration of targetMigrations) {
       if (appliedVersions.has(migration.version)) {
         continue;
       }

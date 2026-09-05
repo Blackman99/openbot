@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { handleGroupFixture, resetGroupFixture } from './group-fixture.mjs';
 import { handleProviderFixture, resetProviderFixture } from './provider-fixture.mjs';
 import {
   handleWorkspaceProviderFixture,
@@ -38,6 +39,7 @@ function readJson(request, callback) {
 }
 
 function resetAuth() {
+  resetGroupFixture();
   resetProviderFixture();
   resetWorkspaceProviderFixture();
   resetMemberFixture();
@@ -94,6 +96,17 @@ const server = createServer((request, response) => {
     return;
   if (
     handleMemberFixture(request, response, {
+      user: sessions.get(readSession(request)),
+      users,
+      memberships,
+      readJson,
+      sendJson,
+      trustedOrigin,
+    })
+  )
+    return;
+  if (
+    handleGroupFixture(request, response, {
       user: sessions.get(readSession(request)),
       users,
       memberships,

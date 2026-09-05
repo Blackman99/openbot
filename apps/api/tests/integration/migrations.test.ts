@@ -42,6 +42,7 @@ describe('database migrations', () => {
       '0006_workspace_member_provenance',
       '0007_oidc',
       '0008_workspace_model_connections',
+      '0009_groups_and_human_memberships',
     ]);
 
     const database: DatabaseClient = {
@@ -77,6 +78,8 @@ describe('database migrations', () => {
     `)) as { rows: Array<{ table_name: string }> };
     expect(tables.rows.map(({ table_name }) => table_name)).toEqual([
       'audit_events',
+      'group_memberships',
+      'groups',
       'instance_claims',
       'local_credentials',
       'oidc_identities',
@@ -101,7 +104,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0008_workspace_model_connections' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0009_groups_and_human_memberships' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -193,26 +196,52 @@ describe('database migrations', () => {
     expect(guard).toContain('BEFORE UPDATE OR DELETE OR TRUNCATE ON audit_events');
     expect(guard).toContain('FOR EACH STATEMENT');
   });
-  it('backfills exact invitation provenance for memberships created before migration 0006', async () => {
+  it('rejects an unknown historical target before connecting to the database', async () => {
+    let connections = 0;
+    const pool = {
+      connect: async () => {
+        connections++;
+        throw new Error('Unexpected database connection');
+      },
+    };
+    await expect(migrateDatabase(pool, { throughVersion: '9999_unknown' })).rejects.toThrow(
+      'Unknown migration target',
+    );
+    expect(connections).toBe(0);
+  });
+  it('rejects a historical target older than the existing ledger without changing it', async () => {
     const database = newDb({ noAstCoverageCheck: true });
     const pool = new (database.adapters.createPg().Pool)();
     pools.push(pool);
     await migrateDatabase(pool, { installPostgresGuards: false });
-    await pool.query(
-      'ALTER TABLE workspace_model_connections DROP CONSTRAINT workspace_model_connections_pkey',
-    );
-    await pool.query('DROP INDEX workspace_model_connections_workspace_idx');
-    await pool.query('DROP TABLE workspace_model_connections');
-    for (const table of ['oidc_transactions', 'oidc_identities']) {
-      for (const index of database.public.getTable(table).listIndices()) {
-        await pool.query(`DROP INDEX "${index.name}"`);
-      }
-      await pool.query(`DROP TABLE ${table}`);
-    }
-    await pool.query('ALTER TABLE workspace_memberships DROP COLUMN invitation_id');
-    await pool.query(
-      "DELETE FROM openbot_schema_migrations WHERE version >= '0006_workspace_member_provenance'",
-    );
+    const before = (
+      await pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version')
+    ).rows;
+    await expect(
+      migrateDatabase(pool, {
+        installPostgresGuards: false,
+        throughVersion: '0005_workspace_invitations',
+      }),
+    ).rejects.toThrow('Database is newer than the requested migration target');
+    expect(
+      (await pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version')).rows,
+    ).toEqual(before);
+  });
+  it('backfills exact invitation provenance for memberships created before migration 0006', async () => {
+    const database = newDb({ noAstCoverageCheck: true });
+    const pool = new (database.adapters.createPg().Pool)();
+    pools.push(pool);
+    await migrateDatabase(pool, {
+      installPostgresGuards: false,
+      throughVersion: '0005_workspace_invitations',
+    });
+    expect(
+      (
+        await pool.query(
+          'SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1',
+        )
+      ).rows,
+    ).toEqual([{ version: '0005_workspace_invitations' }]);
     const ownerId = '00000000-0000-4000-8000-000000000001';
     const userId = '00000000-0000-4000-8000-000000000002';
     const workspaceId = '00000000-0000-4000-8000-000000000003';

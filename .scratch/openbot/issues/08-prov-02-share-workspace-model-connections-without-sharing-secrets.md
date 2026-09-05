@@ -2,7 +2,7 @@
 sequence: 8
 id: PROV-02
 title: "Share workspace model connections without sharing secrets"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - PROV-01
   - WS-03
@@ -62,3 +62,5 @@ Compose privilege assertions passed independent root review. Actual PostgreSQL/C
 See [PROV-02-VERIFICATION.md](../PROV-02-VERIFICATION.md) for exact evidence, the initial resource
 contention timeout and successful serial rerun, migration 0007/0008 integration seams, and explicit
 external gates. Root owns index/PROGRESS/release closure metadata.
+
+PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/actions/runs/33943840316), all five jobs successful on remote `3f4e39145b4b3af53ed49c182eacaadb0144740c`, completed on 2026-09-05 at 04:12:53 UTC. Three actual restricted-role provider tests and all auth/OIDC/Compose checks passed, including shared-model lifecycle, revocation admission and exact deployment privileges.

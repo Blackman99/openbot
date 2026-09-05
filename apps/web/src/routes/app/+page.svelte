@@ -48,6 +48,8 @@
     <p>Your role: {data.workspace.role}</p>
   </section>
 
+  <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/groups`}>Groups</a></p>
+
   <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Workspace settings</h2>
     <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/models`}>Workspace models</a></p>

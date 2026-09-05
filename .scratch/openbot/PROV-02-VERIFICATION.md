@@ -142,3 +142,7 @@ teardown, so this ticket does not duplicate that refactor. Keep the root API max
 Implementation commits: scoped storage 957aab7; API/admission 667f256; Web client 5544993 (child 73edeca);
 real HTTP BFF 2940aa7; HTTP role grants 25bfe76; admission deadlines 36b804e; Web UI/browser fb4d6ae
 (child abd1186); UUID review fix 73a4434. Root owns PROGRESS, index, release-gate closure, and integration.
+
+## External gate closure
+
+PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/actions/runs/33943840316), all five jobs successful on remote `3f4e39145b4b3af53ed49c182eacaadb0144740c`, completed on 2026-09-05 at 04:12:53 UTC. The restricted provider suite passed three actual tests, including the new shared connection lifecycle, cross-admin credentials, rollback and workspace-lock revocation admission. Authentication/OIDC and Compose checks passed on the same revision. Earlier local skip records are historical; final REL-01 acceptance still applies to the final combined revision.

@@ -115,9 +115,19 @@ Integrated revision `84f05b2` passed 352 unit/integration tests, 9 ordinary brow
 
 AUTH-02-E1 closed by [Verify33943166881](https://github.com/Blackman99/openbot/actions/runs/33943166881), completed successfully on 2026-09-05 at 03:57:50 UTC on remote `20b0618c84dc2a3e2e582bf6e9de10f260e3de3f`. All five jobs passed: code, postgres-auth (11 actual tests), the isolated postgres-oidc restricted-role test, postgres-providers and Compose. Final REL-01 acceptance remains required on the final combined revision.
 
-## Open external gate — PROV-02-E1
+## Closed external gate — PROV-02-E1
 
-- [ ] Run the actual restricted-role provider PostgreSQL suite for shared connection lifecycle, cross-admin credentials, authority rechecks, stale revisions, audit rollback and workspace-lock revocation admission.
-- [ ] Keep all authentication/OIDC PostgreSQL and Compose jobs green on the shared-model revision, including exact shared-connection table/column privileges and the ordered ledger through0008.
+- [x] Run the actual restricted-role provider PostgreSQL suite for shared connection lifecycle, cross-admin credentials, authority rechecks, stale revisions, audit rollback and workspace-lock revocation admission.
+- [x] Keep all authentication/OIDC PostgreSQL and Compose jobs green on the shared-model revision, including exact shared-connection table/column privileges and the ordered ledger through0008.
 
 Integrated `3c515b6` passed 400 unit/integration tests, 10 ordinary browser scenarios and one real signed-IdP journey, formatting, types and builds. Both independent review axes are clean, including the UUID/AAD correction; new Compose assertions received independent root review. Real PostgreSQL/Compose remains pending; this explicit gate permits local PROV-05 work without treating local skips as evidence.
+
+PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/actions/runs/33943840316), all five jobs successful on remote `3f4e39145b4b3af53ed49c182eacaadb0144740c`, completed on 2026-09-05 at 04:12:53 UTC. All three restricted provider tests and the shared-role Compose assertions passed.
+
+## Open external gate — COL-01-E1
+
+- [ ] Execute the three real PostgreSQL group concurrency/rollback cases, including current eligible-owner counts, waiting-actor authorization and atomic audit failures across group mutations.
+- [ ] Execute the deployed-role Compose group lifecycle: private/discoverable boundaries, explicit roles, immediate workspace-removal denial, retained-grant restoration by invitation, eligible-last-owner rejection, preserved authors and exact safe/no-op audits.
+- [ ] Verify exact group/group-membership table and column privileges and the ordered migration ledger through0009, with all earlier provider/auth/OIDC checks green.
+
+Integrated `b7dc8fe` passed 445 unit/integration tests, 11 ordinary browser scenarios and one real signed-IdP journey, formatting, types and both builds. Both review axes are clean at e3677ad; root independently reviewed the new Compose lifecycle, nine expected group audits, privileges and historical migration fixture. Actual PostgreSQL/Compose remains pending on this revision; local fixtures are not external evidence.

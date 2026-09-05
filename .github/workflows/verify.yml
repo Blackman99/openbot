@@ -155,7 +155,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships'
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -332,6 +332,19 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_model_connections', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_model_connections'")"
           test "$shared_model_update_privileges" = 'created_at:false,id:false,metadata:true,revision:true,sealed_credentials:true,updated_at:true,workspace_id:false'
+
+          group_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('groups'), ('group_memberships')) AS group_tables(table_name)")"
+          test "$group_table_privileges" = 'group_memberships:t,t,f,t,f;groups:t,t,f,f,f'
+          group_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'groups', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'groups'")"
+          test "$group_update_privileges" = 'created_at:false,created_by_user_id:false,description:true,id:false,name:true,updated_at:true,visibility:true,workspace_id:false'
+          group_membership_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'group_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_memberships'")"
+          test "$group_membership_update_privileges" = 'created_at:false,group_id:false,role:true,user_id:false'
 
           column_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -664,6 +677,128 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT COUNT(*) FROM audit_events WHERE event_type IN ('workspace.member_removed', 'workspace.member_role_changed') AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com)'")"
           test "$unsafe_member_audits" = '0'
+      - name: Verify groups and human membership with the restricted runtime role
+        run: |
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
+          owner_cookies=/tmp/openbot-workspace-cookies.txt
+          response=/tmp/openbot-group-response.json
+          group_request() {
+            local method="$1" cookies="$2" path="$3" expected="$4" code
+            local -a args=(--silent --show-error --request "$method"
+              --cookie "$cookies" --cookie-jar "$cookies"
+              --header 'Origin: http://localhost:3000'
+              --output "$response" --write-out '%{http_code}')
+            if [ "$#" -eq 5 ]; then
+              args+=(--header 'Content-Type: application/json' --data "$5")
+            fi
+            code="$(curl "${args[@]}" "http://localhost:3001$path")"
+            if [ "$code" != "$expected" ]; then
+              echo "$method $path returned $code; expected $expected" >&2
+              exit 1
+            fi
+          }
+          group_sql() {
+            docker compose exec -T postgres psql \
+              --username openbot --dbname openbot --tuples-only --no-align \
+              --set=ON_ERROR_STOP=1 --command "$1"
+          }
+          declare -A group_users group_cookies
+          for person in b c d; do
+            email="group-$person@example.com"
+            group_cookies[$person]="/tmp/openbot-group-$person-cookies.txt"
+            touch "${group_cookies[$person]}"
+            group_request POST "$owner_cookies" "/api/v1/workspaces/$workspace_id/invitations" 201 \
+              "$(jq --null-input --arg email "$email" '{email:$email,role:"member",expiresInDays:1}')"
+            token="$(jq --raw-output '.token' "$response")"
+            group_request POST "${group_cookies[$person]}" /api/v1/invitations/accept 201 \
+              "$(jq --null-input --arg token "$token" --arg email "$email" \
+                '{token:$token,email:$email,displayName:"CI Group Member",password:"ci-only-group-password"}')"
+            group_users[$person]="$(jq --raw-output '.user.id' "$response")"
+            jq --exit-status --arg workspace "$workspace_id" \
+              '.workspace.id == $workspace and .workspace.role == "member"' "$response" >/dev/null
+          done
+          b="${group_users[b]}" c="${group_users[c]}" d="${group_users[d]}"
+          b_cookies="${group_cookies[b]}" c_cookies="${group_cookies[c]}" d_cookies="${group_cookies[d]}"
+          base="/api/v1/workspaces/$workspace_id/groups"
+          group_request POST "$b_cookies" "$base" 201 '{"name":"Compose group"}'
+          jq --exit-status '.group.visibility == "private" and .group.description == "" and .group.role == "owner"' "$response" >/dev/null
+          group_id="$(jq --raw-output '.group.id' "$response")"
+          group_path="$base/$group_id"
+          for suffix in '' /members; do
+            group_request GET "$owner_cookies" "$group_path$suffix" 403
+            test "$(jq --raw-output '.error.code' "$response")" = 'group_forbidden'
+          done
+          group_request PATCH "$b_cookies" "$group_path" 200 \
+            '{"description":"Runtime membership smoke","visibility":"workspace"}'
+          jq --exit-status '.group.name == "Compose group" and .group.visibility == "workspace" and .group.description == "Runtime membership smoke"' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$group_path" 200
+          jq --exit-status '.group.role == null' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$base" 200
+          jq --exit-status --arg group "$group_id" 'any(.groups[]; .id == $group and .role == null)' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$group_path/members" 403
+
+          group_request POST "$b_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$c" '{userId:$user,role:"admin"}')"
+          group_request POST "$c_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          group_request PATCH "$d_cookies" "$group_path" 403 '{"name":"Forbidden"}'
+          group_request POST "$d_cookies" "$group_path/members" 403 \
+            "$(jq --null-input --arg user "$b" '{userId:$user,role:"member"}')"
+          group_request PATCH "$c_cookies" "$group_path/members/$d" 403 '{"role":"owner"}'
+          group_request PATCH "$c_cookies" "$group_path/members/$b" 403 '{"role":"member"}'
+          group_request DELETE "$c_cookies" "$group_path/members/$d" 204
+          group_request GET "$d_cookies" "$group_path/members" 403
+          group_request GET "$d_cookies" "$group_path" 200
+          jq --exit-status '.group.role == null' "$response" >/dev/null
+          group_request POST "$c_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          group_request POST "$c_cookies" "$group_path/members" 409 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          test "$(jq --raw-output '.error.code' "$response")" = 'group_member_conflict'
+          group_request GET "$d_cookies" "$group_path" 200
+          test "$(jq --raw-output '.group.role' "$response")" = 'member'
+
+          group_request PATCH "$b_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
+          group_request DELETE "$owner_cookies" "/api/v1/workspaces/$workspace_id/members/$b" 204
+          group_request GET "$b_cookies" /api/v1/me 200
+          jq --exit-status --arg user "$b" '.user.id == $user and .workspace == null' "$response" >/dev/null
+          for path in "$base" "$group_path" "$group_path/members"; do
+            group_request GET "$b_cookies" "$path" 403
+          done
+          retained_grant="$(group_sql "SELECT concat_ws(',', (SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id = '$workspace_id' AND user_id = '$b'), (SELECT COUNT(*) FROM group_memberships WHERE group_id = '$group_id' AND user_id = '$b' AND role = 'owner'), (SELECT COUNT(*) FROM groups WHERE id = '$group_id' AND created_by_user_id = '$b'))")"
+          test "$retained_grant" = '0,1,1'
+          group_request PATCH "$c_cookies" "$group_path/members/$c" 409 '{"role":"member"}'
+          test "$(jq --raw-output '.error.code' "$response")" = 'last_group_owner_required'
+          group_request DELETE "$c_cookies" "$group_path/members/$c" 409
+          test "$(jq --raw-output '.error.code' "$response")" = 'last_group_owner_required'
+
+          group_request POST "$owner_cookies" "/api/v1/workspaces/$workspace_id/invitations" 201 \
+            '{"email":"group-b@example.com","role":"member","expiresInDays":1}'
+          token="$(jq --raw-output '.token' "$response")"
+          group_request POST "$b_cookies" /api/v1/invitations/accept 200 \
+            "$(jq --null-input --arg token "$token" '{token:$token}')"
+          jq --exit-status --arg user "$b" --arg workspace "$workspace_id" \
+            '.user.id == $user and .workspace.id == $workspace' "$response" >/dev/null
+          group_request GET "$b_cookies" "$group_path" 200
+          test "$(jq --raw-output '.group.role' "$response")" = 'owner'
+          group_request GET "$b_cookies" "$group_path/members" 200
+          group_request DELETE "$c_cookies" "$group_path/members/$b" 204
+          group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
+          for suffix in '' /members; do
+            group_request GET "$b_cookies" "$group_path$suffix" 403
+          done
+          group_request GET "$owner_cookies" "$group_path" 403
+          retained_author="$(group_sql "SELECT concat_ws(',', (SELECT COUNT(*) FROM users WHERE id = '$b'), (SELECT COUNT(*) FROM local_credentials WHERE user_id = '$b'), (SELECT COUNT(*) FROM sessions WHERE user_id = '$b' AND revoked_at IS NULL AND expires_at > NOW()), (SELECT COUNT(*) FROM groups WHERE id = '$group_id' AND created_by_user_id = '$b'), (SELECT COUNT(*) FROM group_memberships WHERE group_id = '$group_id' AND user_id = '$b'), (SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id = '$workspace_id' AND user_id = '$b'), (SELECT COUNT(*) FROM audit_events WHERE event_type = 'group.created' AND actor_user_id = '$b' AND metadata->>'groupId' = '$group_id'))")"
+          test "$retained_author" = '1,1,1,1,0,1,1'
+          group_audits="$(group_sql "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
+          test "$group_audits" = 'group.created,group.member_added,group.member_added,group.member_added,group.member_removed,group.member_removed,group.member_role_changed,group.metadata_changed,group.metadata_changed'
+          unsafe_group_audits="$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id' AND (metadata::text ~* '(credential|cookie|password|email|token|secret|@)' OR metadata->>'workspaceId' IS DISTINCT FROM '$workspace_id' OR EXISTS (SELECT 1 FROM jsonb_each_text(metadata) AS field(key, value) WHERE key IN ('groupId', 'workspaceId', 'targetUserId') AND value !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))")"
+          test "$unsafe_group_audits" = '0'
+          audit_count="$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
+          test "$audit_count" = '9'
+          group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
+          group_request PATCH "$c_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
+          test "$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")" = "$audit_count"
       - name: Verify the real unavailable state after database outage
         run: |
           docker compose stop postgres

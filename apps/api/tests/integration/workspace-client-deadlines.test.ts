@@ -3,8 +3,9 @@ import { once } from 'node:events';
 import { expect, it, vi } from 'vitest';
 import { MemberApiClient } from '../../../web/src/lib/server/member-api.js';
 import { InvitationApiClient } from '../../../web/src/lib/server/invitation-api.js';
+import { GroupApiClient } from '../../../web/src/lib/server/group-api.js';
 
-it.each(['members', 'invitations'] as const)(
+it.each(['members', 'invitations', 'groups'] as const)(
   'keeps the %s client deadline active while a real HTTP response body stalls',
   async (resource) => {
     const server = createServer((_request, response) => {
@@ -27,7 +28,12 @@ it.each(['members', 'invitations'] as const)(
       headersReceived = true;
       return response;
     };
-    const Client = resource === 'members' ? MemberApiClient : InvitationApiClient;
+    const Client =
+      resource === 'members'
+        ? MemberApiClient
+        : resource === 'groups'
+          ? GroupApiClient
+          : InvitationApiClient;
     const pending = new Client(
       request,
       `http://127.0.0.1:${address.port}`,

@@ -20,6 +20,8 @@ import { ProviderSecretBox } from './providers/secrets.js';
 import { ProviderUrlPolicy } from './providers/url-policy.js';
 import { PostgresWorkspaceRepository } from './workspaces/postgres-workspace-repository.js';
 import { WorkspaceService } from './workspaces/service.js';
+import { GroupService } from './groups/service.js';
+import { PostgresGroupRepository } from './groups/postgres-group-repository.js';
 import type { DatabaseConnectionOptions } from './config.js';
 import { MIGRATION_VERSIONS } from './database/migrations.js';
 import {
@@ -81,6 +83,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
   };
   const app = buildApp({
     auth,
+    groups: new GroupService(new PostgresGroupRepository(pool)),
     members: new WorkspaceMemberService(new PostgresWorkspaceMemberRepository(pool)),
     ...(options.oidc
       ? {
