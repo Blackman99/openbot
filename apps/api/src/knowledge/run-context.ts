@@ -1,7 +1,12 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { ConversationAccessError, conversationUuid } from '../conversations/service.js';
 import { admitTaskTarget } from '../tasks/admission.js';
-import { escapeKnowledgeLike, knowledgeMatchTerms, knowledgeSourceReference } from './citation.js';
+import {
+  escapeKnowledgeLike,
+  knowledgeMatchTerms,
+  knowledgeSourceReference,
+  UNTRUSTED_KNOWLEDGE_WARNING,
+} from './citation.js';
 import type { KnowledgeLocatorKind } from './text-extractor.js';
 
 export class KnowledgeContextLimitError extends Error {}
@@ -34,7 +39,7 @@ type RunSource = {
   status: string;
 };
 
-type KnowledgeRow = {
+export type KnowledgeRow = {
   id: string;
   document_id: string;
   file_version: string | number;
@@ -85,16 +90,24 @@ function emptyContribution(runId: string): RunKnowledgeContribution {
   });
 }
 
-function scopeSql(task: RunSource, parameters: unknown[]): string {
-  const scopes = [
-    "(d.scope_kind='bot' AND d.scope_id=$2)",
-    "(d.scope_kind='workspace' AND d.scope_id=$1)",
+export type KnowledgeScope = { kind: 'bot' | 'group' | 'workspace'; id: string };
+
+function taskScopes(task: RunSource): KnowledgeScope[] {
+  const scopes: KnowledgeScope[] = [
+    { kind: 'bot', id: task.bot_id },
+    { kind: 'workspace', id: task.workspace_id },
   ];
-  if (task.group_id) {
-    parameters.push(task.group_id);
-    scopes.push(`(d.scope_kind='group' AND d.scope_id=$${parameters.length})`);
-  }
-  return scopes.join(' OR ');
+  if (task.group_id) scopes.push({ kind: 'group', id: task.group_id });
+  return scopes;
+}
+
+function scopeSql(scopes: readonly KnowledgeScope[], parameters: unknown[]): string {
+  return scopes
+    .map((scope) => {
+      parameters.push(scope.kind, scope.id);
+      return `(d.scope_kind=$${parameters.length - 1} AND d.scope_id=$${parameters.length})`;
+    })
+    .join(' OR ');
 }
 
 function matchSql(terms: string[], parameters: unknown[]): string {
@@ -106,6 +119,17 @@ function matchSql(terms: string[], parameters: unknown[]): string {
     .join(' OR ');
 }
 
+function missingFullTextSearch(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    code === '42883' ||
+    /to_tsvector|to_tsquery|ts_rank|plainto_tsquery|function.*does not exist|unknown function/iu.test(
+      message,
+    )
+  );
+}
+
 const CHUNK_FROM = `knowledge_chunks c
       JOIN knowledge_documents d ON d.id=c.document_id
       JOIN attachment_objects o ON o.id=d.source_attachment_id AND o.original_id IS NULL AND o.state='live'
@@ -115,27 +139,70 @@ const CHUNK_FROM = `knowledge_chunks c
 const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.text,
        d.source_attachment_id,d.source_conversation_id,d.source_message_id,d.filename,d.workspace_id`;
 
+export async function selectScopedKnowledgeChunks(
+  connection: SqlConnection,
+  filter: {
+    workspaceId: string;
+    scopes: readonly KnowledgeScope[];
+    terms: readonly string[];
+    chunkId?: string;
+    documentId?: string;
+    limit: number;
+  },
+): Promise<KnowledgeRow[]> {
+  if (!filter.scopes.length || !filter.terms.length || filter.limit < 1) return [];
+  const locatorSql = (parameters: unknown[]) => {
+    let extra = '';
+    if (filter.chunkId && filter.documentId) {
+      parameters.push(filter.chunkId, filter.documentId);
+      extra = ` AND c.id=$${parameters.length - 1} AND c.document_id=$${parameters.length}`;
+    }
+    parameters.push(filter.limit);
+    return extra;
+  };
+  const ftsParameters: unknown[] = [filter.workspaceId];
+  const ftsScopes = scopeSql(filter.scopes, ftsParameters);
+  ftsParameters.push(filter.terms.join(' | '));
+  const tsquery = `$${ftsParameters.length}`;
+  const ftsExtra = locatorSql(ftsParameters);
+  const ftsSql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
+      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${ftsScopes})
+        AND to_tsvector('simple', c.text) @@ to_tsquery('simple', ${tsquery})${ftsExtra}
+      ORDER BY ts_rank(to_tsvector('simple', c.text), to_tsquery('simple', ${tsquery})) DESC, d.id,c.position
+      LIMIT $${ftsParameters.length}`;
+  try {
+    return (await connection.query<KnowledgeRow>(ftsSql, ftsParameters)).rows;
+  } catch (error) {
+    if (!missingFullTextSearch(error)) throw error;
+  }
+  const likeParameters: unknown[] = [filter.workspaceId];
+  const likeScopes = scopeSql(filter.scopes, likeParameters);
+  const likes = matchSql([...filter.terms], likeParameters);
+  const likeExtra = locatorSql(likeParameters);
+  const likeSql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
+      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${likeScopes})
+        AND (${likes})${likeExtra}
+      ORDER BY d.id,c.position LIMIT $${likeParameters.length}`;
+  return (await connection.query<KnowledgeRow>(likeSql, likeParameters)).rows;
+}
+
 async function selectAuthorizedChunks(
   connection: SqlConnection,
   task: RunSource,
   terms: string[],
   extra: { chunkId?: string; documentId?: string; limit: number },
 ): Promise<KnowledgeRow[]> {
-  if (!terms.length) return [];
-  const parameters: unknown[] = [task.workspace_id, task.bot_id];
-  let sql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
-      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${scopeSql(task, parameters)})
-        AND (${matchSql(terms, parameters)})`;
-  if (extra.chunkId && extra.documentId) {
-    parameters.push(extra.chunkId, extra.documentId);
-    sql += ` AND c.id=$${parameters.length - 1} AND c.document_id=$${parameters.length}`;
-  }
-  parameters.push(extra.limit);
-  sql += ` ORDER BY d.id,c.position LIMIT $${parameters.length}`;
-  return (await connection.query<KnowledgeRow>(sql, parameters)).rows;
+  return selectScopedKnowledgeChunks(connection, {
+    workspaceId: task.workspace_id,
+    scopes: taskScopes(task),
+    terms,
+    limit: extra.limit,
+    ...(extra.chunkId ? { chunkId: extra.chunkId } : {}),
+    ...(extra.documentId ? { documentId: extra.documentId } : {}),
+  });
 }
 
-function projectChunk(row: KnowledgeRow) {
+export function projectKnowledgeChunk(row: KnowledgeRow) {
   const locator = {
     kind: row.locator_kind,
     start: Number(row.locator_start),
@@ -190,11 +257,16 @@ export async function selectRunKnowledgeContribution(
   });
   if (rows.length > MAX_RUN_KNOWLEDGE) throw new KnowledgeContextLimitError();
   if (!rows.length) return emptyContribution(task.id);
-  const chunks = rows.map(projectChunk);
+  const chunks = rows.map(projectKnowledgeChunk);
   const messages = Object.freeze([
     Object.freeze({
       role: 'user' as const,
-      content: JSON.stringify({ kind: 'scoped_knowledge', chunks }),
+      content: JSON.stringify({
+        kind: 'scoped_knowledge',
+        untrusted: true,
+        warning: UNTRUSTED_KNOWLEDGE_WARNING,
+        chunks,
+      }),
     }),
   ]);
   const bytes = Buffer.byteLength(messages[0]!.content);

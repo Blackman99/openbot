@@ -25,6 +25,8 @@ import { PostgresGroupBotRepository } from '../../src/group-bots/postgres-reposi
 import { GroupBotService } from '../../src/group-bots/service.js';
 import { PostgresGroupRepository } from '../../src/groups/postgres-group-repository.js';
 import { GroupService } from '../../src/groups/service.js';
+import { KnowledgeService } from '../../src/knowledge/service.js';
+import { UNTRUSTED_KNOWLEDGE_WARNING } from '../../src/knowledge/citation.js';
 import { MemoryService } from '../../src/memories/service.js';
 import {
   BOT_PRIVATE_VISIBILITY_SUMMARY,
@@ -195,7 +197,11 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
-  async function execution(f: Fixture, history: 'all' | 'future-only' = 'all') {
+  async function execution(
+    f: Fixture,
+    history: 'all' | 'future-only' = 'all',
+    body = 'Use the saved evidence.',
+  ) {
     const providers = new ProviderConnections(
       new PostgresProviderRepository(runtime),
       secrets,
@@ -240,7 +246,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     });
     const tasks = new TaskService(runtime);
     const task = await tasks.submit(f.memberId, f.workspaceId, f.conversation.id, {
-      body: 'Use the saved evidence.',
+      body,
       idempotencyKey: 'run',
       groupGrantId: grant.id,
     });
@@ -495,6 +501,9 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'memory_candidate_review_intents',
       'memory_candidate_review_confirmations',
       'run_approved_fact_references',
+      'knowledge_documents',
+      'knowledge_chunks',
+      'run_knowledge_references',
     ]) {
       for (const privilege of [
         'SELECT',
@@ -1573,5 +1582,94 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
         )
       ).rows,
     ).toEqual([{ status: 'pending', body: 'native dual worker evidence.' }]);
+  });
+  it('cites matching scoped knowledge through PostgreSQL full-text search without an embedding service', async () => {
+    const f = await fixture();
+    const directory = await mkdtemp(join(tmpdir(), 'openbot-native-knowledge-'));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const attachments = new AttachmentService(
+      runtime,
+      new LocalObjectStore(directory, { maxObjectBytes: 10485760 }),
+    );
+    const knowledge = new KnowledgeService(runtime, attachments);
+    const bytes = Buffer.from('Quarterly notes\nKeep the cobalt key\n');
+    const uploaded = await attachments.upload(
+      {
+        actorUserId: f.ownerId,
+        workspaceId: f.workspaceId,
+        conversationId: f.conversation.id,
+      },
+      {
+        body: 'Promote these notes',
+        filename: 'notes.txt',
+        mediaType: 'text/plain',
+        bytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        idempotencyKey: 'native-knowledge',
+      },
+      bytes,
+    );
+    expect(
+      (
+        await knowledge.promote(
+          {
+            actorUserId: f.ownerId,
+            workspaceId: f.workspaceId,
+            conversationId: f.conversation.id,
+          },
+          uploaded.messageId,
+          {
+            destination: { kind: 'group', id: f.group.id },
+            idempotencyKey: 'native-promote',
+            acknowledged: true,
+          },
+        )
+      ).created,
+    ).toBe(true);
+    const fts = await runtime.query<{ text: string }>(
+      `SELECT c.text FROM knowledge_chunks c
+       JOIN knowledge_documents d ON d.id=c.document_id
+       WHERE d.workspace_id=$1 AND d.scope_kind='group' AND d.scope_id=$2
+         AND to_tsvector('simple', c.text) @@ to_tsquery('simple', 'cobalt | key')
+       ORDER BY ts_rank(to_tsvector('simple', c.text), to_tsquery('simple', 'cobalt | key')) DESC, c.id`,
+      [f.workspaceId, f.group.id],
+    );
+    expect(fts.rows.map((row) => row.text)).toEqual(['Keep the cobalt key']);
+    expect(
+      (
+        await knowledge.search(
+          { actorUserId: f.memberId, workspaceId: f.workspaceId },
+          { query: 'Where is the cobalt key kept?', scope: { kind: 'group', id: f.group.id } },
+        )
+      ).chunks.map((chunk) => chunk.text),
+    ).toEqual(['Keep the cobalt key']);
+    expect(
+      await knowledge.search(
+        { actorUserId: f.outsiderId, workspaceId: f.workspaceId },
+        { query: 'Where is the cobalt key kept?', scope: { kind: 'group', id: f.group.id } },
+      ),
+    ).toEqual({ chunks: [] });
+    await execution(f, 'all', 'Where is the cobalt key kept?');
+    const queue = new TaskQueue(runtime);
+    const claim = (await queue.claimNext()).claim!;
+    claims.push(claim);
+    const knowledgeMessage = claim.messages.find((message) =>
+      message.content.includes('"kind":"scoped_knowledge"'),
+    );
+    expect(knowledgeMessage).toBeDefined();
+    expect(JSON.parse(knowledgeMessage!.content)).toMatchObject({
+      kind: 'scoped_knowledge',
+      untrusted: true,
+      warning: UNTRUSTED_KNOWLEDGE_WARNING,
+      chunks: [{ text: 'Keep the cobalt key', locator: { kind: 'line', start: 2, end: 2 } }],
+    });
+    expect(JSON.stringify(claim.messages)).not.toContain('Quarterly notes');
+    expect(
+      (
+        await runtime.query('SELECT chunk_id FROM run_knowledge_references WHERE run_id=$1', [
+          claim.runId,
+        ])
+      ).rows,
+    ).toHaveLength(1);
   });
 });

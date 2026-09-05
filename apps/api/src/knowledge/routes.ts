@@ -8,6 +8,7 @@ import {
   KnowledgeConflictError,
   KnowledgeInputError,
   knowledgeAccess,
+  knowledgeWorkspaceAccess,
 } from './types.js';
 import type { KnowledgeService } from './service.js';
 
@@ -43,6 +44,18 @@ export function registerKnowledgeRoutes(
       if (!token || !(await auth.getSession(token)))
         return reply.code(401).send({ error: { code: 'authentication_required' } });
     });
+    routes.post<{ Params: { workspaceId: string } }>(
+      '/api/v1/workspaces/:workspaceId/knowledge/search',
+      { bodyLimit: 4096 },
+      async (request) => {
+        const identity = await auth.getSession(readSessionToken(request.headers.cookie)!);
+        if (!identity) throw new KnowledgeInputError();
+        return knowledge.search(
+          knowledgeWorkspaceAccess(identity.user.id, request.params.workspaceId),
+          request.body,
+        );
+      },
+    );
     routes.post<{ Params: Params }>(
       '/api/v1/workspaces/:workspaceId/conversations/:conversationId/messages/:messageId/knowledge/preview',
       async (request) => {

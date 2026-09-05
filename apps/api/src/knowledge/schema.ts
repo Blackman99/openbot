@@ -106,5 +106,6 @@ export const RUN_KNOWLEDGE_POSTGRES_GUARDS = [
     END;
     $$`,
   `CREATE TRIGGER run_knowledge_reference_provenance BEFORE INSERT ON run_knowledge_references FOR EACH ROW EXECUTE FUNCTION protect_run_knowledge_reference()`,
+  `CREATE INDEX knowledge_chunk_fts_idx ON knowledge_chunks USING GIN (to_tsvector('simple', text))`,
   `CREATE TRIGGER run_knowledge_references_immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON run_knowledge_references FOR EACH STATEMENT EXECUTE FUNCTION reject_conversation_event_mutation()`,
 ] as const;

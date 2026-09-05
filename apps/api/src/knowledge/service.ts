@@ -15,9 +15,12 @@ import {
   KnowledgeInputError,
   knowledgeAccess,
   knowledgePromotionInput,
+  knowledgeSearchInput,
   type KnowledgeDestination,
   type KnowledgePreview,
 } from './types.js';
+import { knowledgeMatchTerms } from './citation.js';
+import { projectKnowledgeChunk, selectScopedKnowledgeChunks } from './run-context.js';
 
 export class KnowledgeService {
   constructor(
@@ -233,6 +236,66 @@ export class KnowledgeService {
     });
   }
 
+  async search(supplied: { actorUserId: string; workspaceId: string }, input: unknown) {
+    const command = knowledgeSearchInput(input);
+    return this.withAdmission(supplied, async (connection) => {
+      try {
+        await this.lockSearchScope(connection, supplied, command.scope);
+      } catch (error) {
+        if (
+          error instanceof KnowledgeAccessError ||
+          error instanceof ConversationAccessError ||
+          error instanceof GroupAccessError ||
+          error instanceof BotAccessError
+        )
+          return { chunks: [] };
+        throw error;
+      }
+      const terms = knowledgeMatchTerms(command.query);
+      if (!terms.length) return { chunks: [] };
+      const rows = await selectScopedKnowledgeChunks(connection, {
+        workspaceId: supplied.workspaceId,
+        scopes: [command.scope],
+        terms,
+        limit: 50,
+      });
+      return { chunks: rows.map(projectKnowledgeChunk) };
+    });
+  }
+
+  private async lockSearchScope(
+    connection: SqlConnection,
+    access: { actorUserId: string; workspaceId: string },
+    destination: KnowledgeDestination,
+  ) {
+    if (destination.kind === 'workspace') {
+      if (destination.id !== access.workspaceId) throw new KnowledgeAccessError();
+      return;
+    }
+    if (destination.kind === 'group') {
+      await lockAuthorizedGroup(
+        connection,
+        {
+          actorId: access.actorUserId,
+          workspaceId: access.workspaceId,
+          groupId: destination.id,
+        },
+        'content',
+      );
+      return;
+    }
+    const bot = await lockAuthorizedBot(
+      connection,
+      {
+        actorUserId: access.actorUserId,
+        workspaceId: access.workspaceId,
+        botId: destination.id,
+      },
+      'inspect',
+    );
+    if (bot.lifecycle_state === 'deleted') throw new KnowledgeAccessError();
+  }
+
   private async lockDestination(
     connection: SqlConnection,
     access: ConversationAccess,
@@ -274,7 +337,7 @@ export class KnowledgeService {
   }
 
   private async withAdmission<T>(
-    access: ConversationAccess,
+    access: { actorUserId: string; workspaceId: string },
     action: (connection: SqlConnection) => Promise<T>,
   ): Promise<T> {
     const connection = await this.pool.connect();

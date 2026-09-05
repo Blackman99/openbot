@@ -4,6 +4,7 @@ import {
   knowledgeAttachmentHref,
   knowledgeMatchTerms,
   knowledgeSourceReference,
+  UNTRUSTED_KNOWLEDGE_WARNING,
 } from '../../src/knowledge/citation.js';
 
 describe('knowledge citation locators', () => {
@@ -42,5 +43,13 @@ describe('knowledge citation locators', () => {
   it('keeps only distinctive terms from a trigger body for scoped matching', () => {
     expect(knowledgeMatchTerms('What is the cobalt key?')).toEqual(['what', 'cobalt']);
     expect(knowledgeMatchTerms('ok')).toEqual([]);
+  });
+
+  it('names extracted file text as untrusted data', () => {
+    expect(UNTRUSTED_KNOWLEDGE_WARNING).toContain('untrusted data');
+    expect(UNTRUSTED_KNOWLEDGE_WARNING).toContain('permissions');
+    expect(UNTRUSTED_KNOWLEDGE_WARNING).toContain('routing');
+    expect(UNTRUSTED_KNOWLEDGE_WARNING).toContain('system instructions');
+    expect(UNTRUSTED_KNOWLEDGE_WARNING).toContain('budgets');
   });
 });

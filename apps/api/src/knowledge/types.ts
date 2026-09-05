@@ -66,6 +66,31 @@ export function knowledgeDestination(input: unknown): KnowledgeDestination {
   }
 }
 
+export function knowledgeWorkspaceAccess(
+  actorUserId: string,
+  workspaceId: string,
+): { actorUserId: string; workspaceId: string } {
+  try {
+    return {
+      actorUserId: conversationUuid(actorUserId),
+      workspaceId: conversationUuid(workspaceId),
+    };
+  } catch (error) {
+    if (error instanceof InvalidConversationInputError) throw new KnowledgeInputError();
+    throw error;
+  }
+}
+
+export function knowledgeSearchInput(input: unknown): {
+  query: string;
+  scope: KnowledgeDestination;
+} {
+  const value = knowledgeObject(input, ['query', 'scope']);
+  if (typeof value.query !== 'string' || !value.query.trim() || value.query.length > 2000)
+    throw new KnowledgeInputError();
+  return { query: value.query.trim(), scope: knowledgeDestination(value.scope) };
+}
+
 export function knowledgePromotionInput(input: unknown): {
   destination: KnowledgeDestination;
   idempotencyKey: string;

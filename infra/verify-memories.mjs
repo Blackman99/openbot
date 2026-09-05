@@ -309,6 +309,9 @@ try {
     'memory_candidate_review_intents',
     'memory_candidate_review_confirmations',
     'run_approved_fact_references',
+    'knowledge_documents',
+    'knowledge_chunks',
+    'run_knowledge_references',
   ]) {
     const privileges = (
       await pool.query(

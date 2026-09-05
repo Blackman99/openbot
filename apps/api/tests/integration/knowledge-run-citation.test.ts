@@ -8,6 +8,7 @@ import {
 import {
   knowledgeAttachmentContentHref,
   knowledgeAttachmentHref,
+  UNTRUSTED_KNOWLEDGE_WARNING,
 } from '../../src/knowledge/citation.js';
 import { LocalObjectStore } from '../../src/objects/local-store.js';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -132,6 +133,8 @@ describe('KNW-01 authorized run retrieval and citation', () => {
       ]);
       expect(JSON.parse(contribution.messages[0]!.content)).toEqual({
         kind: 'scoped_knowledge',
+        untrusted: true,
+        warning: UNTRUSTED_KNOWLEDGE_WARNING,
         chunks: [
           {
             id: contribution.references[0]!.chunkId,
@@ -212,6 +215,8 @@ describe('KNW-01 authorized run retrieval and citation', () => {
     expect(contribution).toBeDefined();
     expect(JSON.parse(contribution!.content)).toMatchObject({
       kind: 'scoped_knowledge',
+      untrusted: true,
+      warning: UNTRUSTED_KNOWLEDGE_WARNING,
       chunks: [
         {
           text: 'Keep the cobalt key',
