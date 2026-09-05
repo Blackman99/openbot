@@ -114,8 +114,13 @@ export async function writeNextAttempt(
   if (!(await lockTaskAncestry(connection, input.taskId)))
     return { scheduled: false, reason: 'cancelled' };
   const source = (
-    await connection.query<{ id: string; attempt: number; status: string }>(
-      'SELECT id,attempt,status FROM task_runs WHERE task_id=$1 ORDER BY attempt FOR UPDATE',
+    await connection.query<{
+      id: string;
+      attempt: number;
+      status: string;
+      finished_at: Date | null;
+    }>(
+      'SELECT id,attempt,status,finished_at FROM task_runs WHERE task_id=$1 ORDER BY attempt FOR UPDATE',
       [input.taskId],
     )
   ).rows;
@@ -127,6 +132,12 @@ export async function writeNextAttempt(
     source.some((run) => run.attempt > input.sourceAttempt)
   )
     return { scheduled: false, reason: 'duplicate' };
+  const parent = (
+    await connection.query<{ created_at: Date }>('SELECT created_at FROM tasks WHERE id=$1', [
+      input.taskId,
+    ])
+  ).rows[0];
+  const createdAt = latestInstant(input.now, parent?.created_at, latest.finished_at);
   const previous = (
     await connection.query<{ protocol: ProviderProtocol | null; model_id: string | null }>(
       'SELECT protocol, model_id FROM task_runs WHERE id=$1',
@@ -141,7 +152,7 @@ export async function writeNextAttempt(
   const runId = randomUUID();
   await connection.query(
     "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
-    [runId, input.taskId, input.sourceAttempt + 1, input.now],
+    [runId, input.taskId, input.sourceAttempt + 1, createdAt],
   );
   await connection.query(
     'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
@@ -219,6 +230,21 @@ function bindingFromMetadata(metadata?: Record<string, unknown>): BotBinding | u
     connectionId: binding.connectionId,
     modelId: binding.modelId,
   };
+}
+
+function latestInstant(...values: Array<Date | string | number | null | undefined>): Date {
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    if (value == null) continue;
+    const at =
+      value instanceof Date
+        ? value.getTime()
+        : typeof value === 'number'
+          ? value
+          : Date.parse(String(value));
+    if (Number.isFinite(at)) latest = Math.max(latest, at);
+  }
+  return new Date(Number.isFinite(latest) ? latest : Date.now());
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

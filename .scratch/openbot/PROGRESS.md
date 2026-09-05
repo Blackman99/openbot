@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. Verify `33971346917` on `165e56a` failed native `postgres-tasks` (attempt 2 not queued) and `postgres-task-cancellation` (`root_task_id` missing after the 0022 drain fixture aborted). Follow-up: savepoint-isolated audit probes, VOLATILE DEFINER helpers, existence-safe 0023 grants, native 0023 bootstrap, and queued delivery isolated from the successor write. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
+**Frontier (2026-09-05):** COL-10 in progress on `feat/openbot-collaboration-system` / draft PR #1. Verify `33972323411` on `257f8df` passed native cancellation (`root_task_id` / 0023 bootstrap) and failed `postgres-tasks`: automatic attempt 2 was rejected with `new Task Run must be the next queued attempt` when the worker clock was behind `tasks.created_at`. Successor `created_at` now clamps to the retained Task and failed Run timestamps. Ticket 27 ACs remain unchecked. MEM-02 / KNW-01 not started. COL-07 remains `complete-with-external-verification`.
 
 Do not write non-English text into this repository.
 

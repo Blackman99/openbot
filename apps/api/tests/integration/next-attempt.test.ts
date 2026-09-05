@@ -440,6 +440,82 @@ describe('COL-10 unique next-attempt writer', () => {
     expect(taskQueued).toBeGreaterThan(queuedAudit);
   });
 
+  it('clamps successor created_at up to the retained Task and failed Run timestamps', async () => {
+    const submittedAt = new Date('2026-09-05T12:00:01.000Z');
+    const workerNow = new Date('2026-09-05T12:00:00.000Z');
+    const f = await taskFixture(cleanup, () => submittedAt);
+    const queue = new TaskQueue(f.pool);
+    const selected = await queue.claimNext();
+    expect(
+      await queue.finish(selected.claim!, {
+        error: 'provider_failed',
+        usage: null,
+        modelFailure: modelFailure('provider_rate_limited'),
+      }),
+    ).toBe(true);
+    const failed = (await taskRuns(f.pool, (await f.read()).id))[0]!;
+    const events: Array<{ parameters?: unknown[]; statement: string }> = [];
+    const connection = await f.pool.connect();
+    try {
+      await connection.query('BEGIN');
+      const result = await writeNextAttempt(
+        {
+          query: async (statement, parameters) => {
+            events.push({ statement, ...(parameters === undefined ? {} : { parameters }) });
+            return connection.query(statement, parameters);
+          },
+          release: () => undefined,
+        },
+        {
+          taskId: (await f.read()).id,
+          sourceRunId: failed.id,
+          workspaceId: f.owner.workspace.id,
+          conversationId: f.conversation.id,
+          executionUserId: f.owner.user.id,
+          sourceAttempt: 1,
+          plan: planNextAttempt({
+            failure: modelFailure('provider_rate_limited'),
+            configuration: {
+              modelBinding: {
+                scope: { kind: 'personal', id: f.owner.user.id },
+                connectionId: f.model.id,
+                modelId: f.model.modelId,
+              },
+              retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+            },
+            chain: {
+              rootRunId: failed.id,
+              previousRunId: failed.id,
+              attempts: [
+                {
+                  runId: failed.id,
+                  connectionId: f.model.id,
+                  modelId: f.model.modelId,
+                  origin: 'initial',
+                },
+              ],
+            },
+            now: workerNow,
+            jitterMs: 0,
+          })!,
+          now: workerNow,
+        },
+      );
+      await connection.query('COMMIT');
+      expect(result).toMatchObject({ scheduled: true });
+    } finally {
+      connection.release();
+    }
+    const inserted = events.find((event) => event.statement.includes('INSERT INTO task_runs'));
+    expect(new Date(String(inserted?.parameters?.[3])).getTime()).toBeGreaterThanOrEqual(
+      submittedAt.getTime(),
+    );
+    expect(await taskRuns(f.pool, (await f.read()).id)).toMatchObject([
+      { attempt: 1, status: 'failed' },
+      { attempt: 2, status: 'queued' },
+    ]);
+  });
+
   it('keeps an absent legacy retry policy as a single failed Run even for allowlisted codes', async () => {
     const f = await taskFixture(cleanup);
     const queue = new TaskQueue(f.pool);
