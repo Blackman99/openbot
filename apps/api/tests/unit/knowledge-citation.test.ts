@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   knowledgeAttachmentContentHref,
   knowledgeAttachmentHref,
+  KNOWLEDGE_SEARCH,
   knowledgeMatchTerms,
   knowledgeSourceReference,
+  knowledgeTsQuery,
   UNTRUSTED_KNOWLEDGE_WARNING,
 } from '../../src/knowledge/citation.js';
 
@@ -43,6 +45,12 @@ describe('knowledge citation locators', () => {
   it('keeps only distinctive terms from a trigger body for scoped matching', () => {
     expect(knowledgeMatchTerms('What is the cobalt key?')).toEqual(['what', 'cobalt']);
     expect(knowledgeMatchTerms('ok')).toEqual([]);
+  });
+
+  it('builds an OR PostgreSQL tsquery from distinctive terms', () => {
+    expect(KNOWLEDGE_SEARCH).toBe('postgresql-fts-simple');
+    expect(knowledgeTsQuery(knowledgeMatchTerms('What is the cobalt key?'))).toBe('what | cobalt');
+    expect(knowledgeTsQuery([])).toBe('');
   });
 
   it('names extracted file text as untrusted data', () => {

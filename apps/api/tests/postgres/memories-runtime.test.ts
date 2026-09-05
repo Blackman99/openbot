@@ -66,7 +66,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
-    expect(versions.at(-1)).toEqual({ version: '0029_run_knowledge_references' });
+    expect(versions.at(-1)).toEqual({ version: '0030_knowledge_full_text_search' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(
@@ -1635,6 +1635,18 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       [f.workspaceId, f.group.id],
     );
     expect(fts.rows.map((row) => row.text)).toEqual(['Keep the cobalt key']);
+    expect(
+      (await runtime.query('SELECT knowledge_fts_match($1,$2) AS ok', ['somewhat later', 'what']))
+        .rows,
+    ).toEqual([{ ok: false }]);
+    expect(
+      (
+        await runtime.query('SELECT knowledge_fts_match($1,$2) AS ok', [
+          'Keep the cobalt key',
+          'what | cobalt',
+        ])
+      ).rows,
+    ).toEqual([{ ok: true }]);
     expect(
       (
         await knowledge.search(

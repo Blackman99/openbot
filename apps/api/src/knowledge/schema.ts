@@ -109,3 +109,31 @@ export const RUN_KNOWLEDGE_POSTGRES_GUARDS = [
   `CREATE INDEX knowledge_chunk_fts_idx ON knowledge_chunks USING GIN (to_tsvector('simple', text))`,
   `CREATE TRIGGER run_knowledge_references_immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON run_knowledge_references FOR EACH STATEMENT EXECUTE FUNCTION reject_conversation_event_mutation()`,
 ] as const;
+
+// Migration 0030 follows run knowledge citations 0029. Functions wrap tsvector
+// matching so retrieval ranks only after authorized-scope isolation.
+export const KNOWLEDGE_FTS_SCHEMA_STATEMENTS = [] as const;
+
+export const KNOWLEDGE_FTS_POSTGRES_STATEMENTS = [
+  `CREATE FUNCTION knowledge_fts_match(chunk_text TEXT, query TEXT)
+   RETURNS BOOLEAN
+   LANGUAGE sql
+   IMMUTABLE
+   STRICT
+   PARALLEL SAFE
+   SET search_path = pg_catalog, public
+   AS $$
+     SELECT to_tsvector('simple', chunk_text) @@ to_tsquery('simple', query)
+   $$`,
+  `CREATE FUNCTION knowledge_fts_rank(chunk_text TEXT, query TEXT)
+   RETURNS REAL
+   LANGUAGE sql
+   IMMUTABLE
+   STRICT
+   PARALLEL SAFE
+   SET search_path = pg_catalog, public
+   AS $$
+     SELECT ts_rank(to_tsvector('simple', chunk_text), to_tsquery('simple', query))
+   $$`,
+  `CREATE INDEX IF NOT EXISTS knowledge_chunk_fts_idx ON knowledge_chunks USING GIN (to_tsvector('simple', text))`,
+] as const;

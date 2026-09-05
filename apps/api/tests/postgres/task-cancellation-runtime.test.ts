@@ -578,7 +578,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
             'SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 2',
           )
         ).rows.map((r) => r.version),
-      ).toEqual(['0029_run_knowledge_references', '0028_scoped_knowledge']);
+      ).toEqual(['0030_knowledge_full_text_search', '0029_run_knowledge_references']);
       expect(
         (
           await admin.query(

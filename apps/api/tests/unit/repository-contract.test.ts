@@ -218,6 +218,12 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime',
     );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION knowledge_fts_match(TEXT, TEXT) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION knowledge_fts_rank(TEXT, TEXT) TO openbot_runtime',
+    );
     expect(grants).toContain('GRANT SELECT, INSERT ON api_tokens TO openbot_runtime');
     expect(grants).toContain(
       'GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime',

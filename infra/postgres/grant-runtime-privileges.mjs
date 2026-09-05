@@ -181,6 +181,12 @@ try {
     REVOKE ALL ON FUNCTION protect_knowledge_document() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_knowledge_chunk() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_run_knowledge_reference() FROM PUBLIC, openbot_runtime;
+    IF to_regprocedure('knowledge_fts_match(text,text)') IS NOT NULL THEN
+      REVOKE ALL ON FUNCTION knowledge_fts_match(TEXT, TEXT) FROM PUBLIC, openbot_runtime;
+    END IF;
+    IF to_regprocedure('knowledge_fts_rank(text,text)') IS NOT NULL THEN
+      REVOKE ALL ON FUNCTION knowledge_fts_rank(TEXT, TEXT) FROM PUBLIC, openbot_runtime;
+    END IF;
     REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
@@ -280,6 +286,12 @@ try {
       memory_candidate_sources, approved_memory_facts, memory_candidate_decisions,
       memory_candidate_review_intents, memory_candidate_review_confirmations,
       run_approved_fact_references, knowledge_documents, knowledge_chunks, run_knowledge_references TO openbot_runtime;
+    IF to_regprocedure('knowledge_fts_match(text,text)') IS NOT NULL THEN
+      EXECUTE 'GRANT EXECUTE ON FUNCTION knowledge_fts_match(TEXT, TEXT) TO openbot_runtime';
+    END IF;
+    IF to_regprocedure('knowledge_fts_rank(text,text)') IS NOT NULL THEN
+      EXECUTE 'GRANT EXECUTE ON FUNCTION knowledge_fts_rank(TEXT, TEXT) TO openbot_runtime';
+    END IF;
     GRANT UPDATE (status, attempt_count, available_at, claim_token, lease_expires_at, last_error_code, updated_at)
       ON memory_extraction_jobs TO openbot_runtime;
     GRANT UPDATE (status, current_revision) ON memory_candidates TO openbot_runtime;

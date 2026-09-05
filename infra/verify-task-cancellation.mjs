@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0029_run_knowledge_references');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0030_knowledge_full_text_search');
   assert.deepEqual(
     (
       await pool.query(

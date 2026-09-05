@@ -5,6 +5,7 @@ import {
   escapeKnowledgeLike,
   knowledgeMatchTerms,
   knowledgeSourceReference,
+  knowledgeTsQuery,
   UNTRUSTED_KNOWLEDGE_WARNING,
 } from './citation.js';
 import type { KnowledgeLocatorKind } from './text-extractor.js';
@@ -110,21 +111,12 @@ function scopeSql(scopes: readonly KnowledgeScope[], parameters: unknown[]): str
     .join(' OR ');
 }
 
-function matchSql(terms: string[], parameters: unknown[]): string {
-  return terms
-    .map((term) => {
-      parameters.push(`%${escapeKnowledgeLike(term)}%`);
-      return `c.text ILIKE $${parameters.length}`;
-    })
-    .join(' OR ');
-}
-
 function missingFullTextSearch(error: unknown): boolean {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
   const message = error instanceof Error ? error.message : String(error);
   return (
     code === '42883' ||
-    /to_tsvector|to_tsquery|ts_rank|plainto_tsquery|function.*does not exist|unknown function/iu.test(
+    /to_tsvector|to_tsquery|ts_rank|plainto_tsquery|knowledge_fts_match|knowledge_fts_rank|function.*does not exist|unknown function/iu.test(
       message,
     )
   );
@@ -136,8 +128,31 @@ const CHUNK_FROM = `knowledge_chunks c
         AND o.workspace_id=d.workspace_id AND o.conversation_id=d.source_conversation_id AND o.message_id=d.source_message_id
       LEFT JOIN message_purges p ON p.workspace_id=d.workspace_id AND p.conversation_id=d.source_conversation_id AND p.message_id=d.source_message_id`;
 
-const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.text,
+const CHUNK_COLUMNS = `c.id,c.document_id,c.file_version,c.locator_kind,c.locator_start,c.locator_end,c.text,c.position,
        d.source_attachment_id,d.source_conversation_id,d.source_message_id,d.filename,d.workspace_id`;
+
+const PROJECTED_COLUMNS = `id,document_id,file_version,locator_kind,locator_start,locator_end,text,
+       source_attachment_id,source_conversation_id,source_message_id,filename,workspace_id`;
+
+function authorizedCte(
+  filter: {
+    workspaceId: string;
+    scopes: readonly KnowledgeScope[];
+    chunkId?: string;
+    documentId?: string;
+  },
+  parameters: unknown[],
+): string {
+  parameters.push(filter.workspaceId);
+  const scopes = scopeSql(filter.scopes, parameters);
+  let sql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
+      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${scopes})`;
+  if (filter.chunkId && filter.documentId) {
+    parameters.push(filter.chunkId, filter.documentId);
+    sql += ` AND c.id=$${parameters.length - 1} AND c.document_id=$${parameters.length}`;
+  }
+  return sql;
+}
 
 export async function selectScopedKnowledgeChunks(
   connection: SqlConnection,
@@ -151,38 +166,34 @@ export async function selectScopedKnowledgeChunks(
   },
 ): Promise<KnowledgeRow[]> {
   if (!filter.scopes.length || !filter.terms.length || filter.limit < 1) return [];
-  const locatorSql = (parameters: unknown[]) => {
-    let extra = '';
-    if (filter.chunkId && filter.documentId) {
-      parameters.push(filter.chunkId, filter.documentId);
-      extra = ` AND c.id=$${parameters.length - 1} AND c.document_id=$${parameters.length}`;
-    }
-    parameters.push(filter.limit);
-    return extra;
-  };
-  const ftsParameters: unknown[] = [filter.workspaceId];
-  const ftsScopes = scopeSql(filter.scopes, ftsParameters);
-  ftsParameters.push(filter.terms.join(' | '));
-  const tsquery = `$${ftsParameters.length}`;
-  const ftsExtra = locatorSql(ftsParameters);
-  const ftsSql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
-      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${ftsScopes})
-        AND to_tsvector('simple', c.text) @@ to_tsquery('simple', ${tsquery})${ftsExtra}
-      ORDER BY ts_rank(to_tsvector('simple', c.text), to_tsquery('simple', ${tsquery})) DESC, d.id,c.position
+  const ftsParameters: unknown[] = [];
+  const authorized = authorizedCte(filter, ftsParameters);
+  ftsParameters.push(knowledgeTsQuery(filter.terms));
+  const queryIndex = ftsParameters.length;
+  ftsParameters.push(filter.limit);
+  const ftsSql = `WITH authorized AS (${authorized})
+      SELECT ${PROJECTED_COLUMNS} FROM authorized
+      WHERE knowledge_fts_match(authorized.text, $${queryIndex})
+      ORDER BY knowledge_fts_rank(authorized.text, $${queryIndex}) DESC, document_id, position
       LIMIT $${ftsParameters.length}`;
   try {
     return (await connection.query<KnowledgeRow>(ftsSql, ftsParameters)).rows;
   } catch (error) {
     if (!missingFullTextSearch(error)) throw error;
   }
-  const likeParameters: unknown[] = [filter.workspaceId];
-  const likeScopes = scopeSql(filter.scopes, likeParameters);
-  const likes = matchSql([...filter.terms], likeParameters);
-  const likeExtra = locatorSql(likeParameters);
-  const likeSql = `SELECT ${CHUNK_COLUMNS} FROM ${CHUNK_FROM}
-      WHERE d.workspace_id=$1 AND p.message_id IS NULL AND (${likeScopes})
-        AND (${likes})${likeExtra}
-      ORDER BY d.id,c.position LIMIT $${likeParameters.length}`;
+  const likeParameters: unknown[] = [];
+  const likeAuthorized = authorizedCte(filter, likeParameters);
+  const likes = filter.terms
+    .map((term) => {
+      likeParameters.push(`%${escapeKnowledgeLike(term)}%`);
+      return `authorized.text ILIKE $${likeParameters.length}`;
+    })
+    .join(' OR ');
+  likeParameters.push(filter.limit);
+  const likeSql = `WITH authorized AS (${likeAuthorized})
+      SELECT ${PROJECTED_COLUMNS} FROM authorized
+      WHERE (${likes})
+      ORDER BY document_id, position LIMIT $${likeParameters.length}`;
   return (await connection.query<KnowledgeRow>(likeSql, likeParameters)).rows;
 }
 
