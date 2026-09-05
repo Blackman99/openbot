@@ -289,7 +289,8 @@ try {
       memory_extraction_jobs, memory_candidates, memory_candidate_revisions,
       memory_candidate_sources, approved_memory_facts, memory_candidate_decisions,
       memory_candidate_review_intents, memory_candidate_review_confirmations,
-      run_approved_fact_references, knowledge_documents, knowledge_chunks, run_knowledge_references TO openbot_runtime;
+      run_approved_fact_references, knowledge_documents, knowledge_chunks, run_knowledge_references,
+      memory_revisions, memory_revocation_events TO openbot_runtime;
     DO $grant_optional_knowledge_fts$
     BEGIN
       IF to_regprocedure('knowledge_fts_match(text,text)') IS NOT NULL THEN

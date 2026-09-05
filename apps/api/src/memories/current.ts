@@ -6,28 +6,44 @@ import {
   type MemoryRow,
   type PrivateMemoryProjection,
 } from './types.js';
-export const memoryRowColumns = `m.*,v.id AS version_id,v.confidence,v.source_message_id,v.source_event_id,v.source_creation_event_id,v.source_creation_sequence,u.display_name AS creator_name`;
-export const memoryRowTables = `group_memories m JOIN memory_versions v ON v.memory_id=m.id AND v.version=1 JOIN users u ON u.id=m.creator_user_id`;
+export const memoryRowColumns = `m.*,v.id AS version_id,v.confidence,v.source_message_id,v.source_event_id,v.source_creation_event_id,v.source_creation_sequence,u.display_name AS creator_name,COALESCE(rev.version, 1) AS displayed_version,COALESCE(rev.id, v.id) AS current_version_id,rev.kind AS revision_kind,rev.body AS revision_body,revoc.action AS revocation_action,revoc.retained_body`;
+export const memoryRowTables = `group_memories m JOIN memory_versions v ON v.memory_id=m.id AND v.version=1 JOIN users u ON u.id=m.creator_user_id
+      LEFT JOIN memory_revisions rev ON rev.memory_id=m.id
+      LEFT JOIN memory_revisions newer_rev ON newer_rev.memory_id=m.id AND newer_rev.version > rev.version
+      LEFT JOIN memory_revisions tomb ON tomb.memory_id=m.id AND tomb.kind='tombstone'
+      LEFT JOIN memory_revocation_events revoc ON revoc.target_kind='group_memory' AND revoc.target_id=m.id
+      LEFT JOIN memory_revocation_events later_revoc ON later_revoc.target_kind='group_memory' AND later_revoc.target_id=m.id AND later_revoc.created_at > revoc.created_at
+      LEFT JOIN memory_revocation_events revoked ON revoked.target_kind='group_memory' AND revoked.target_id=m.id AND revoked.action='revoke'`;
+export const memoryLatestJoin = `newer_rev.id IS NULL AND later_revoc.id IS NULL`;
+export const memoryCurrentPredicate = `${memoryLatestJoin} AND tomb.id IS NULL AND revoked.id IS NULL AND (revoc.id IS NULL OR revoc.action='retain')`;
 export function projectCurrentMemory(
   row: MemoryRow,
   source: CurrentMessageSource,
 ): MemoryProjection {
   if (
-    source.versionEventId !== row.source_event_id ||
-    source.creationEventId !== row.source_creation_event_id ||
-    source.creationSequence !== Number(row.source_creation_sequence)
+    row.revision_kind === 'tombstone' ||
+    row.revocation_action === 'pending' ||
+    row.revocation_action === 'revoke'
+  )
+    throw new MemoryAccessError();
+  const stored = row.revision_body ?? row.retained_body;
+  if (
+    !stored &&
+    (source.versionEventId !== row.source_event_id ||
+      source.creationEventId !== row.source_creation_event_id ||
+      source.creationSequence !== Number(row.source_creation_sequence))
   )
     throw new MemoryAccessError();
   return {
     id: row.id,
-    versionId: row.version_id,
-    version: 1,
+    versionId: row.current_version_id ?? row.version_id,
+    version: Number(row.displayed_version ?? 1),
     scope: { kind: 'group', workspaceId: row.workspace_id, groupId: row.group_id },
     creator: { id: row.creator_user_id, displayName: row.creator_name },
     createdAt: row.created_at,
     confidence: row.confidence,
     confidenceSource: 'human',
-    text: source.body,
+    text: stored ?? source.body,
     source: {
       conversationId: source.conversationId,
       messageId: source.messageId,
@@ -38,6 +54,37 @@ export function projectCurrentMemory(
       author: source.author,
       createdAt: source.createdAt,
       updatedAt: source.updatedAt,
+    },
+  };
+}
+
+export function projectStoredMemory(row: MemoryRow, text: string): MemoryProjection {
+  if (
+    row.revision_kind === 'tombstone' ||
+    row.revocation_action === 'pending' ||
+    row.revocation_action === 'revoke'
+  )
+    throw new MemoryAccessError();
+  return {
+    id: row.id,
+    versionId: row.current_version_id ?? row.version_id,
+    version: Number(row.displayed_version ?? 1),
+    scope: { kind: 'group', workspaceId: row.workspace_id, groupId: row.group_id },
+    creator: { id: row.creator_user_id, displayName: row.creator_name },
+    createdAt: row.created_at,
+    confidence: row.confidence,
+    confidenceSource: 'human',
+    text,
+    source: {
+      conversationId: row.conversation_id,
+      messageId: row.source_message_id,
+      eventId: row.source_event_id,
+      creationEventId: row.source_creation_event_id,
+      creationSequence: Number(row.source_creation_sequence),
+      version: row.source_event_id === row.source_creation_event_id ? 1 : 2,
+      author: { id: row.creator_user_id, displayName: row.creator_name },
+      createdAt: row.created_at,
+      updatedAt: row.created_at,
     },
   };
 }
@@ -74,7 +121,7 @@ export async function selectCurrentMemoryRows(
   }
   if (read.query) {
     parameters.push(`%${read.query.replace(/[\\%_]/gu, '\\$&')}%`);
-    extra += ` AND e.body ILIKE $${parameters.length}`;
+    extra += ` AND COALESCE(rev.body, revoc.retained_body, e.body) ILIKE $${parameters.length}`;
   }
   return (
     await connection.query<MemoryRow>(
@@ -85,8 +132,14 @@ export async function selectCurrentMemoryRows(
       LEFT JOIN message_purges p ON p.workspace_id=m.workspace_id AND p.conversation_id=m.conversation_id AND p.message_id=e.message_id
       WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.conversation_id=$3 AND o.sequence>=$4
         AND o.event_type IN ('message.created','bot.message.created') AND o.sequence=v.source_creation_sequence
-        AND e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
-        AND later.id IS NULL AND p.message_id IS NULL${extra} ORDER BY m.id LIMIT $5`,
+        AND ${memoryCurrentPredicate}
+        AND (
+          rev.kind='edit' OR revoc.action='retain'
+          OR (
+            e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
+            AND later.id IS NULL AND p.message_id IS NULL
+          )
+        )${extra} ORDER BY m.id LIMIT $5`,
       parameters,
     )
   ).rows;
@@ -116,11 +169,20 @@ export const privateMemoryCurrentFrom = `${privateMemoryRowTables}
       JOIN conversation_events e ON e.id=v.source_event_id AND e.conversation_id=m.conversation_id AND e.message_id=v.source_message_id
       JOIN conversation_events o ON o.id=v.source_creation_event_id AND o.conversation_id=m.conversation_id AND o.message_id=e.message_id
       LEFT JOIN conversation_events later ON later.conversation_id=e.conversation_id AND later.message_id=e.message_id AND later.sequence>e.sequence
-      LEFT JOIN message_purges purge ON purge.workspace_id=m.workspace_id AND purge.conversation_id=m.conversation_id AND purge.message_id=e.message_id`;
+      LEFT JOIN message_purges purge ON purge.workspace_id=m.workspace_id AND purge.conversation_id=m.conversation_id AND purge.message_id=e.message_id
+      LEFT JOIN memory_revocation_events priv_revoc ON priv_revoc.target_kind='private_memory' AND priv_revoc.target_id=p.id
+      LEFT JOIN memory_revocation_events later_priv ON later_priv.target_kind='private_memory' AND later_priv.target_id=p.id AND later_priv.created_at > priv_revoc.created_at
+      LEFT JOIN memory_revocation_events priv_revoked ON priv_revoked.target_kind='private_memory' AND priv_revoked.target_id=p.id AND priv_revoked.action='revoke'`;
 export const privateMemoryCurrentWhere = `o.sequence=v.source_creation_sequence
         AND o.event_type IN ('message.created','bot.message.created')
-        AND e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
-        AND later.id IS NULL AND purge.message_id IS NULL`;
+        AND later_priv.id IS NULL AND priv_revoked.id IS NULL AND (priv_revoc.id IS NULL OR priv_revoc.action='retain')
+        AND (
+          priv_revoc.action='retain'
+          OR (
+            e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
+            AND later.id IS NULL AND purge.message_id IS NULL
+          )
+        )`;
 export function projectPrivateMemory(row: PrivateMemoryRow): PrivateMemoryProjection {
   return {
     id: row.id,

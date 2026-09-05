@@ -1,3 +1,4 @@
+import { enqueueSourceRevocations } from '../memories/lifecycle.js';
 import { selectCurrentMessageSource } from './message-source.js';
 import {
   attachmentCommandHash,
@@ -262,6 +263,13 @@ export class ConversationTransaction {
         this.now(),
       ],
     );
+    await enqueueSourceRevocations(this.connection, {
+      workspaceId: this.access.workspaceId,
+      conversationId: this.access.conversationId,
+      messageId,
+      reason: 'source_purged',
+      createdAt: this.now(),
+    });
     await this.connection.query(
       `UPDATE attachment_objects SET state='purging',
         cleanup_after=CASE WHEN state='staged' THEN lease_until ELSE $4 END,
@@ -432,6 +440,14 @@ export class ConversationTransaction {
       },
       this.now,
     );
+    if (type === 'message.deleted' && messageId)
+      await enqueueSourceRevocations(this.connection, {
+        workspaceId: this.access.workspaceId,
+        conversationId: this.access.conversationId,
+        messageId,
+        reason: 'source_tombstoned',
+        createdAt: this.now(),
+      });
     return { receipt, replayed: false };
   }
   async read(read: MessageRead): Promise<ConversationPage> {

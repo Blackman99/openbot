@@ -312,6 +312,8 @@ try {
     'knowledge_documents',
     'knowledge_chunks',
     'run_knowledge_references',
+    'memory_revisions',
+    'memory_revocation_events',
   ]) {
     const privileges = (
       await pool.query(

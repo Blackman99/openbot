@@ -8,12 +8,40 @@
   const page = $derived(searching && form && 'memoryPage' in form ? form.memoryPage ?? { memories: [], nextAfter: null } : form?.error ? { memories: [], nextAfter: null } : data.memoryPage);
   const grantId = $derived(form?.values.grantId ?? data.grantId);
   const scopeQuery = $derived(grantId ? `?grantId=${encodeURIComponent(grantId)}` : '');
+  const pending = $derived(data.pendingRevocations ?? []);
+  const retainKey = crypto.randomUUID();
+  const revokeKey = crypto.randomUUID();
 </script>
 <svelte:head><title>Group memories · {data.group.name} · OpenBot</title></svelte:head>
 <main>
   <a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}`}>Back to group</a>
   <h1>Group memories</h1><p>{data.group.name}</p>
-  <p>Saved sources stay in this group. A source edit, deletion or purge makes its saved version unavailable.</p>
+  <p>Saved sources stay in this group. A source edit, deletion or purge makes its saved version unavailable until you retain it as an independent memory or confirm revocation.</p>
+  {#if pending.length && !grantId}
+    <section>
+      <h2>Pending revocation</h2>
+      <p>These memories are excluded from lists, search, and new model contexts until you retain or revoke them.</p>
+      {#each pending as item (item.id)}
+        <article aria-label="Pending memory revocation">
+          <pre>{item.text}</pre>
+          <p>Memory version {item.version} · Source {item.reason === 'source_purged' ? 'purged' : 'deleted'}</p>
+          {#if form?.error && (form.action === 'retainMemory' || form.action === 'revokeMemory') && form.values?.memoryId === item.id}<p role="alert">{form.error}</p>{/if}
+          <form method="POST" action="?/retainMemory" use:enhance>
+            <input type="hidden" name="memoryId" value={item.id} />
+            <input type="hidden" name="expectedVersionId" value={item.versionId} />
+            <input type="hidden" name="idempotencyKey" value={retainKey} />
+            <button>Retain as independent memory</button>
+          </form>
+          <form method="POST" action="?/revokeMemory" use:enhance>
+            <input type="hidden" name="memoryId" value={item.id} />
+            <input type="hidden" name="expectedVersionId" value={item.versionId} />
+            <input type="hidden" name="idempotencyKey" value={revokeKey} />
+            <button>Confirm revocation</button>
+          </form>
+        </article>
+      {/each}
+    </section>
+  {/if}
   <form method="GET" action={base}>
     <label for="memory-scope">View memories available to</label>
     <select id="memory-scope" name="grantId" value={grantId}>
@@ -40,5 +68,6 @@
   :global(body) { margin: 0; background: #0d1117; color: #f0f6fc; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
   main { max-width: 55rem; margin: auto; padding: 2rem; overflow-wrap: anywhere; } a { color: #a5d6ff; }
   form { display: grid; gap: .75rem; margin: 1rem 0; } input, select, button { font: inherit; color: inherit; background: #161b22; border: 1px solid #8b949e; border-radius: .4rem; padding: .75rem; min-width: 0; }
+  article { border: 1px solid #30363d; border-radius: .75rem; padding: 1.25rem; margin: 1rem 0; } pre { white-space: pre-wrap; font: inherit; }
   button { cursor: pointer; justify-self: start; } [role='alert'] { color: #ffb4ac; }
 </style>

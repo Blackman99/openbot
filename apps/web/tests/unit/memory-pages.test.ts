@@ -23,6 +23,7 @@ const data = {
   grants: [grant],
   grantId: '',
   memoryPage: { memories: [memory], nextAfter: null },
+  pendingRevocations: [],
   destinationBots: [{ id: '3c661304-a1bc-4767-9a87-c47de763f749', name: 'Private helper' }],
 };
 const params = { workspaceId: workspace.id, groupId: group.id, memoryId: memory.id };
@@ -34,6 +35,34 @@ describe('Memory pages', () => {
     expect(html).toContain('method="POST" action="?/search"');
     expect(html).toContain('Search memory text');
     expect(html).toContain('Confidence 0.5 (human estimate)');
+    expect(html).not.toContain('Pending revocation');
+  });
+  it('shows retain and revoke actions for a pending derived memory without listing it as current', () => {
+    const html = render(MemoriesPage, {
+      props: {
+        data: {
+          ...data,
+          memoryPage: { memories: [], nextAfter: null },
+          pendingRevocations: [
+            {
+              id: memory.id,
+              versionId: memory.versionId,
+              version: 1,
+              createdAt: memory.createdAt,
+              reason: 'source_tombstoned' as const,
+              text: memory.text,
+            },
+          ],
+        },
+        form: null,
+        params,
+      },
+    }).body;
+    expect(html).toContain('Pending revocation');
+    expect(html).toContain('Retain as independent memory');
+    expect(html).toContain('Confirm revocation');
+    expect(html).toContain(memory.text);
+    expect(html).toContain('No current memories in this scope.');
   });
   it('shows provenance and an exact current-message locator, escaping source markup', () => {
     const html = render(MemoryPage, {
@@ -48,6 +77,9 @@ describe('Memory pages', () => {
       `?messageId=${memory.source.messageId}#message-${memory.source.messageId}`,
     );
     expect(html).toContain('Memory version 1');
+    expect(html).toContain('Edit or forget');
+    expect(html).toContain('Save new version');
+    expect(html).toContain('Forget this memory');
     expect(html).toContain('Promote to Bot-private memory');
     expect(html).toContain('Preview promotion');
     expect(html).toContain('Private helper');

@@ -268,6 +268,10 @@ export function handleMemoryFixture(request, response, context) {
     });
     return true;
   }
+  if (path === `${base}/pending-memory-revocations` && request.method === 'GET') {
+    sendJson(response, 200, { pendingRevocations: [] });
+    return true;
+  }
   const match = /^(?:\/bots\/([^/]+))?\/memories(?:\/([^/]+))?$/u.exec(path.slice(base.length));
   if (!match) return false;
   const [, grantId, suffix] = match;

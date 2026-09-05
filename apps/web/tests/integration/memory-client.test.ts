@@ -52,7 +52,7 @@ describe('Memory API client', () => {
   it.each([
     { ...memory, scope: { ...memory.scope, groupId: memory.id } },
     { ...memory, confidence: 2 },
-    { ...memory, version: 2 },
+    { ...memory, version: 0 },
     { ...memory, confidenceSource: 'model' },
     { ...memory, source: { ...memory.source, secret: 'extra' } },
     { ...memory, source: { ...memory.source, version: 2 } },
@@ -68,6 +68,78 @@ describe('Memory API client', () => {
       'http://localhost:3000',
     );
     expect(await client.get(token, scope, memory.id)).toEqual({ status: 'unavailable' });
+  });
+  it('accepts an edited memory version and posts edit, forget, retain, and revoke commands', async () => {
+    const edited = {
+      ...memory,
+      version: 2,
+      versionId: '3c661304-a1bc-4767-9a87-c47de763f749',
+      text: 'The launch code is indigo.',
+    };
+    const request = vi.fn<typeof fetch>(async (url) => {
+      const path = String(url);
+      if (path.endsWith('/edits') || path.endsWith('/retentions'))
+        return Response.json({ memory: edited });
+      if (path.endsWith('/tombstones')) return Response.json({ forgotten: true });
+      if (path.endsWith('/revocations')) return Response.json({ revoked: true });
+      if (path.endsWith('/pending-memory-revocations'))
+        return Response.json({
+          pendingRevocations: [
+            {
+              id: memory.id,
+              versionId: memory.versionId,
+              version: 1,
+              createdAt: memory.createdAt,
+              reason: 'source_tombstoned',
+              text: memory.text,
+            },
+          ],
+        });
+      return Response.json({ memory: edited });
+    });
+    const client = new MemoryApiClient(request, 'http://api', 'http://localhost:3000');
+    expect(await client.get(token, scope, memory.id)).toEqual({
+      status: 'available',
+      value: edited,
+    });
+    expect(
+      await client.edit(token, scope, memory.id, {
+        expectedVersionId: memory.versionId,
+        body: edited.text,
+      }),
+    ).toEqual({ status: 'available', value: edited });
+    expect(JSON.parse(String(request.mock.calls.at(-1)?.[1]?.body))).toEqual({
+      expectedVersionId: memory.versionId,
+      body: edited.text,
+    });
+    expect(
+      await client.forget(token, scope, memory.id, { expectedVersionId: edited.versionId }),
+    ).toEqual({ status: 'available', value: { forgotten: true } });
+    expect(
+      await client.retain(token, scope, memory.id, {
+        expectedVersionId: memory.versionId,
+        idempotencyKey: 'keep-fact',
+      }),
+    ).toEqual({ status: 'available', value: edited });
+    expect(
+      await client.revoke(token, scope, memory.id, {
+        expectedVersionId: memory.versionId,
+        idempotencyKey: 'drop-fact',
+      }),
+    ).toEqual({ status: 'available', value: { revoked: true } });
+    expect(await client.listPending(token, scope)).toEqual({
+      status: 'available',
+      value: [
+        {
+          id: memory.id,
+          versionId: memory.versionId,
+          version: 1,
+          createdAt: memory.createdAt,
+          reason: 'source_tombstoned',
+          text: memory.text,
+        },
+      ],
+    });
   });
   it('rejects duplicate items, regressing cursors and a mismatched detail identity', async () => {
     for (const value of [

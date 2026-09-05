@@ -318,9 +318,12 @@ export async function selectApprovedFactRows(
        FROM approved_memory_facts f
        JOIN memory_candidates c ON c.id=f.candidate_id
        JOIN users u ON u.id=f.approver_user_id
-       JOIN conversation_events e ON e.id=c.output_event_id AND e.body IS NOT NULL
+       JOIN conversation_events e ON e.id=c.output_event_id
        LEFT JOIN conversation_events later_out ON later_out.conversation_id=e.conversation_id AND later_out.message_id=e.message_id AND later_out.sequence>e.sequence
        LEFT JOIN message_purges p ON p.workspace_id=f.workspace_id AND p.message_id=e.message_id
+       LEFT JOIN memory_revocation_events fact_revoc ON fact_revoc.target_kind='approved_fact' AND fact_revoc.target_id=f.id
+       LEFT JOIN memory_revocation_events later_fact ON later_fact.target_kind='approved_fact' AND later_fact.target_id=f.id AND later_fact.created_at > fact_revoc.created_at
+       LEFT JOIN memory_revocation_events fact_revoked ON fact_revoked.target_kind='approved_fact' AND fact_revoked.target_id=f.id AND fact_revoked.action='revoke'
        LEFT JOIN (
          SELECT DISTINCT s.candidate_id
          FROM memory_candidate_sources s
@@ -330,7 +333,14 @@ export async function selectApprovedFactRows(
          LEFT JOIN message_purges src_purge ON src_purge.workspace_id=$1 AND src_purge.message_id=src.message_id
          WHERE src.body IS NULL OR src_purge.message_id IS NOT NULL OR (later_src.id IS NOT NULL AND later_known.event_id IS NULL)
        ) stale ON stale.candidate_id=c.id
-       WHERE f.workspace_id=$1 AND (${scopes.join(' OR ')}) AND p.message_id IS NULL AND later_out.id IS NULL AND stale.candidate_id IS NULL${extra}
+       WHERE f.workspace_id=$1 AND (${scopes.join(' OR ')})
+         AND later_fact.id IS NULL AND fact_revoked.id IS NULL AND (fact_revoc.id IS NULL OR fact_revoc.action='retain')
+         AND (
+           fact_revoc.action='retain'
+           OR (
+             e.body IS NOT NULL AND p.message_id IS NULL AND later_out.id IS NULL AND stale.candidate_id IS NULL
+           )
+         )${extra}
        ORDER BY f.id LIMIT $2`,
       parameters,
     )

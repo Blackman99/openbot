@@ -2,7 +2,7 @@
 sequence: 40
 id: MEM-04
 title: "Version, forget, and revoke scoped memories"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - MEM-02
   - MEM-03
@@ -39,3 +39,7 @@ Users can correct or forget memories through an append-only revision history, an
 - Global retention scheduling
 - Restoring forgotten content
 - Editing source conversation events in place
+
+## Discovered implementation dependencies
+
+Migration `0031_memory_revisions_and_revocations` appends edit and tombstone revisions and revocation events. Source `memory_versions` rows stay version 1 and immutable. Lists, search, and new run context exclude tombstoned, pending, and revoked memories. Retain stores independent text without a source read path. Audit events record identifiers and actions only. These notes do not change the original acceptance texts, which stay unchecked.

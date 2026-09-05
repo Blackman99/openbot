@@ -15,7 +15,7 @@ export interface MemoryCommand {
 export interface Memory {
   id: string;
   versionId: string;
-  version: 1;
+  version: number;
   scope: { kind: 'group'; workspaceId: string; groupId: string };
   creator: { id: string; displayName: string };
   createdAt: string;
@@ -37,6 +37,15 @@ export interface Memory {
 export interface MemoryPage {
   memories: Memory[];
   nextAfter: string | null;
+}
+export type MemoryRevocationReason = 'source_deleted' | 'source_purged' | 'source_tombstoned';
+export interface PendingMemoryRevocation {
+  id: string;
+  versionId: string;
+  version: number;
+  createdAt: string;
+  reason: MemoryRevocationReason;
+  text: string;
 }
 export const BOT_PRIVATE_VISIBILITY_SUMMARY =
   'This Bot can use this memory across its conversations and groups. Other Bots cannot list, search, or receive it.';
@@ -175,7 +184,7 @@ function parseMemory(value: unknown, scope: MemoryScope): Memory | undefined {
     ) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.versionId) ||
-    value.version !== 1 ||
+    !positive(value.version) ||
     !confidence(value.confidence) ||
     value.confidenceSource !== 'human' ||
     !text(value.text, 32000) ||
@@ -214,7 +223,7 @@ function parseMemory(value: unknown, scope: MemoryScope): Memory | undefined {
   return {
     id: value.id.toLowerCase(),
     versionId: value.versionId.toLowerCase(),
-    version: 1,
+    version: value.version,
     scope: {
       kind: 'group',
       workspaceId: value.scope.workspaceId.toLowerCase(),
@@ -236,6 +245,29 @@ function parseMemory(value: unknown, scope: MemoryScope): Memory | undefined {
       createdAt: value.source.createdAt,
       updatedAt: value.source.updatedAt,
     },
+  };
+}
+function parsePending(value: unknown): PendingMemoryRevocation | undefined {
+  if (
+    !keys(value, 'createdAt,id,reason,text,version,versionId') ||
+    !isConversationUuid(value.id) ||
+    !isConversationUuid(value.versionId) ||
+    !positive(value.version) ||
+    !date(value.createdAt) ||
+    typeof value.text !== 'string' ||
+    value.text.length > 32000 ||
+    (value.reason !== 'source_deleted' &&
+      value.reason !== 'source_purged' &&
+      value.reason !== 'source_tombstoned')
+  )
+    return undefined;
+  return {
+    id: value.id.toLowerCase(),
+    versionId: value.versionId.toLowerCase(),
+    version: value.version,
+    createdAt: value.createdAt,
+    reason: value.reason,
+    text: value.text,
   };
 }
 function parsePreview(
@@ -516,6 +548,165 @@ export class MemoryApiClient {
     return memory?.id === memoryId.toLowerCase()
       ? { status: 'available', value: memory }
       : { status: 'unavailable' };
+  }
+  async edit(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    command: { expectedVersionId: string; body: string },
+  ): Promise<MemoryResult<Memory>> {
+    if (
+      scope.grantId ||
+      !isConversationUuid(memoryId) ||
+      !isConversationUuid(command.expectedVersionId) ||
+      !text(command.body, 4096)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(session, scope, `/${memoryId.toLowerCase()}/edits`, 'POST', {
+      expectedVersionId: command.expectedVersionId.toLowerCase(),
+      body: command.body,
+    });
+    if (result.status !== 'available') return result;
+    const memory = keys(result.value, 'memory')
+      ? parseMemory(result.value.memory, scope)
+      : undefined;
+    return memory?.id === memoryId.toLowerCase()
+      ? { status: 'available', value: memory }
+      : { status: 'unavailable' };
+  }
+  async forget(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    command: { expectedVersionId: string },
+  ): Promise<MemoryResult<{ forgotten: true }>> {
+    if (
+      scope.grantId ||
+      !isConversationUuid(memoryId) ||
+      !isConversationUuid(command.expectedVersionId)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      scope,
+      `/${memoryId.toLowerCase()}/tombstones`,
+      'POST',
+      { expectedVersionId: command.expectedVersionId.toLowerCase() },
+    );
+    if (result.status !== 'available') return result;
+    return keys(result.value, 'forgotten') && result.value.forgotten === true
+      ? { status: 'available', value: { forgotten: true } }
+      : { status: 'unavailable' };
+  }
+  async retain(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    command: { expectedVersionId: string; idempotencyKey: string },
+  ): Promise<MemoryResult<Memory>> {
+    if (
+      scope.grantId ||
+      !isConversationUuid(memoryId) ||
+      !isConversationUuid(command.expectedVersionId) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      scope,
+      `/${memoryId.toLowerCase()}/retentions`,
+      'POST',
+      {
+        expectedVersionId: command.expectedVersionId.toLowerCase(),
+        idempotencyKey: command.idempotencyKey,
+      },
+    );
+    if (result.status !== 'available') return result;
+    const memory = keys(result.value, 'memory')
+      ? parseMemory(result.value.memory, scope)
+      : undefined;
+    return memory?.id === memoryId.toLowerCase()
+      ? { status: 'available', value: memory }
+      : { status: 'unavailable' };
+  }
+  async revoke(
+    session: string | undefined,
+    scope: MemoryScope,
+    memoryId: string,
+    command: { expectedVersionId: string; idempotencyKey: string },
+  ): Promise<MemoryResult<{ revoked: true }>> {
+    if (
+      scope.grantId ||
+      !isConversationUuid(memoryId) ||
+      !isConversationUuid(command.expectedVersionId) ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      scope,
+      `/${memoryId.toLowerCase()}/revocations`,
+      'POST',
+      {
+        expectedVersionId: command.expectedVersionId.toLowerCase(),
+        idempotencyKey: command.idempotencyKey,
+      },
+    );
+    if (result.status !== 'available') return result;
+    return keys(result.value, 'revoked') && result.value.revoked === true
+      ? { status: 'available', value: { revoked: true } }
+      : { status: 'unavailable' };
+  }
+  async listPending(
+    session: string | undefined,
+    scope: MemoryScope,
+  ): Promise<MemoryResult<PendingMemoryRevocation[]>> {
+    if (scope.grantId) return { status: 'available', value: [] };
+    if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
+    if (!isConversationUuid(scope.workspaceId) || !isConversationUuid(scope.groupId))
+      return { status: 'invalid' };
+    const controller = new AbortController(),
+      timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await this.request(
+        `${this.baseUrl.replace(/\/$/u, '')}/api/v1/workspaces/${scope.workspaceId.toLowerCase()}/groups/${scope.groupId.toLowerCase()}/pending-memory-revocations`,
+        {
+          method: 'GET',
+          headers: {
+            cookie: `${SESSION_COOKIE_NAME}=${session}`,
+            origin: new URL(this.webOrigin).origin,
+          },
+          signal: this.signal
+            ? AbortSignal.any([this.signal, controller.signal])
+            : controller.signal,
+        },
+      );
+      if (response.status === 401) return { status: 'anonymous' };
+      const payload: unknown = await response.json();
+      if (keys(payload, 'error') && keys(payload.error, 'code')) {
+        if (response.status === 403 && payload.error.code === 'memory_forbidden')
+          return { status: 'forbidden' };
+        if (response.status === 400 && payload.error.code === 'invalid_memory_request')
+          return { status: 'invalid' };
+      }
+      if (
+        response.status !== 200 ||
+        !keys(payload, 'pendingRevocations') ||
+        !Array.isArray(payload.pendingRevocations)
+      )
+        return { status: 'unavailable' };
+      const pending: PendingMemoryRevocation[] = [];
+      for (const item of payload.pendingRevocations) {
+        const row = parsePending(item);
+        if (!row || row.id <= (pending.at(-1)?.id ?? '')) return { status: 'unavailable' };
+        pending.push(row);
+      }
+      return { status: 'available', value: pending };
+    } catch {
+      return { status: 'unavailable' };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
   async list(
     session: string | undefined,

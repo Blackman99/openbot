@@ -47,7 +47,17 @@ export function registerMemoryRoutes(
     });
     async function access(
       request: FastifyRequest<{ Params: Params }>,
-      operation: 'create' | 'read' | 'list' | 'search' | 'preview' | 'promote',
+      operation:
+        | 'create'
+        | 'read'
+        | 'list'
+        | 'search'
+        | 'preview'
+        | 'promote'
+        | 'edit-memory'
+        | 'forget-memory'
+        | 'retain-memory'
+        | 'revoke-memory',
     ): Promise<MemoryAccess | undefined> {
       const token = readSessionToken(request.headers.cookie),
         identity = token ? await auth.getSession(token) : undefined;
@@ -63,6 +73,11 @@ export function registerMemoryRoutes(
       return value;
     }
     const base = '/api/v1/workspaces/:workspaceId/groups/:groupId';
+    routes.get<{ Params: Params }>(`${base}/pending-memory-revocations`, async (request, reply) => {
+      const admitted = await access(request, 'list');
+      if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+      return memories.listPending(admitted);
+    });
     routes.post<{ Params: Params }>(
       `${base}/memories`,
       { bodyLimit: 4096 },
@@ -99,6 +114,42 @@ export function registerMemoryRoutes(
         },
       );
     }
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/edits`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'edit-memory');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return { memory: await memories.edit(admitted, request.params.memoryId, request.body) };
+      },
+    );
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/tombstones`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'forget-memory');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return memories.forget(admitted, request.params.memoryId, request.body);
+      },
+    );
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/retentions`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'retain-memory');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return { memory: await memories.retain(admitted, request.params.memoryId, request.body) };
+      },
+    );
+    routes.post<{ Params: Params & { memoryId: string } }>(
+      `${base}/memories/:memoryId/revocations`,
+      { bodyLimit: 4096 },
+      async (request, reply) => {
+        const admitted = await access(request, 'revoke-memory');
+        if (!admitted) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return memories.revoke(admitted, request.params.memoryId, request.body);
+      },
+    );
     routes.post<{ Params: Params & { memoryId: string } }>(
       `${base}/memories/:memoryId/promotion-previews`,
       { bodyLimit: 4096 },

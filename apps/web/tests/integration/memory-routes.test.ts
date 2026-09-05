@@ -4,6 +4,10 @@ import {
   loadMemoryPage,
   previewPromotionAction,
   confirmPromotionAction,
+  editMemoryAction,
+  forgetMemoryAction,
+  retainMemoryAction,
+  revokeMemoryAction,
   saveMemoryAction,
   searchMemoryAction,
 } from '../../src/lib/server/memory-page.js';
@@ -75,7 +79,15 @@ function context() {
       return Response.json({ preview });
     if (path.endsWith(`/memories/${memory.id}/promotions`))
       return Response.json({ memory: privateMemory }, { status: 201 });
+    if (path.endsWith(`/memories/${memory.id}/edits`)) return Response.json({ memory });
+    if (path.endsWith(`/memories/${memory.id}/tombstones`))
+      return Response.json({ forgotten: true });
+    if (path.endsWith(`/memories/${memory.id}/retentions`)) return Response.json({ memory });
+    if (path.endsWith(`/memories/${memory.id}/revocations`))
+      return Response.json({ revoked: true });
     if (path.endsWith(`/memories/${memory.id}`)) return Response.json({ memory });
+    if (path.endsWith('/pending-memory-revocations'))
+      return Response.json({ pendingRevocations: [] });
     if (path.endsWith('/memories') && init?.method === 'POST')
       return Response.json({ memory }, { status: 201 });
     if (path.endsWith('/memories') || path.endsWith('/search'))
@@ -110,6 +122,7 @@ describe('Memory Web boundary', () => {
     expect(await loadMemoriesPage(event, workspace.id, group.id)).toMatchObject({
       group,
       memoryPage: { memories: [memory], nextAfter: null },
+      pendingRevocations: [],
       grantId: '',
     });
     expect(event.setHeaders).toHaveBeenCalledWith({ 'cache-control': 'private, no-store' });
@@ -158,6 +171,78 @@ describe('Memory Web boundary', () => {
       intentId: preview.id,
       idempotencyKey: 'promote-memory-key',
       acknowledged: true,
+    });
+  });
+  it('edits and forgets a current memory, then retains or revokes a pending derived fact', async () => {
+    const event = context();
+    await expect(
+      editMemoryAction(
+        {
+          ...event,
+          request: request({
+            expectedVersionId: memory.versionId,
+            body: 'The launch code is indigo.',
+          }),
+        },
+        workspace.id,
+        group.id,
+        memory.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/groups/${group.id}/memories/${memory.id}`,
+    });
+    expect(
+      JSON.parse(
+        String(
+          event.fetch.mock.calls.find((entry) => String(entry[0]).endsWith('/edits'))?.[1]?.body,
+        ),
+      ),
+    ).toEqual({ expectedVersionId: memory.versionId, body: 'The launch code is indigo.' });
+    await expect(
+      forgetMemoryAction(
+        { ...event, request: request({ expectedVersionId: memory.versionId }) },
+        workspace.id,
+        group.id,
+        memory.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/groups/${group.id}/memories`,
+    });
+    await expect(
+      retainMemoryAction(
+        {
+          ...event,
+          request: request({
+            memoryId: memory.id,
+            expectedVersionId: memory.versionId,
+            idempotencyKey: 'keep-fact',
+          }),
+        },
+        workspace.id,
+        group.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/groups/${group.id}/memories/${memory.id}`,
+    });
+    await expect(
+      revokeMemoryAction(
+        {
+          ...event,
+          request: request({
+            memoryId: memory.id,
+            expectedVersionId: memory.versionId,
+            idempotencyKey: 'drop-fact',
+          }),
+        },
+        workspace.id,
+        group.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/groups/${group.id}/memories`,
     });
   });
   it.each(['0.5', '5e-1'])(

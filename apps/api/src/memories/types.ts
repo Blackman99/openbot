@@ -57,7 +57,7 @@ export interface MemoryCommand {
 export interface MemoryProjection {
   id: string;
   versionId: string;
-  version: 1;
+  version: number;
   scope: { kind: 'group'; workspaceId: string; groupId: string };
   creator: { id: string; displayName: string };
   createdAt: Date;
@@ -117,6 +117,12 @@ export type MemoryRow = {
   source_creation_event_id: string;
   source_creation_sequence: string | number;
   command_hash: string;
+  displayed_version?: string | number;
+  current_version_id?: string;
+  revision_kind?: string | null;
+  revision_body?: string | null;
+  revocation_action?: string | null;
+  retained_body?: string | null;
 };
 export function memoryUuid(input: unknown): string {
   if (

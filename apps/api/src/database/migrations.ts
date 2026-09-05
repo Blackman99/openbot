@@ -14,6 +14,10 @@ import {
 } from '../memories/candidate-schema.js';
 import { REVIEW_SCHEMA_STATEMENTS, REVIEW_POSTGRES_GUARDS } from '../memories/review-schema.js';
 import {
+  MEMORY_LIFECYCLE_SCHEMA_STATEMENTS,
+  MEMORY_LIFECYCLE_POSTGRES_GUARDS,
+} from '../memories/lifecycle-schema.js';
+import {
   KNOWLEDGE_SCHEMA_STATEMENTS,
   KNOWLEDGE_POSTGRES_GUARDS,
   RUN_KNOWLEDGE_SCHEMA_STATEMENTS,
@@ -350,6 +354,11 @@ const MIGRATIONS = [
     version: '0030_knowledge_full_text_search',
     statements: KNOWLEDGE_FTS_SCHEMA_STATEMENTS,
     postgresStatements: KNOWLEDGE_FTS_POSTGRES_STATEMENTS,
+  },
+  {
+    version: '0031_memory_revisions_and_revocations',
+    statements: MEMORY_LIFECYCLE_SCHEMA_STATEMENTS,
+    postgresStatements: MEMORY_LIFECYCLE_POSTGRES_GUARDS,
   },
 ] as const;
 

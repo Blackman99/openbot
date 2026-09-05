@@ -64,6 +64,7 @@ describe('database migrations', () => {
       '0028_scoped_knowledge',
       '0029_run_knowledge_references',
       '0030_knowledge_full_text_search',
+      '0031_memory_revisions_and_revocations',
     ]);
 
     const database: DatabaseClient = {
@@ -130,6 +131,8 @@ describe('database migrations', () => {
       'memory_extraction_jobs',
       'memory_promotion_confirmations',
       'memory_promotion_intents',
+      'memory_revisions',
+      'memory_revocation_events',
       'memory_versions',
       'message_purges',
       'oidc_identities',
@@ -169,7 +172,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0030_knowledge_full_text_search' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0031_memory_revisions_and_revocations' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

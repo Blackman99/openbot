@@ -1,7 +1,10 @@
 import {
   memoryRowColumns,
   memoryRowTables,
+  memoryCurrentPredicate,
+  memoryLatestJoin,
   projectCurrentMemory,
+  projectStoredMemory,
   privateMemoryCurrentFrom,
   privateMemoryCurrentWhere,
   privateMemoryRowColumns,
@@ -10,6 +13,7 @@ import {
   selectCurrentPrivateMemoryRows,
   type PrivateMemoryRow,
 } from './current.js';
+import { memoryEditInput, memoryForgetInput, memoryRevocationInput } from './lifecycle.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
@@ -90,7 +94,11 @@ type Operation =
   | 'reject-candidate'
   | 'approve-candidate'
   | 'preview-candidate'
-  | 'confirm-candidate';
+  | 'confirm-candidate'
+  | 'edit-memory'
+  | 'forget-memory'
+  | 'retain-memory'
+  | 'revoke-memory';
 const PREVIEW_TTL_MS = 5 * 60 * 1000;
 function accessDenied(error: unknown) {
   return (
@@ -225,13 +233,21 @@ export class MemoryService {
   private async row(connection: SqlConnection, access: MemoryAccess, memoryId: string) {
     return (
       await connection.query<MemoryRow>(
-        `SELECT ${memoryRowColumns} FROM ${memoryRowTables} WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.id=$3`,
+        `SELECT ${memoryRowColumns} FROM ${memoryRowTables} WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.id=$3 AND ${memoryLatestJoin}`,
         [access.workspaceId, access.groupId, memoryId],
       )
     ).rows[0];
   }
   private async visible(row: MemoryRow | undefined, admitted: Admission) {
     if (!row || row.conversation_id !== admitted.conversationId) throw new MemoryAccessError();
+    if (
+      row.revision_kind === 'tombstone' ||
+      row.revocation_action === 'pending' ||
+      row.revocation_action === 'revoke'
+    )
+      throw new MemoryAccessError();
+    const stored = row.revision_body ?? row.retained_body;
+    if (stored) return projectStoredMemory(row, stored);
     const source = await admitted.source(row.source_message_id);
     return projectCurrentMemory(row, source);
   }
@@ -252,7 +268,7 @@ export class MemoryService {
         const hash = memoryCommandHash(command);
         const prior = (
           await connection.query<MemoryRow>(
-            `SELECT ${memoryRowColumns} FROM ${memoryRowTables} WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.creator_user_id=$3 AND m.idempotency_key=$4`,
+            `SELECT ${memoryRowColumns} FROM ${memoryRowTables} WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.creator_user_id=$3 AND m.idempotency_key=$4 AND ${memoryLatestJoin}`,
             [access.workspaceId, access.groupId, access.actorUserId, command.idempotencyKey],
           )
         ).rows[0];
@@ -319,6 +335,206 @@ export class MemoryService {
     return this.admitted(access, 'read', { memoryId }, async (connection, admitted) =>
       this.visible(await this.row(connection, access, memoryId), admitted),
     );
+  }
+  async edit(supplied: MemoryAccess, id: string, input: unknown): Promise<MemoryProjection> {
+    const access = memoryAccess(supplied),
+      memoryId = memoryUuid(id),
+      command = memoryEditInput(input);
+    return this.admitted(access, 'edit-memory', { memoryId }, async (connection, admitted) => {
+      if (access.grantId) throw new MemoryAccessError();
+      const row = await this.row(connection, access, memoryId);
+      const current = await this.visible(row, admitted);
+      if (current.versionId !== command.expectedVersionId)
+        throw new MemoryConflictError('source_version_conflict');
+      await this.appendRevision(connection, access, row!, current, 'edit', command.body);
+      return this.visible(await this.row(connection, access, memoryId), admitted);
+    });
+  }
+  async forget(supplied: MemoryAccess, id: string, input: unknown): Promise<{ forgotten: true }> {
+    const access = memoryAccess(supplied),
+      memoryId = memoryUuid(id),
+      command = memoryForgetInput(input);
+    return this.admitted(access, 'forget-memory', { memoryId }, async (connection, admitted) => {
+      if (access.grantId) throw new MemoryAccessError();
+      const row = await this.row(connection, access, memoryId);
+      const current = await this.visible(row, admitted);
+      if (current.versionId !== command.expectedVersionId)
+        throw new MemoryConflictError('source_version_conflict');
+      await this.appendRevision(connection, access, row!, current, 'tombstone');
+      return { forgotten: true };
+    });
+  }
+  async retain(supplied: MemoryAccess, id: string, input: unknown): Promise<MemoryProjection> {
+    return this.resolveRevocation(supplied, id, input, 'retain');
+  }
+  async revoke(supplied: MemoryAccess, id: string, input: unknown): Promise<{ revoked: true }> {
+    await this.resolveRevocation(supplied, id, input, 'revoke');
+    return { revoked: true };
+  }
+  private async resolveRevocation(
+    supplied: MemoryAccess,
+    id: string,
+    input: unknown,
+    action: 'retain' | 'revoke',
+  ) {
+    const access = memoryAccess(supplied),
+      memoryId = memoryUuid(id),
+      command = memoryRevocationInput(input);
+    return this.admitted(
+      access,
+      action === 'retain' ? 'retain-memory' : 'revoke-memory',
+      { memoryId },
+      async (connection, admitted) => {
+        if (access.grantId) throw new MemoryAccessError();
+        const row = await this.row(connection, access, memoryId);
+        if (!row || row.conversation_id !== admitted.conversationId) throw new MemoryAccessError();
+        if (row.revision_kind === 'tombstone' || row.revocation_action === 'revoke')
+          throw new MemoryAccessError();
+        if (row.revocation_action !== 'pending')
+          throw new MemoryConflictError('source_version_conflict');
+        if ((row.current_version_id ?? row.version_id) !== command.expectedVersionId)
+          throw new MemoryConflictError('source_version_conflict');
+        const pending = (
+          await connection.query<{ reason: string }>(
+            `SELECT reason FROM memory_revocation_events
+             WHERE target_kind='group_memory' AND target_id=$1 AND action='pending'
+             ORDER BY created_at DESC LIMIT 1`,
+            [memoryId],
+          )
+        ).rows[0];
+        if (!pending) throw new MemoryConflictError('source_version_conflict');
+        let retainedBody: string | undefined;
+        if (action === 'retain') {
+          retainedBody = row.revision_body ?? undefined;
+          if (!retainedBody) {
+            const last = (
+              await connection.query<{ body: string }>(
+                `SELECT body FROM conversation_events
+                 WHERE conversation_id=$1 AND message_id=$2 AND body IS NOT NULL
+                 ORDER BY sequence DESC LIMIT 1`,
+                [row.conversation_id, row.source_message_id],
+              )
+            ).rows[0];
+            retainedBody = last?.body;
+          }
+          if (!retainedBody) throw new MemoryAccessError();
+        }
+        const createdAt = this.now();
+        await connection.query(
+          `INSERT INTO memory_revocation_events(
+            id,workspace_id,target_kind,target_id,target_version_id,action,reason,source_message_id,actor_user_id,retained_body,created_at
+          ) VALUES($1,$2,'group_memory',$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            randomUUID(),
+            access.workspaceId,
+            memoryId,
+            command.expectedVersionId,
+            action,
+            pending.reason,
+            row.source_message_id,
+            access.actorUserId,
+            retainedBody ?? null,
+            createdAt,
+          ],
+        );
+        await connection.query(
+          'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
+          [
+            randomUUID(),
+            action === 'retain' ? 'memory.retained' : 'memory.revoked',
+            access.actorUserId,
+            createdAt,
+            JSON.stringify({
+              workspaceId: access.workspaceId,
+              groupId: access.groupId,
+              memoryId,
+              versionId: command.expectedVersionId,
+              action,
+            }),
+          ],
+        );
+        if (action === 'revoke') return { id: memoryId };
+        return this.visible(await this.row(connection, access, memoryId), admitted);
+      },
+    );
+  }
+  private async appendRevision(
+    connection: SqlConnection,
+    access: MemoryAccess,
+    row: MemoryRow,
+    current: MemoryProjection,
+    kind: 'edit' | 'tombstone',
+    body?: string,
+  ) {
+    const createdAt = this.now();
+    const revisionId = randomUUID();
+    await connection.query(
+      `INSERT INTO memory_revisions(id,memory_id,version,kind,body,actor_user_id,created_at,previous_version_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        revisionId,
+        row.id,
+        current.version + 1,
+        kind,
+        kind === 'edit' ? body : null,
+        access.actorUserId,
+        createdAt,
+        current.versionId,
+      ],
+    );
+    await connection.query(
+      'INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,$2,$3,$4,$5::jsonb)',
+      [
+        randomUUID(),
+        kind === 'edit' ? 'memory.edited' : 'memory.forgotten',
+        access.actorUserId,
+        createdAt,
+        JSON.stringify({
+          workspaceId: access.workspaceId,
+          groupId: access.groupId,
+          memoryId: row.id,
+          versionId: revisionId,
+          previousVersionId: current.versionId,
+          action: kind,
+        }),
+      ],
+    );
+  }
+  async listPending(supplied: MemoryAccess) {
+    const access = memoryAccess(supplied);
+    return this.admitted(access, 'list', {}, async (connection, admitted) => {
+      if (access.grantId || !admitted.conversationId) return { pendingRevocations: [] };
+      const rows = (
+        await connection.query<{
+          id: string;
+          version_id: string;
+          displayed_version: string | number;
+          created_at: Date;
+          reason: string;
+          text: string | null;
+        }>(
+          `SELECT m.id, COALESCE(rev.id, v.id) AS version_id, COALESCE(rev.version, 1) AS displayed_version,
+                  m.created_at, revoc.reason, COALESCE(rev.body, e.body) AS text
+           FROM ${memoryRowTables}
+           JOIN conversation_events e ON e.id=v.source_event_id AND e.conversation_id=m.conversation_id AND e.message_id=v.source_message_id
+           WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.conversation_id=$3
+             AND ${memoryLatestJoin}
+             AND revoc.action='pending' AND tomb.id IS NULL AND revoked.id IS NULL
+           ORDER BY m.id`,
+          [access.workspaceId, access.groupId, admitted.conversationId],
+        )
+      ).rows;
+      return {
+        pendingRevocations: rows.map((row) => ({
+          id: row.id,
+          versionId: row.version_id,
+          version: Number(row.displayed_version),
+          createdAt: row.created_at,
+          reason: row.reason,
+          text: row.text ?? '',
+        })),
+      };
+    });
   }
   async list(supplied: MemoryAccess, input: unknown, search = false) {
     const access = memoryAccess(supplied),

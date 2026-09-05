@@ -25,8 +25,23 @@
   <h1>Saved memory</h1>
   <p>{data.group.name}</p>
   <MemorySource memory={data.memory}/>
-  <p>This saved version is available only while its current source remains unchanged and visible.</p>
+  <p>This saved version is available only while its current source remains unchanged and visible. Editing appends a new immutable version. Forgetting appends a tombstone and removes the text from lists, search, and new model contexts.</p>
   {#if !data.grantId}
+    <section>
+      <h2>Edit or forget</h2>
+      <form method="POST" action="?/editMemory" use:enhance>
+        <input type="hidden" name="expectedVersionId" value={data.memory.versionId} />
+        <label for="memory-body">Replacement text</label>
+        <textarea id="memory-body" name="body" maxlength="1000" required>{form?.action === 'editMemory' ? form.values?.body ?? data.memory.text : data.memory.text}</textarea>
+        <button>Save new version</button>
+      </form>
+      {#if form?.error && form.action === 'editMemory'}<p role="alert">{form.error}</p>{/if}
+      <form method="POST" action="?/forgetMemory" use:enhance>
+        <input type="hidden" name="expectedVersionId" value={data.memory.versionId} />
+        <button>Forget this memory</button>
+      </form>
+      {#if form?.error && form.action === 'forgetMemory'}<p role="alert">{form.error}</p>{/if}
+    </section>
     <section>
       <h2>Promote to Bot-private memory</h2>
       <p>Preview shows the source, destination Bot, resulting visibility, and content. Promotion requires an explicit confirmation.</p>
@@ -62,5 +77,5 @@
 </main>
 <style>
   :global(body) { margin: 0; background: #0d1117; color: #f0f6fc; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } main { max-width: 55rem; margin: auto; padding: 2rem; overflow-wrap: anywhere; } a { color: #a5d6ff; }
-  form { display: grid; gap: .75rem; margin: 1rem 0; } select, button { font: inherit; color: inherit; background: #161b22; border: 1px solid #8b949e; border-radius: .4rem; padding: .75rem; } button { cursor: pointer; justify-self: start; } [role='alert'] { color: #ffb4ac; }
+  form { display: grid; gap: .75rem; margin: 1rem 0; } select, textarea, button { font: inherit; color: inherit; background: #161b22; border: 1px solid #8b949e; border-radius: .4rem; padding: .75rem; } textarea { min-height: 6rem; } button { cursor: pointer; justify-self: start; } [role='alert'] { color: #ffb4ac; }
 </style>

@@ -100,7 +100,17 @@ export async function loadMemoriesPage(
     )
       readFailure('unavailable', context);
   }
-  return { ...page, grants, grantId: query.grantId, memoryPage: result.value };
+  const pending = query.grantId
+    ? { status: 'available' as const, value: [] }
+    : await createMemoryApiClient(context.fetch).listPending(session, selected);
+  if (pending.status !== 'available') readFailure(pending.status, context);
+  return {
+    ...page,
+    grants,
+    grantId: query.grantId,
+    memoryPage: result.value,
+    pendingRevocations: pending.value,
+  };
 }
 export async function loadMemoryPage(
   context: Context & Pick<RequestEvent, 'url'>,
@@ -136,7 +146,15 @@ export async function loadMemoryPage(
 function actionFailure(
   status: string,
   context: Context,
-  action: 'saveMemory' | 'search' | 'previewPromotion' | 'confirmPromotion',
+  action:
+    | 'saveMemory'
+    | 'search'
+    | 'previewPromotion'
+    | 'confirmPromotion'
+    | 'editMemory'
+    | 'forgetMemory'
+    | 'retainMemory'
+    | 'revokeMemory',
   values: Record<string, string>,
 ) {
   if (status === 'anonymous') readFailure(status, context);
@@ -149,15 +167,17 @@ function actionFailure(
       status === 'forbidden'
         ? 'Your current group access or source visibility no longer allows this memory.'
         : status === 'invalid'
-          ? 'Choose a current message and a confidence estimate between 0 and 1. Search text must be at most 200 characters.'
+          ? action === 'editMemory'
+            ? 'Replacement text must be 1 to 1000 characters.'
+            : 'Choose a current message and a confidence estimate between 0 and 1. Search text must be at most 200 characters.'
           : status === 'version-conflict'
-            ? 'This source changed. Refresh the conversation before saving its current version.'
+            ? 'This memory or its source changed. Refresh before retrying.'
             : status === 'idempotency-conflict'
               ? 'This command key already has different choices. Refresh before saving another memory.'
               : 'The result could not be confirmed. Retry the unchanged form with the same command key.',
   });
 }
-async function formValues(request: Request, allowed: string[]) {
+async function formValues(request: Request, allowed: string[], maxLength = 800) {
   const values: Record<string, string> = {},
     form = await request.formData();
   for (const [key, value] of form) {
@@ -165,7 +185,7 @@ async function formValues(request: Request, allowed: string[]) {
       !allowed.includes(key) ||
       typeof value !== 'string' ||
       form.getAll(key).length !== 1 ||
-      value.length > 800
+      value.length > maxLength
     )
       throw new Error('Invalid memory form');
     values[key] = value;
@@ -341,4 +361,120 @@ export async function confirmPromotionAction(
     303,
     `/app/workspaces/${result.value.scope.workspaceId}/bots/${result.value.scope.botId}/private-memories`,
   );
+}
+export async function editMemoryAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+  memoryId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request)) return actionFailure('forbidden', context, 'editMemory', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['expectedVersionId', 'body'], 4096);
+  } catch {
+    return actionFailure('invalid', context, 'editMemory', {});
+  }
+  if (!isConversationUuid(values.expectedVersionId) || !values.body?.trim())
+    return actionFailure('invalid', context, 'editMemory', values);
+  const result = await createMemoryApiClient(context.fetch, context.request.signal).edit(
+    readSessionCookie(context.cookies),
+    { workspaceId, groupId },
+    memoryId,
+    { expectedVersionId: values.expectedVersionId, body: values.body },
+  );
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'editMemory', values);
+  redirect(
+    303,
+    `/app/workspaces/${result.value.scope.workspaceId}/groups/${result.value.scope.groupId}/memories/${result.value.id}`,
+  );
+}
+export async function forgetMemoryAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+  memoryId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request)) return actionFailure('forbidden', context, 'forgetMemory', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['expectedVersionId']);
+  } catch {
+    return actionFailure('invalid', context, 'forgetMemory', {});
+  }
+  if (!isConversationUuid(values.expectedVersionId))
+    return actionFailure('invalid', context, 'forgetMemory', values);
+  const result = await createMemoryApiClient(context.fetch, context.request.signal).forget(
+    readSessionCookie(context.cookies),
+    { workspaceId, groupId },
+    memoryId,
+    { expectedVersionId: values.expectedVersionId },
+  );
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'forgetMemory', values);
+  redirect(303, `/app/workspaces/${workspaceId}/groups/${groupId}/memories`);
+}
+export async function retainMemoryAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request)) return actionFailure('forbidden', context, 'retainMemory', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['memoryId', 'expectedVersionId', 'idempotencyKey']);
+  } catch {
+    return actionFailure('invalid', context, 'retainMemory', {});
+  }
+  if (
+    !isConversationUuid(values.memoryId) ||
+    !isConversationUuid(values.expectedVersionId) ||
+    !isCommandKey(values.idempotencyKey)
+  )
+    return actionFailure('invalid', context, 'retainMemory', values);
+  const result = await createMemoryApiClient(context.fetch, context.request.signal).retain(
+    readSessionCookie(context.cookies),
+    { workspaceId, groupId },
+    values.memoryId,
+    { expectedVersionId: values.expectedVersionId, idempotencyKey: values.idempotencyKey },
+  );
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'retainMemory', values);
+  redirect(
+    303,
+    `/app/workspaces/${result.value.scope.workspaceId}/groups/${result.value.scope.groupId}/memories/${result.value.id}`,
+  );
+}
+export async function revokeMemoryAction(
+  context: Context & Pick<RequestEvent, 'request'>,
+  workspaceId: string,
+  groupId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (!validOrigin(context.request)) return actionFailure('forbidden', context, 'revokeMemory', {});
+  let values: Record<string, string>;
+  try {
+    values = await formValues(context.request, ['memoryId', 'expectedVersionId', 'idempotencyKey']);
+  } catch {
+    return actionFailure('invalid', context, 'revokeMemory', {});
+  }
+  if (
+    !isConversationUuid(values.memoryId) ||
+    !isConversationUuid(values.expectedVersionId) ||
+    !isCommandKey(values.idempotencyKey)
+  )
+    return actionFailure('invalid', context, 'revokeMemory', values);
+  const result = await createMemoryApiClient(context.fetch, context.request.signal).revoke(
+    readSessionCookie(context.cookies),
+    { workspaceId, groupId },
+    values.memoryId,
+    { expectedVersionId: values.expectedVersionId, idempotencyKey: values.idempotencyKey },
+  );
+  if (result.status !== 'available')
+    return actionFailure(result.status, context, 'revokeMemory', values);
+  redirect(303, `/app/workspaces/${workspaceId}/groups/${groupId}/memories`);
 }

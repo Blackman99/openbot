@@ -2,12 +2,14 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { ConversationAccessError, conversationUuid } from '../conversations/service.js';
 import { admitTaskTarget } from '../tasks/admission.js';
 import {
+  memoryCurrentPredicate,
   memoryRowColumns,
   memoryRowTables,
   privateMemoryCurrentFrom,
   privateMemoryCurrentWhere,
   privateMemoryRowColumns,
   projectCurrentMemory,
+  projectStoredMemory,
   selectCurrentMemoryRows,
   selectCurrentPrivateMemoryRows,
   type PrivateMemoryRow,
@@ -123,7 +125,7 @@ async function currentReference(
   const row = (
     await connection.query<MemoryRow>(
       `SELECT ${memoryRowColumns} FROM ${memoryRowTables}
-    WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.conversation_id=$3 AND v.id=$4 AND v.source_event_id=$5`,
+    WHERE m.workspace_id=$1 AND m.group_id=$2 AND m.conversation_id=$3 AND v.id=$4 AND v.source_event_id=$5 AND ${memoryCurrentPredicate}`,
       [
         task.workspace_id,
         task.group_id,
@@ -139,6 +141,8 @@ async function currentReference(
     Number(row.source_creation_sequence) > Number(task.trigger_sequence)
   )
     throw new ConversationAccessError();
+  const stored = row.revision_body ?? row.retained_body;
+  if (stored) return projectStoredMemory(row, stored);
   const source = await target.conversation.sourceForMemory(row.source_message_id);
   try {
     return projectCurrentMemory(row, source);
@@ -299,11 +303,13 @@ export async function assertRunMemoryReferencesCurrent(
       JOIN conversation_events o ON o.id=v.source_creation_event_id AND o.conversation_id=m.conversation_id AND o.message_id=e.message_id
       LEFT JOIN conversation_events later ON later.conversation_id=e.conversation_id AND later.message_id=e.message_id AND later.sequence>e.sequence
       LEFT JOIN message_purges p ON p.workspace_id=m.workspace_id AND p.conversation_id=m.conversation_id AND p.message_id=e.message_id
+      LEFT JOIN memory_revisions tomb ON tomb.memory_id=m.id AND tomb.kind='tombstone'
+      LEFT JOIN memory_revocation_events blocked ON blocked.target_kind='group_memory' AND blocked.target_id=m.id AND blocked.action IN ('pending','revoke')
       WHERE r.run_id=$1 AND m.workspace_id=$2 AND m.group_id=$3 AND m.conversation_id=$4
         AND o.sequence>=$5 AND o.sequence<=$6 AND o.sequence=v.source_creation_sequence
         AND o.event_type IN ('message.created','bot.message.created')
         AND e.event_type IN ('message.created','message.edited','bot.message.created') AND e.body IS NOT NULL
-        AND later.id IS NULL AND p.message_id IS NULL LIMIT $7`,
+        AND later.id IS NULL AND p.message_id IS NULL AND tomb.id IS NULL AND blocked.id IS NULL LIMIT $7`,
       [
         run.task.id,
         run.task.workspace_id,
@@ -326,6 +332,9 @@ export async function assertRunMemoryReferencesCurrent(
       JOIN conversation_events o ON o.id=v.source_creation_event_id AND o.conversation_id=m.conversation_id AND o.message_id=e.message_id
       LEFT JOIN conversation_events later ON later.conversation_id=e.conversation_id AND later.message_id=e.message_id AND later.sequence>e.sequence
       LEFT JOIN message_purges purge ON purge.workspace_id=m.workspace_id AND purge.conversation_id=m.conversation_id AND purge.message_id=e.message_id
+      LEFT JOIN memory_revocation_events priv_revoc ON priv_revoc.target_kind='private_memory' AND priv_revoc.target_id=p.id
+      LEFT JOIN memory_revocation_events later_priv ON later_priv.target_kind='private_memory' AND later_priv.target_id=p.id AND later_priv.created_at > priv_revoc.created_at
+      LEFT JOIN memory_revocation_events priv_revoked ON priv_revoked.target_kind='private_memory' AND priv_revoked.target_id=p.id AND priv_revoked.action='revoke'
       WHERE r.run_id=$1 AND p.workspace_id=$2 AND p.bot_id=$3 AND ${privateMemoryCurrentWhere.replaceAll('\n        ', ' ')} LIMIT $4`,
       [run.task.id, run.task.workspace_id, run.task.bot_id, MAX_RUN_MEMORIES + 1],
     );
@@ -345,7 +354,8 @@ export async function assertRunMemoryReferencesCurrent(
        JOIN memory_candidates c ON c.id=f.candidate_id
        JOIN conversation_events e ON e.id=c.output_event_id AND e.body IS NOT NULL
        LEFT JOIN message_purges p ON p.workspace_id=f.workspace_id AND p.message_id=e.message_id
-       WHERE r.run_id=$1 AND p.message_id IS NULL LIMIT $3`,
+       LEFT JOIN memory_revocation_events fact_blocked ON fact_blocked.target_kind='approved_fact' AND fact_blocked.target_id=f.id AND fact_blocked.action IN ('pending','revoke')
+       WHERE r.run_id=$1 AND p.message_id IS NULL AND fact_blocked.id IS NULL LIMIT $3`,
       [run.task.id, run.task.workspace_id, MAX_RUN_MEMORIES + 1],
     );
     if (currentFacts.rows.length !== factReferences.length) throw new ConversationAccessError();
