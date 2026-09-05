@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 const api = 'http://127.0.0.1:4399',
-  workspaceId = 'ae661304-a1bc-4767-9a87-c47de763f749';
+  workspaceId = 'ae661304-a1bc-4767-9a87-c47de763f749',
+  botId = 'bdcc0832-ce23-4d77-9c72-fb4e9d01766c';
 test('saves one source through an uncertain response, reloads provenance, searches an exact scope and excludes an edited source', async ({
   page,
   request,
@@ -142,4 +143,29 @@ test('edits a pending candidate and approves it into the origin group', async ({
   await page.getByRole('button', { name: 'Approve into this group', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'approved', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve into this group' })).toHaveCount(0);
+});
+
+test('confirms a Bot-private destination from the conversation inbox', async ({
+  page,
+  request,
+}) => {
+  await request.post(api + '/__scenario', { data: { scenario: 'unclaimed' } });
+  await page.request.post(api + '/__conversation/setup');
+  await page.goto(`/app/workspaces/${workspaceId}/conversations`);
+  await page.getByRole('button', { name: 'Open Research group', exact: true }).click();
+  const conversationId = new URL(page.url()).pathname.split('/').at(-1)!;
+  expect(
+    (await page.request.post(api + '/__memory/setup-inbox', { data: { conversationId } })).status(),
+  ).toBe(200);
+  await page.getByRole('link', { name: 'Memory review inbox', exact: true }).click();
+  await page.getByLabel('Wider destination').selectOption(`bot:${botId}`);
+  await page.getByRole('button', { name: 'Preview wider approval', exact: true }).click();
+  await expect(
+    page.getByText(
+      'This Bot can use this reviewed fact across its conversations and groups. Participants in those conversations may see it. Other Bots cannot list, search, or receive it.',
+    ),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm this approval', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'approved', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm this approval' })).toHaveCount(0);
 });
