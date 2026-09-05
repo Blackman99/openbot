@@ -5,6 +5,7 @@ import { withAbort } from '../providers/transport.js';
 import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
+import { ExtractionWorker } from '../memories/extraction-worker.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -12,14 +13,21 @@ export interface TaskWorkerOptions {
 }
 export class TaskWorker {
   private readonly queue: TaskQueue;
+  private readonly extraction: ExtractionWorker;
   constructor(
     pool: SqlPool,
     private readonly options: TaskWorkerOptions,
     private readonly now: () => Date = () => new Date(),
   ) {
     this.queue = new TaskQueue(pool, now);
+    this.extraction = new ExtractionWorker(pool, now);
   }
   async runOnce(signal?: AbortSignal): Promise<boolean> {
+    const handled = await this.runTaskOnce(signal);
+    if (signal?.aborted) return handled;
+    return (await this.extraction.runOnce()) || handled;
+  }
+  private async runTaskOnce(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false;
     const selected = await this.queue.claimNext(),
       claim = selected.claim;

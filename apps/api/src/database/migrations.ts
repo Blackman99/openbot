@@ -8,6 +8,10 @@ import {
   EXTRACTION_SCHEMA_STATEMENTS,
   EXTRACTION_POSTGRES_GUARDS,
 } from '../memories/extraction-schema.js';
+import {
+  CANDIDATE_SCHEMA_STATEMENTS,
+  CANDIDATE_POSTGRES_GUARDS,
+} from '../memories/candidate-schema.js';
 import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
 import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
 import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
@@ -312,6 +316,11 @@ const MIGRATIONS = [
     version: '0025_memory_extraction_jobs',
     statements: EXTRACTION_SCHEMA_STATEMENTS,
     postgresStatements: EXTRACTION_POSTGRES_GUARDS,
+  },
+  {
+    version: '0026_memory_candidates',
+    statements: CANDIDATE_SCHEMA_STATEMENTS,
+    postgresStatements: CANDIDATE_POSTGRES_GUARDS,
   },
 ] as const;
 

@@ -59,7 +59,7 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       { version: '0019_conversation_delivery' },
       { version: '0020_group_source_memories' },
     ]);
-    expect(versions.at(-1)).toEqual({ version: '0025_memory_extraction_jobs' });
+    expect(versions.at(-1)).toEqual({ version: '0026_memory_candidates' });
     const url = new URL(databaseUrl!),
       password = `ci-memory-${randomBytes(24).toString('hex')}`;
     await promisify(execFile)(
@@ -481,7 +481,9 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'run_private_memory_references',
       'run_source_manifests',
       'run_source_manifest_items',
-      'memory_extraction_jobs',
+      'memory_candidates',
+      'memory_candidate_revisions',
+      'memory_candidate_sources',
     ]) {
       for (const privilege of [
         'SELECT',
@@ -504,6 +506,20 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       for (const statement of [`DELETE FROM ${table}`, `TRUNCATE ${table} CASCADE`])
         await expect(admin.query(statement)).rejects.toMatchObject({ code: '55000' });
     }
+    expect(
+      (
+        await admin.query(
+          "SELECT has_table_privilege('openbot_runtime','memory_extraction_jobs','SELECT') AS read,has_table_privilege('openbot_runtime','memory_extraction_jobs','INSERT') AS append,has_table_privilege('openbot_runtime','memory_extraction_jobs','UPDATE') AS mutate,has_table_privilege('openbot_runtime','memory_extraction_jobs','DELETE') AS remove",
+        )
+      ).rows[0],
+    ).toEqual({ read: true, append: true, mutate: true, remove: false });
+    expect(
+      (
+        await admin.query(
+          "SELECT has_column_privilege('openbot_runtime','memory_extraction_jobs','status','UPDATE') AS status,has_column_privilege('openbot_runtime','memory_extraction_jobs','run_id','UPDATE') AS run",
+        )
+      ).rows[0],
+    ).toEqual({ status: true, run: false });
     for (const fn of [
       'protect_group_memory()',
       'protect_memory_version()',
@@ -514,6 +530,8 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
       'protect_run_source_manifest()',
       'protect_run_source_manifest_item()',
       'protect_memory_extraction_job()',
+      'protect_memory_candidate()',
+      'protect_memory_candidate_revision()',
     ])
       expect(
         (

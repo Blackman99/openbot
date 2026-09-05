@@ -171,6 +171,8 @@ try {
     REVOKE ALL ON FUNCTION protect_run_source_manifest() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_run_source_manifest_item() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_memory_extraction_job() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate_revision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
     REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
@@ -266,7 +268,10 @@ try {
     GRANT SELECT, INSERT ON group_memories, memory_versions, run_memory_references,
       memory_promotion_intents, bot_private_memories, memory_promotion_confirmations,
       run_private_memory_references, run_source_manifests, run_source_manifest_items,
-      memory_extraction_jobs TO openbot_runtime;
+      memory_extraction_jobs, memory_candidates, memory_candidate_revisions,
+      memory_candidate_sources TO openbot_runtime;
+    GRANT UPDATE (status, attempt_count, available_at, claim_token, lease_expires_at, last_error_code, updated_at)
+      ON memory_extraction_jobs TO openbot_runtime;
     GRANT SELECT, INSERT ON group_routing_settings, task_routing_decisions TO openbot_runtime;
     GRANT UPDATE (default_grant_id,revision,updated_by_user_id,updated_at) ON group_routing_settings TO openbot_runtime;
     GRANT UPDATE (state, message_id, filename, media_type, bytes, sha256, lease_until, cleanup_after, attempts, cleanup_token) ON attachment_objects TO openbot_runtime;

@@ -15,7 +15,7 @@ describe('successful-Run extraction enqueue', () => {
     for (const close of cleanup.splice(0).reverse()) await close();
   });
 
-  it('records exact selected locators and one queued job in the successful completion transaction', async () => {
+  it('records exact selected locators and stores pending candidates from the successful Run', async () => {
     const f = await taskFixture(cleanup);
     const worker = f.worker(async () => ({
       events: [
@@ -38,12 +38,40 @@ describe('successful-Run extraction enqueue', () => {
       {
         run_id: runId,
         output_event_id: outputEventId,
-        status: 'queued',
+        status: 'completed',
         extractor_version: LOCAL_EXTRACTOR_VERSION,
         normalizer_version: LOCAL_NORMALIZER_VERSION,
-        attempt_count: 0,
+        attempt_count: 1,
       },
     ]);
+    expect(
+      (
+        await f.pool.query(
+          `SELECT c.status,c.confidence,c.confidence_source,c.proposed_scope_kind,c.proposed_scope_id,c.extractor_version,r.body
+           FROM memory_candidates c JOIN memory_candidate_revisions r ON r.candidate_id=c.id AND r.revision=c.current_revision
+           WHERE c.run_id=$1`,
+          [runId],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        status: 'pending',
+        confidence: 0.5,
+        confidence_source: 'local_rule',
+        proposed_scope_kind: 'bot',
+        proposed_scope_id: f.bot.id,
+        extractor_version: LOCAL_EXTRACTOR_VERSION,
+        body: 'keep the evidence.',
+      },
+    ]);
+    expect(
+      (
+        await f.pool.query(
+          'SELECT event_id FROM memory_candidate_sources s JOIN memory_candidates c ON c.id=s.candidate_id WHERE c.run_id=$1 AND s.event_id=$2',
+          [runId, outputEventId],
+        )
+      ).rows,
+    ).toEqual([{ event_id: outputEventId }]);
     const items = (
       await f.pool.query(
         'SELECT position,kind,message_id,creation_event_id,creation_sequence,version_event_id,role,memory_version_id,private_memory_id,source_event_id FROM run_source_manifest_items WHERE run_id=$1 ORDER BY position',
@@ -137,7 +165,10 @@ describe('successful-Run extraction enqueue', () => {
     expect(
       (await base.pool.query('SELECT status FROM memory_extraction_jobs WHERE run_id=$1', [runId]))
         .rows,
-    ).toEqual([{ status: 'queued' }]);
+    ).toEqual([{ status: 'completed' }]);
+    expect(
+      (await base.pool.query('SELECT id FROM memory_candidates WHERE run_id=$1', [runId])).rows,
+    ).toEqual([]);
     expect(
       JSON.stringify(
         (await base.pool.query('SELECT * FROM run_source_manifest_items WHERE run_id=$1', [runId]))
@@ -159,5 +190,56 @@ describe('successful-Run extraction enqueue', () => {
       runs: [{ error: 'provider_failed' }],
     });
     expect((await f.pool.query('SELECT run_id FROM memory_extraction_jobs')).rows).toEqual([]);
+  });
+
+  it('keeps pending candidates out of group memory search', async () => {
+    const base = await memoryFixture(cleanup);
+    const grant = await base.grants.invite(
+      base.owner.user.id,
+      base.owner.workspace.id,
+      base.group.id,
+      {
+        botId: base.bot.id,
+        idempotencyKey: 'all',
+        history: { mode: 'all' },
+      },
+    );
+    const tasks = new TaskService(base.pool);
+    await tasks.submit(base.owner.user.id, base.owner.workspace.id, base.conversation.id, {
+      body: 'Extract a candidate.',
+      idempotencyKey: 'extract-run',
+      groupGrantId: grant.id,
+    });
+    const worker = new TaskWorker(base.pool, {
+      secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+      createAdapter: () => ({
+        generate: async () => ({
+          events: [
+            { type: 'text', text: 'Remember: pending must stay inert.' },
+            { type: 'complete', stopReason: 'stop' },
+          ],
+          raw: '',
+        }),
+      }),
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(
+      (
+        await base.pool.query(
+          'SELECT status,proposed_scope_kind FROM memory_candidates WHERE workspace_id=$1',
+          [base.owner.workspace.id],
+        )
+      ).rows,
+    ).toEqual([{ status: 'pending', proposed_scope_kind: 'group' }]);
+    const search = await base.memories.list(
+      {
+        actorUserId: base.owner.user.id,
+        workspaceId: base.owner.workspace.id,
+        groupId: base.group.id,
+      },
+      { query: 'pending' },
+      true,
+    );
+    expect(search.memories).toEqual([]);
   });
 });

@@ -300,7 +300,9 @@ try {
     'run_private_memory_references',
     'run_source_manifests',
     'run_source_manifest_items',
-    'memory_extraction_jobs',
+    'memory_candidates',
+    'memory_candidate_revisions',
+    'memory_candidate_sources',
   ]) {
     const privileges = (
       await pool.query(
@@ -316,6 +318,14 @@ try {
       truncate: false,
     });
   }
+  assert.deepEqual(
+    (
+      await pool.query(
+        "SELECT has_table_privilege(current_user,'memory_extraction_jobs','SELECT') AS read,has_table_privilege(current_user,'memory_extraction_jobs','INSERT') AS append,has_table_privilege(current_user,'memory_extraction_jobs','UPDATE') AS mutate,has_table_privilege(current_user,'memory_extraction_jobs','DELETE') AS remove",
+      )
+    ).rows,
+    [{ read: true, append: true, mutate: true, remove: false }],
+  );
   assert.deepEqual(
     (
       await pool.query(

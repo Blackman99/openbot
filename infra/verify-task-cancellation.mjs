@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0025_memory_extraction_jobs');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0026_memory_candidates');
   assert.deepEqual(
     (
       await pool.query(
