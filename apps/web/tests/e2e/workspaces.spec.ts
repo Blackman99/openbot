@@ -27,10 +27,15 @@ test('creates, switches and refreshes isolated workspace contexts, edits setting
   await page.getByRole('link', { name: 'My Workspace', exact: true }).click();
   await expect(page.getByLabel('Workspace description', { exact: true })).toHaveValue('');
   await page.getByRole('link', { name: 'Research', exact: true }).click();
+  await expect(page).toHaveURL(researchUrl);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Research');
   await page.getByLabel('Workspace name', { exact: true }).fill('Research team');
   await page.getByRole('button', { name: 'Save settings' }).click();
   await expect(page.getByRole('status')).toHaveText('Workspace settings saved.');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Research team');
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Research team');
+  await expect(page.getByLabel('Workspace name', { exact: true })).toHaveValue('Research team');
   await page.goto('/app/workspaces/not-accessible');
   await expect(page).toHaveURL(/\/app\/workspaces\/workspace-id$/u);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('My Workspace');

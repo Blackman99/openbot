@@ -16,6 +16,8 @@ The first full snapshot was published on 2026-09-05 as remote commit `8759f449b1
 
 Verify run `33937667219` failed in the `code` job before dependency installation: `actions/setup-node` tried to initialize the pnpm cache before pnpm was installed (`Unable to locate executable file: pnpm`). The publication follow-up installs the package-manager version declared in `package.json` using `pnpm/action-setup` before Node's cache initialization in both Node jobs. Actual CI retry is required; PostgreSQL and Compose evidence gates remain open until successful runs are recorded.
 
+Remote follow-up `c177487d7caf5526147b811081cfffc546c29a1e` fixed pnpm initialization. Verify run `33937987129` passed formatting, types, and all 119 unit/integration tests, then exposed a workspace browser-test navigation race. Locally the existing test failed in 4 of 5 repetitions; a temporary request probe confirmed the submitted name was still `Research`, because filling the shared form raced the switch back to that workspace. The test now waits for the target URL and heading before editing, and additionally verifies rename persistence after refresh. All 5 focused repetitions passed without changing application behavior or increasing retries/timeouts. The probe was removed; the complete CI retry is pending.
+
 ## Completed implementation
 
 - FND-01: deployable application foundation. Docker execution remains external gate `FND-01-E1`.
