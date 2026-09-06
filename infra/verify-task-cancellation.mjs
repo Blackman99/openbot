@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0032_document_knowledge_locators');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0033_task_pause_checkpoints');
   assert.deepEqual(
     (
       await pool.query(

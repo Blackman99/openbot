@@ -66,6 +66,7 @@ describe('database migrations', () => {
       '0030_knowledge_full_text_search',
       '0031_memory_revisions_and_revocations',
       '0032_document_knowledge_locators',
+      '0033_task_pause_checkpoints',
     ]);
 
     const database: DatabaseClient = {
@@ -148,11 +149,14 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
+      'task_pause_commands',
       'task_retry_commands',
       'task_routing_decisions',
       'task_run_cancellations',
       'task_run_delivery_receipts',
       'task_run_partial_outputs',
+      'task_run_pause_checkpoints',
+      'task_run_pauses',
       'task_run_streams',
       'task_runs',
       'tasks',
@@ -173,7 +177,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0032_document_knowledge_locators' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0033_task_pause_checkpoints' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

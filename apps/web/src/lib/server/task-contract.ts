@@ -16,7 +16,7 @@ export {
   parseRunContinuation,
   parseSafeModelSnapshot,
 } from '../task-continuation-contract.js';
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 export const taskErrorCodes = [
   'execution_forbidden',
   'model_unavailable',
@@ -82,7 +82,8 @@ function status(value: unknown): value is TaskStatus {
     value === 'running' ||
     value === 'completed' ||
     value === 'failed' ||
-    value === 'cancelled'
+    value === 'cancelled' ||
+    value === 'paused'
   );
 }
 function errorCode(value: unknown): value is TaskErrorCode {
@@ -189,7 +190,7 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
   )
     return undefined;
   if (
-    value.status === 'cancelled' &&
+    (value.status === 'cancelled' || value.status === 'paused') &&
     (value.finishedAt === null ||
       value.error !== null ||
       output !== null ||

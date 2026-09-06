@@ -21,6 +21,7 @@ import type { ProviderProtocol } from '../providers/model-events.js';
 import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { TaskFailure, Usage } from './queue.js';
 import { cancelTask, cancellationCommand } from './cancellation.js';
+import { pauseTask, pauseCommand } from './pause.js';
 import { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from './run-history.js';
 import type { TaskPartialOutput } from './partial-output.js';
@@ -28,7 +29,7 @@ import { lockTaskAncestry } from './tree.js';
 import { loadRunContinuations, type RunContinuation } from './continuation.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -229,6 +230,21 @@ export class TaskService {
     return this.transaction(async (connection) => {
       const receipt = await cancelTask(connection, access, id, command, this.now);
       return { task: await readTask(connection, id), receipt };
+    });
+  }
+  pause(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId),
+      command = pauseCommand(input);
+    return this.transaction(async (connection) => {
+      const pause = await pauseTask(connection, access, id, command, this.now);
+      return { task: await readTask(connection, id), pause };
     });
   }
   partialOutput(

@@ -41,7 +41,9 @@ export async function taskAncestryIsActive(
   connection: SqlConnection,
   taskId: string,
 ): Promise<boolean> {
-  return (await ancestry(connection, taskId)).every((node) => node.status !== 'cancelled');
+  return (await ancestry(connection, taskId)).every(
+    (node) => node.status !== 'cancelled' && node.status !== 'paused',
+  );
 }
 // Scope/conversation locks come first. Root then ordered ancestors precede every
 // current Run lock, matching subtree cancellation and native publication fences.
@@ -60,5 +62,5 @@ export async function lockTaskAncestry(
   for (const node of [...path].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)))
     if (node.id !== root.root_task_id)
       await connection.query('SELECT id FROM tasks WHERE id=$1 FOR UPDATE', [node.id]);
-  return path.every((node) => node.status !== 'cancelled');
+  return path.every((node) => node.status !== 'cancelled' && node.status !== 'paused');
 }

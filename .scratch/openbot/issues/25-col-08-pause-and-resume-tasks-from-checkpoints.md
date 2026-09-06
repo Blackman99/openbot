@@ -41,3 +41,7 @@ Authorized users can pause queued or running work and resume it exactly once as 
 ## Implementation coordination
 
 The [approved pause/resume handoff](../COL-08-PREIMPLEMENTATION-HANDOFF.md) uses the single next-attempt writer owned by COL-10. The explicit COL-10 dependency prevents a second attempt allocator; it does not change the original five acceptance criteria or implement pause/resume.
+
+## Implementation note
+
+First TDD slice is in progress: queued pause through the API, durable `paused` status, zero-byte `restart_from_task_input_v1` checkpoint, and claim fence across `TaskService` reconstruction. Acceptance criteria stay unchecked until Tester stamps the remaining running-pause, resume, UI, and native/Compose work.

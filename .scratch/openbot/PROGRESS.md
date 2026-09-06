@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-07 is fully complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on Verify [33993349287](https://github.com/Blackman99/openbot/actions/runs/33993349287), HEAD `b9a6747`: `postgres-task-cancellation` 18/18 and `compose-task-cancellation` seed/cancel/reloaded PASS. Next ticket is COL-08. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-07 is fully complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on Verify [33993349287](https://github.com/Blackman99/openbot/actions/runs/33993349287), HEAD `b9a6747`: `postgres-task-cancellation` 18/18 and `compose-task-cancellation` seed/cancel/reloaded PASS. COL-08 is in progress with a queued-pause first slice (migration `0033_task_pause_checkpoints`). Do not merge to main until the backlog and REL-01 gates allow it.
 
 Thirty-eight of 67 tickets are implemented and independently reviewed, and all 38 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12. COL-08 is in progress and consumes the single COL-10 next-attempt writer. COL-11 is ready-for-agent and shares that writer.
 

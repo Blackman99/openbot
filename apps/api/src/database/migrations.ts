@@ -59,6 +59,7 @@ import {
   CONVERSATION_STREAM_SCHEMA_STATEMENTS,
   CONVERSATION_STREAM_POSTGRES_GUARDS,
 } from '../conversations/stream-schema.js';
+import { TASK_PAUSE_SCHEMA_STATEMENTS } from '../tasks/pause-schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -368,6 +369,11 @@ const MIGRATIONS = [
     version: '0032_document_knowledge_locators',
     statements: DOCUMENT_KNOWLEDGE_SCHEMA_STATEMENTS,
     postgresStatements: DOCUMENT_KNOWLEDGE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0033_task_pause_checkpoints',
+    statements: TASK_PAUSE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
   },
 ] as const;
 
