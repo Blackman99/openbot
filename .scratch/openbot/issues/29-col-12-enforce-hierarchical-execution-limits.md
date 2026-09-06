@@ -2,7 +2,7 @@
 sequence: 29
 id: COL-12
 title: "Enforce hierarchical execution limits"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-06
   - COL-08

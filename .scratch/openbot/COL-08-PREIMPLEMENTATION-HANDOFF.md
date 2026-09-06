@@ -1,6 +1,6 @@
 # COL-08 — Pause/resume implementation handoff
 
-English contract for COL-08. Ticket ACs remain authoritative and unchecked until Tester stamps later.
+English contract for COL-08. Ticket ACs are now stamped after Tester PASS on Verify 34002580880.
 
 ## Authority
 
@@ -42,7 +42,7 @@ Queued pause only, selected Task only:
 
 ## Leftover before the original ACs can be stamped
 
-- Tester stamp of Compose pause/resume evidence on a green Verify (`compose-task-pause`).
+None. Tester PASS on [Verify 34002580880](https://github.com/Blackman99/openbot/actions/runs/34002580880), HEAD `a6d24a2`, closed the five original ACs.
 
 Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, native `protect_task` / `protect_task_run` overlays after 0033, native PostgreSQL coverage for running pause, service resume, and group subtree pause/resume, and the `compose-task-pause` seed/pause/reloaded job.
 

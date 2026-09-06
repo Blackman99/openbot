@@ -2,7 +2,7 @@
 sequence: 25
 id: COL-08
 title: "Pause and resume Tasks from checkpoints"
-status: in-progress
+status: complete
 blocked_by:
   - COL-07
   - COL-10
@@ -26,11 +26,11 @@ Authorized users can pause queued or running work and resume it exactly once as 
 
 ## Acceptance criteria
 
-- [ ] Queued and running Tasks can be paused through the API and UI.
-- [ ] A paused Task holds no execution slot and remains paused across restarts.
-- [ ] Resume creates a new attempt without mutating the interrupted Run.
-- [ ] Repeated pause or resume requests create no duplicate attempts.
-- [ ] Partial output, checkpoint metadata, and transition history remain visible after resume.
+- [x] Queued and running Tasks can be paused through the API and UI.
+- [x] A paused Task holds no execution slot and remains paused across restarts.
+- [x] Resume creates a new attempt without mutating the interrupted Run.
+- [x] Repeated pause or resume requests create no duplicate attempts.
+- [x] Partial output, checkpoint metadata, and transition history remain visible after resume.
 
 ## Non-goals
 
@@ -44,4 +44,8 @@ The [approved pause/resume handoff](../COL-08-PREIMPLEMENTATION-HANDOFF.md) uses
 
 ## Implementation note
 
-Pause now covers queued and running Tasks, including a recursive subtree, and resume creates one new queued Run through `writeNextAttempt` with origin `manual_resume`. Native `protect_task` / `protect_task_run` overlays admit those transitions under `openbot_runtime`. The UI exposes pause and resume forms and keeps interrupted output visible after resume. Acceptance criteria stay unchecked until Tester stamps Compose evidence on a green Verify.
+Pause covers queued and running Tasks, including a recursive subtree. Resume creates one new queued Run through `writeNextAttempt` with origin `manual_resume` and does not UPDATE the interrupted Run. Native `protect_task` / `protect_task_run` overlays admit those transitions under `openbot_runtime`. The UI exposes pause and resume forms and keeps interrupted output visible after resume.
+
+## Completion evidence
+
+Closed on 2026-09-06 against product HEAD `a6d24a2` with Tester PASS on [Verify 34002580880](https://github.com/Blackman99/openbot/actions/runs/34002580880) (all 17 jobs green). `postgres-tasks` executed queued pause, running pause, service resume, and group subtree pause/resume under `openbot_runtime`. `compose-task-pause` seed/pause/reloaded stages passed: queued pause before the worker starts, HTTP abort of a running request, resume as a new attempt, and interrupted output after restart. No local PostgreSQL or Docker execution is claimed. This does not implement COL-11 recovery.

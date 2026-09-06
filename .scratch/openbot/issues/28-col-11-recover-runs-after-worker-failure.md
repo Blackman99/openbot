@@ -2,7 +2,7 @@
 sequence: 28
 id: COL-11
 title: "Recover Runs after worker failure"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-05
   - COL-09
@@ -46,3 +46,7 @@ Leases, heartbeats, startup reconciliation, and guarded commits recover interrup
 ## Discovered implementation dependencies
 
 Recovery reuses COL-07 durable partial-output and cancellation fences, plus COL-10 persisted attempt chains, the shared continuation writer and the common automatic-run budget. It must not introduce a competing partial table or reset the shared budget. See [frontier handoff](../EXECUTION-FRONTIER-HANDOFF.md). These are implementation prerequisites for the approved criteria, not new criteria. All 67 tickets and 401 original acceptance texts remain unchanged.
+
+## Implementation note
+
+COL-08 is complete. COL-11 is in progress on `feat/openbot-collaboration-system` and must consume the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. The five original acceptance texts stay unchecked until Tester stamps native and Compose evidence.
