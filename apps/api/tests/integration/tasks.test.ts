@@ -88,6 +88,14 @@ describe('durable single-Bot execution', () => {
     expect(Number(output.sequence)).toBeGreaterThan(submitted.trigger.sequence);
     expect(final).toMatchObject({
       status: 'completed',
+      tokenBudgets: [
+        {
+          kind: 'run',
+          used: { inputTokens: 15, outputTokens: 5, totalTokens: 20 },
+          reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          remaining: { totalTokens: 32748 },
+        },
+      ],
       runs: [
         {
           attempt: 1,

@@ -167,6 +167,40 @@ export function evaluateScopedTokenReservation(input: {
   return { allowed: true, hard: false, soft: warnings.length > 0, warnings };
 }
 
+export type TokenBudgetCounts = TokenCounts & { totalTokens: number };
+
+export type TokenBudgetRemaining = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+export type TokenBudgetScopeView = {
+  kind: TokenBudgetLayer;
+  used: TokenBudgetCounts;
+  reserved: TokenBudgetCounts;
+  remaining: TokenBudgetRemaining;
+};
+
+export function projectTokenBudgetScope(
+  kind: TokenBudgetLayer,
+  budget: TokenBudget,
+  ledger: TokenLedger,
+): TokenBudgetScopeView {
+  const taken = occupied(ledger);
+  const left = remaining(budget, taken);
+  return {
+    kind,
+    used: { ...ledger.used, totalTokens: total(ledger.used) },
+    reserved: { ...ledger.reserved, totalTokens: total(ledger.reserved) },
+    remaining: {
+      ...(budget.maxInputTokens !== undefined ? { inputTokens: left.inputTokens } : {}),
+      ...(budget.maxOutputTokens !== undefined ? { outputTokens: left.outputTokens } : {}),
+      ...(budget.maxTotalTokens !== undefined ? { totalTokens: left.totalTokens } : {}),
+    },
+  };
+}
+
 export function resolveTokenBudgets(
   layers: Partial<Record<ExecutionLimitLayer, ExecutionLimitPolicy>>,
 ): Partial<Record<TokenBudgetLayer, TokenBudget>> {

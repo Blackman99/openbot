@@ -6,6 +6,7 @@ import {
 import {
   evaluateScopedTokenReservation,
   evaluateTokenReservation,
+  projectTokenBudgetScope,
   reconcileTokenReservation,
   resolveTokenBudgets,
   tokenBudgetFromPolicy,
@@ -68,6 +69,39 @@ describe('COL-17 token reservation math', () => {
     ).toEqual({
       reserved: { inputTokens: 0, outputTokens: 0 },
       used: { inputTokens: 22, outputTokens: 9 },
+    });
+  });
+
+  it('projects used, reserved, and remaining only for dimensions that have a cap', () => {
+    expect(
+      projectTokenBudgetScope(
+        'run',
+        { maxTotalTokens: 50 },
+        {
+          used: { inputTokens: 8, outputTokens: 2 },
+          reserved: { inputTokens: 10, outputTokens: 5 },
+        },
+      ),
+    ).toEqual({
+      kind: 'run',
+      used: { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+      reserved: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      remaining: { totalTokens: 25 },
+    });
+    expect(
+      projectTokenBudgetScope(
+        'group',
+        { maxInputTokens: 80, maxOutputTokens: 40 },
+        {
+          used: { inputTokens: 20, outputTokens: 10 },
+          reserved: { inputTokens: 0, outputTokens: 0 },
+        },
+      ),
+    ).toEqual({
+      kind: 'group',
+      used: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+      reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      remaining: { inputTokens: 60, outputTokens: 30 },
     });
   });
 

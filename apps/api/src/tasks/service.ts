@@ -33,10 +33,13 @@ import { loadRunConcurrencyHolds, type ConcurrencyHold } from './execution-concu
 import { grantTaskLimit, limitGrantCommand } from './execution-limit-grant.js';
 import {
   loadExecutionLimitPolicies,
+  parseExecutionPolicy,
   persistTaskLimitSnapshot,
   resolveExecutionLimits,
   taskPolicyFromBotLimits,
 } from './execution-limits.js';
+import { resolveTokenBudgets, type TokenBudgetScopeView } from './token-budget.js';
+import { readTokenBudgetView } from './token-budget-store.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 export type TaskStatus =
@@ -60,6 +63,7 @@ export interface TaskView {
   trigger: { messageId: string; eventId: string; sequence: number };
   runCount: number;
   olderRunsCursor: string | null;
+  tokenBudgets: TokenBudgetScopeView[];
   runs: {
     id: string;
     attempt: number;
@@ -78,6 +82,7 @@ export interface TaskView {
 type TaskRow = {
   id: string;
   conversation_id: string;
+  workspace_id: string;
   status: TaskStatus;
   created_at: Date;
   bot_id: string;
@@ -87,6 +92,8 @@ type TaskRow = {
   execution_user_id: string;
   display_name: string;
   group_grant_id: string | null;
+  group_id: string | null;
+  execution_policy: unknown;
   trigger_event_id: string;
   message_id: string;
   sequence: string | number;
@@ -162,15 +169,32 @@ async function readRuns(
 async function readTask(connection: SqlConnection, id: string): Promise<TaskView> {
   const row = (
     await connection.query<TaskRow>(
-      `SELECT t.*,v.version,v.configuration,u.display_name,e.message_id,e.sequence,d.algorithm AS routing_algorithm,d.reason AS routing_reason FROM tasks t
+      `SELECT t.*,v.version,v.configuration,u.display_name,e.message_id,e.sequence,c.group_id,d.algorithm AS routing_algorithm,d.reason AS routing_reason FROM tasks t
      JOIN bot_versions v ON v.bot_id=t.bot_id AND v.id=t.bot_version_id
      JOIN users u ON u.id=t.execution_user_id JOIN conversation_events e ON e.id=t.trigger_event_id
+     JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id
      LEFT JOIN task_routing_decisions d ON d.task_id=t.id
      WHERE t.id=$1`,
       [id],
     )
   ).rows[0]!;
   const runs = await readRuns(connection, id, 1);
+  const layers = await loadExecutionLimitPolicies(connection, row.workspace_id, row.group_id);
+  const tokenBudgets = await readTokenBudgetView(
+    connection,
+    {
+      runId: runs[0]!.id,
+      taskId: row.id,
+      workspaceId: row.workspace_id,
+      groupId: row.group_id,
+    },
+    resolveTokenBudgets({
+      workspace: layers.workspace,
+      group: layers.group,
+      task: parseExecutionPolicy(row.execution_policy),
+      run: { maxTotalTokens: row.configuration.limits.maxTotalTokens },
+    }),
+  );
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -203,6 +227,7 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
       eventId: row.trigger_event_id,
       sequence: Number(row.sequence),
     },
+    tokenBudgets,
     runs,
   };
 }

@@ -52,6 +52,23 @@ export interface TaskRun {
   output: MessageReceipt | null;
   continuation?: RunContinuation;
 }
+export type TokenBudgetLayer = 'workspace' | 'group' | 'task' | 'run';
+export interface TokenBudgetCounts {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+export interface TokenBudgetRemaining {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+export interface TokenBudgetScopeView {
+  kind: TokenBudgetLayer;
+  used: TokenBudgetCounts;
+  reserved: TokenBudgetCounts;
+  remaining: TokenBudgetRemaining;
+}
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -64,6 +81,7 @@ export interface TaskView {
   trigger: MessageReceipt;
   runCount: number;
   olderRunsCursor: string | null;
+  tokenBudgets?: TokenBudgetScopeView[];
   runs: TaskRun[];
 }
 export interface TaskPage {
@@ -107,6 +125,64 @@ export function taskDate(value: unknown): value is string {
     new Date(value).toISOString() === value
   );
 }
+function parseTokenBudgetCounts(value: unknown): TokenBudgetCounts | undefined {
+  if (!taskKeys(value, 'inputTokens,outputTokens,totalTokens')) return undefined;
+  if (
+    !taskInteger(value.inputTokens, 0) ||
+    !taskInteger(value.outputTokens, 0) ||
+    !taskInteger(value.totalTokens, 0) ||
+    value.totalTokens !== value.inputTokens + value.outputTokens
+  )
+    return undefined;
+  return {
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+    totalTokens: value.totalTokens,
+  };
+}
+
+function parseTokenBudgetRemaining(value: unknown): TokenBudgetRemaining | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const remaining: TokenBudgetRemaining = {};
+  for (const key of ['inputTokens', 'outputTokens', 'totalTokens'] as const) {
+    if (!(key in value)) continue;
+    const count = (value as Record<string, unknown>)[key];
+    if (!taskInteger(count, 0)) return undefined;
+    remaining[key] = count;
+  }
+  const keys = Object.keys(value).sort().join(',');
+  const expected = Object.keys(remaining).sort().join(',');
+  if (!expected || keys !== expected) return undefined;
+  return remaining;
+}
+
+export function parseTokenBudgetScope(value: unknown): TokenBudgetScopeView | undefined {
+  if (!taskKeys(value, 'kind,remaining,reserved,used')) return undefined;
+  if (
+    value.kind !== 'workspace' &&
+    value.kind !== 'group' &&
+    value.kind !== 'task' &&
+    value.kind !== 'run'
+  )
+    return undefined;
+  const used = parseTokenBudgetCounts(value.used);
+  const reserved = parseTokenBudgetCounts(value.reserved);
+  const remaining = parseTokenBudgetRemaining(value.remaining);
+  if (!used || !reserved || !remaining) return undefined;
+  return { kind: value.kind, used, reserved, remaining };
+}
+
+function parseTokenBudgets(value: unknown): TokenBudgetScopeView[] | undefined {
+  if (!Array.isArray(value) || !value.length) return undefined;
+  const scopes: TokenBudgetScopeView[] = [];
+  for (const item of value) {
+    const scope = parseTokenBudgetScope(item);
+    if (!scope) return undefined;
+    scopes.push(scope);
+  }
+  return scopes;
+}
+
 function parseTaskUsage(value: unknown): TaskRun['usage'] | undefined {
   if (value === null) return null;
   if (
@@ -246,6 +322,14 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
       !taskKeys(
         value,
         'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,tokenBudgets,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,tokenBudgets,trigger',
       )) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.conversationId) ||
@@ -275,6 +359,11 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
   if ('routing' in value) {
     routing = parseRoutingSummary(value.routing);
     if (value.groupGrantId === null || routing === undefined) return undefined;
+  }
+  let tokenBudgets: TaskView['tokenBudgets'];
+  if ('tokenBudgets' in value) {
+    tokenBudgets = parseTokenBudgets(value.tokenBudgets);
+    if (!tokenBudgets) return undefined;
   }
   const trigger = receipt(value.trigger),
     attempt = parseTaskRun(value.runs[0], value.createdAt);
@@ -311,6 +400,7 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     olderRunsCursor: value.olderRunsCursor,
     ...(routing === undefined ? {} : { routing }),
     trigger,
+    ...(tokenBudgets ? { tokenBudgets } : {}),
     runs: [attempt],
   };
 }

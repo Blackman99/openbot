@@ -1,8 +1,10 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import {
   evaluateScopedTokenReservation,
+  projectTokenBudgetScope,
   type TokenBudget,
   type TokenBudgetLayer,
+  type TokenBudgetScopeView,
   type TokenCounts,
 } from './token-budget.js';
 
@@ -35,6 +37,14 @@ WHERE scope_kind=$1 AND scope_id=$2`;
 
 export const DELETE_TOKEN_RESERVATION_SQL = `DELETE FROM task_token_reservations WHERE run_id=$1`;
 
+export const READ_TOKEN_LEDGER_SQL = `SELECT used_input_tokens,used_output_tokens,reserved_input_tokens,reserved_output_tokens
+FROM task_token_ledgers WHERE scope_kind=$1 AND scope_id=$2`;
+
+const EMPTY_LEDGER = {
+  used: { inputTokens: 0, outputTokens: 0 },
+  reserved: { inputTokens: 0, outputTokens: 0 },
+};
+
 export function tokenBudgetScopes(target: TokenBudgetTarget): Array<{
   kind: TokenBudgetLayer;
   id: string;
@@ -63,6 +73,28 @@ function counts(row: {
       outputTokens: Number(row.reserved_output_tokens),
     },
   };
+}
+
+export async function readTokenBudgetView(
+  connection: SqlConnection,
+  target: TokenBudgetTarget,
+  budgets: Partial<Record<TokenBudgetLayer, TokenBudget>>,
+): Promise<TokenBudgetScopeView[]> {
+  const views: TokenBudgetScopeView[] = [];
+  for (const scope of tokenBudgetScopes(target).filter((item) => budgets[item.kind])) {
+    const row = (
+      await connection.query<{
+        used_input_tokens: string | number;
+        used_output_tokens: string | number;
+        reserved_input_tokens: string | number;
+        reserved_output_tokens: string | number;
+      }>(READ_TOKEN_LEDGER_SQL, [scope.kind, scope.id])
+    ).rows[0];
+    views.push(
+      projectTokenBudgetScope(scope.kind, budgets[scope.kind]!, row ? counts(row) : EMPTY_LEDGER),
+    );
+  }
+  return views;
 }
 
 export async function applyRunTokenReservation(

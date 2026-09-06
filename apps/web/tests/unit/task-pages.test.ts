@@ -35,6 +35,14 @@ const params = { workspaceId: workspace.id, conversationId: conversation.id };
 const completed: TaskView = {
   ...task,
   status: 'completed',
+  tokenBudgets: [
+    {
+      kind: 'run',
+      used: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+      reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      remaining: { totalTokens: 32756 },
+    },
+  ],
   runs: [
     {
       ...task.runs[0]!,
@@ -351,6 +359,8 @@ describe('Task pages', () => {
       'openai-responses',
       'Input tokens: 12 · Output tokens: 0 · Actual',
       'Output tokens: 0',
+      'Token budget',
+      'This run: used 12 · reserved 0 · remaining total 32756',
       'Refresh task',
       completed.runs[0]!.output!.messageId,
     ])

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SqlConnection } from '../../src/auth/postgres-auth-repository.js';
 import {
   applyRunTokenReservation,
+  readTokenBudgetView,
   reconcileRunTokenReservation,
   tokenBudgetScopes,
 } from '../../src/tasks/token-budget-store.js';
@@ -121,6 +122,45 @@ describe('COL-17 token ledger reservation', () => {
       reserved_input_tokens: 10,
       reserved_output_tokens: 5,
     });
+  });
+
+  it('reads used, reserved, and remaining from each applicable ledger', async () => {
+    const { connection } = memoryConnection();
+    const budgets = { task: { maxTotalTokens: 50 }, run: { maxTotalTokens: 50 } };
+    await applyRunTokenReservation(
+      connection,
+      target,
+      budgets,
+      { inputTokens: 8, outputTokens: 7 },
+      now,
+    );
+    await expect(readTokenBudgetView(connection, target, budgets)).resolves.toEqual([
+      {
+        kind: 'task',
+        used: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        reserved: { inputTokens: 8, outputTokens: 7, totalTokens: 15 },
+        remaining: { totalTokens: 35 },
+      },
+      {
+        kind: 'run',
+        used: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        reserved: { inputTokens: 8, outputTokens: 7, totalTokens: 15 },
+        remaining: { totalTokens: 35 },
+      },
+    ]);
+    await reconcileRunTokenReservation(connection, target, { inputTokens: 6, outputTokens: 4 });
+    await expect(
+      readTokenBudgetView(connection, { ...target, runId: '55555555-5555-5555-5555-555555555555' }, {
+        run: { maxTotalTokens: 50 },
+      }),
+    ).resolves.toEqual([
+      {
+        kind: 'run',
+        used: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        remaining: { totalTokens: 50 },
+      },
+    ]);
   });
 
   it('reconciles reserved tokens to recorded usage on finish or abort', async () => {

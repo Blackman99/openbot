@@ -70,6 +70,14 @@ describe('Task Web client and actual HTTP/domain contract', () => {
           status: 'queued',
           bot: { id: f.bot.id },
           executionUser: { id: f.owner.user.id },
+          tokenBudgets: [
+            {
+              kind: 'run',
+              used: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              remaining: { totalTokens: 32768 },
+            },
+          ],
           runs: [{ status: 'queued' }],
         },
       });
@@ -106,11 +114,19 @@ describe('Task Web client and actual HTTP/domain contract', () => {
         value: {
           id: submitted.value.id,
           status: outcome,
+          tokenBudgets: [
+            {
+              kind: 'run',
+              used: { inputTokens: 12, outputTokens: 0, totalTokens: 12 },
+              reserved: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              remaining: { totalTokens: 32756 },
+            },
+          ],
           runs: [
             {
               status: outcome,
               provider: { protocol: 'openai-chat', modelId: 'test-model' },
-              usage: { inputTokens: 12, outputTokens: 0 },
+              usage: { inputTokens: 12, outputTokens: 0, estimated: false },
               error: outcome === 'failed' ? 'provider_failed' : null,
             },
           ],
