@@ -1,20 +1,31 @@
 import { botAclFixture } from './bot-acl-fixture.js';
 import { ConversationService } from '../../src/conversations/service.js';
 import { PostgresConversationRepository } from '../../src/conversations/postgres-repository.js';
-import { TaskService } from '../../src/tasks/service.js';
+import { TaskService, type TaskView } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import type { ModelAdapter } from '../../src/providers/model-events.js';
 
-export async function taskFixture(
+type TaskFixtureOptions = {
+  retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
+  fallbackModel?: boolean;
+};
+
+type TaskFixtureShared = Awaited<ReturnType<typeof botAclFixture>> & {
+  tasks: TaskService;
+  conversations: ConversationService;
+  conversation: Awaited<ReturnType<ConversationService['open']>>;
+  read: () => ReturnType<TaskService['get']>;
+  worker: (generate: ModelAdapter['generate']) => TaskWorker;
+};
+
+export async function taskFixture<SubmitInitialTask extends boolean = true>(
   cleanup: Array<() => Promise<unknown>>,
-  now = () => new Date(),
-  options: {
-    retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
-    fallbackModel?: boolean;
-    submitInitialTask?: boolean;
-  } = {},
-) {
+  now: () => Date = () => new Date(),
+  options: TaskFixtureOptions & { submitInitialTask?: SubmitInitialTask } = {},
+): Promise<
+  TaskFixtureShared & (SubmitInitialTask extends false ? { task?: undefined } : { task: TaskView })
+> {
   const { submitInitialTask = true, ...aclOptions } = options;
   const f = await botAclFixture(cleanup, { now, ...aclOptions });
   const conversations = new ConversationService(new PostgresConversationRepository(f.pool, now));
@@ -47,5 +58,6 @@ export async function taskFixture(
         },
         now,
       ),
-  };
+  } as unknown as TaskFixtureShared &
+    (SubmitInitialTask extends false ? { task?: undefined } : { task: TaskView });
 }
