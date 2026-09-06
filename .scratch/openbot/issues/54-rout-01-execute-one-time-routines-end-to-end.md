@@ -2,7 +2,7 @@
 sequence: 54
 id: ROUT-01
 title: "Execute one-time routines end to end"
-status: in-progress
+status: complete
 blocked_by:
   - API-01
   - COL-18
@@ -28,12 +28,12 @@ Authorized users can create bounded one-time collaboration routines through the 
 
 ## Acceptance criteria
 
-- [ ] A routine stores its owner, group, prompt, lead or routing policy, IANA time zone, execution time, budget, and expiration.
-- [ ] Authorized users can create, edit, pause, resume, and cancel routines through the UI and /v1/routines.
-- [ ] At its scheduled time, a routine creates exactly one standard collaboration task linked from the routine page.
-- [ ] If the service restarts at trigger time, one unexpired routine execution is recovered without duplication.
-- [ ] A database uniqueness constraint prevents concurrent workers from creating duplicate tasks for one occurrence.
-- [ ] Bot collaboration actions cannot create routines or increase an existing routine's frequency or budget.
+- [x] A routine stores its owner, group, prompt, lead or routing policy, IANA time zone, execution time, budget, and expiration.
+- [x] Authorized users can create, edit, pause, resume, and cancel routines through the UI and /v1/routines.
+- [x] At its scheduled time, a routine creates exactly one standard collaboration task linked from the routine page.
+- [x] If the service restarts at trigger time, one unexpired routine execution is recovered without duplication.
+- [x] A database uniqueness constraint prevents concurrent workers from creating duplicate tasks for one occurrence.
+- [x] Bot collaboration actions cannot create routines or increase an existing routine's frequency or budget.
 
 ## Non-goals
 

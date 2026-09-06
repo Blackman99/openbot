@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** ROUT-01 AC2 UI + AC6 bot-deny land on `feat/openbot-collaboration-system` / draft PR #1. Session `/api/v1/workspaces/:workspaceId/groups/:groupId/routines` powers create/edit/pause/resume/cancel UI under groups; worker denies bot `create_routine` and budget/frequency `edit_routine` collaboration actions. AC1–AC5 remain from tip `ccbd966`. Ticket checkboxes remain unchecked for Tester. Verify queued after push. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** ROUT-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `5ba2a2a`, green [Verify 34035394210](https://github.com/Blackman99/openbot/actions/runs/34035394210), and Tester 6/6 PASS. DEPLOY-01 is in progress with the first TDD slice: telemetry stays disabled by default (`OPENBOT_TELEMETRY=false`), Compose passes the flag to API/worker, and idle API/worker smokes make no unnecessary outbound HTTP. Remaining DEPLOY-01 ACs cover one-command healthy startup/first-admin, migration-once failure readiness, restart durability, private-network model endpoints, and host port exposure (already contracted). ROUT-02 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Fifty-three of 67 tickets are implemented and independently reviewed, and all 53 are fully complete. All 401 original acceptance texts are preserved.
+Fifty-four of 67 tickets are implemented and independently reviewed, and all 54 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
