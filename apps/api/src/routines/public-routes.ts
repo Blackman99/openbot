@@ -34,6 +34,9 @@ function publicRoutineView(routine: RoutineView) {
     status: routine.status,
     createdAt: routine.createdAt,
     updatedAt: routine.updatedAt,
+    ...(routine.taskId !== undefined
+      ? { taskId: routine.taskId, conversationId: routine.conversationId ?? null }
+      : {}),
   };
 }
 
@@ -71,6 +74,21 @@ export function registerPublicRoutineRoutes(
         return reply.code(error.statusCode).send({ error: { code: 'invalid_routine_request' } });
       return reply.code(503).send({ error: { code: 'routine_unavailable' } });
     });
+
+    routes.get<{ Params: { routineId: string } }>('/v1/routines/:routineId', async (request) => {
+      const { identity } = await tokens.authorizeResource(
+        readApiRequestToken(request),
+        'groups:read',
+      );
+      emptyQuery(request.query);
+      const routine = await routines.get(
+        identity.user.id,
+        identity.workspace.id,
+        request.params.routineId,
+      );
+      return { routine: publicRoutineView(routine) };
+    });
+
     routes.post('/v1/routines', { bodyLimit: 65536 }, async (request, reply) => {
       const { identity, admit } = await tokens.authorizeResource(
         readApiRequestToken(request),

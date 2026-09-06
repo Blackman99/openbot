@@ -8,6 +8,7 @@ import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from '.
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
 import { ExtractionWorker } from '../memories/extraction-worker.js';
+import { RoutineExecutor } from '../routines/executor.js';
 import { parseDelegateAction } from './delegate-action.js';
 import { parseHandoffAction } from './handoff-action.js';
 import { parseRequestApprovalAction, parseRequestInputAction } from './human-request-action.js';
@@ -20,6 +21,7 @@ export interface TaskWorkerOptions {
 export class TaskWorker {
   private readonly queue: TaskQueue;
   private readonly extraction: ExtractionWorker;
+  private readonly routines: RoutineExecutor;
   constructor(
     pool: SqlPool,
     private readonly options: TaskWorkerOptions,
@@ -27,15 +29,20 @@ export class TaskWorker {
   ) {
     this.queue = new TaskQueue(pool, now, options.objects);
     this.extraction = new ExtractionWorker(pool, now);
+    this.routines = new RoutineExecutor(pool, now);
   }
   async runOnce(signal?: AbortSignal): Promise<boolean> {
+    let scheduled = false;
+    // Fire due one-time routines before claiming generation work so a restart
+    // at trigger time recovers the occurrence without waiting on a busy queue.
+    while (!signal?.aborted && (await this.routines.runOnce()).handled) scheduled = true;
     const handled = await this.runTaskOnce(signal);
     let extracted = false;
     // Drain every due extraction job on this tick. A just-completed Run enqueues
     // its job at finish; older leftover jobs must not hide that work from an
     // immediately following idle poll, and must not start a new generation.
     while (!signal?.aborted && (await this.extraction.runOnce())) extracted = true;
-    return extracted || handled;
+    return scheduled || extracted || handled;
   }
   private async runTaskOnce(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false;

@@ -14,7 +14,7 @@ describe('API-06 workspace event stream schema slice', () => {
     expect(MIGRATION_VERSIONS.indexOf('0050_workspace_event_stream')).toBe(
       MIGRATION_VERSIONS.indexOf('0049_group_archive') + 1,
     );
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0051_routines');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0052_routine_occurrences');
     expect(sql).toContain('CREATE TABLE workspace_event_streams');
     expect(sql).toContain('CREATE TABLE workspace_events');
     expect(sql).toContain('INSERT INTO workspace_event_streams');

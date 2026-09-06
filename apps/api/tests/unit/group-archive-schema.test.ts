@@ -12,7 +12,7 @@ describe('API-03 group archive schema slice', () => {
     expect(API03_GROUP_ARCHIVE_REQUIRES_VERSION).toBe('0049_group_archive');
     expect(MIGRATION_VERSIONS).toContain('0048_task_cost_grants');
     expect(MIGRATION_VERSIONS).toContain('0049_group_archive');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0051_routines');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0052_routine_occurrences');
     expect(sql).toContain('ALTER TABLE groups ADD COLUMN archived_at');
     expect(sql).toContain('ALTER TABLE groups ADD COLUMN max_concurrent_runs');
     expect(sql).not.toContain('INSERT INTO openbot_schema_migrations');

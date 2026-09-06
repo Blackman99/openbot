@@ -11,7 +11,7 @@ describe('COL-16 handoff schema slice', () => {
   it('is the next ordered ledger after parallel delegations and records one Lead transfer', () => {
     expect(COL16_HANDOFF_REQUIRES_VERSION).toBe('0044_task_lead_handoffs');
     expect(MIGRATION_VERSIONS).toContain('0043_task_parallel_delegations');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0051_routines');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0052_routine_occurrences');
     expect(sql).toContain('CREATE TABLE task_handoffs');
     expect(sql).toContain('handed_off');
     expect(sql).toContain("'task.handoff'");

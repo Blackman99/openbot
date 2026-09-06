@@ -42,6 +42,8 @@ export interface RoutineView {
   status: RoutineStatus;
   createdAt: Date;
   updatedAt: Date;
+  taskId?: string | null;
+  conversationId?: string | null;
 }
 
 export interface CreateRoutineInput {
@@ -158,6 +160,10 @@ export function parseEditRoutineInput(input: unknown): EditRoutineInput {
   return next;
 }
 
+export function oneTimeOccurrenceKey(executeAt: Date): string {
+  return executeAt.toISOString();
+}
+
 type RoutineRow = {
   id: string;
   workspace_id: string;
@@ -176,7 +182,10 @@ type RoutineRow = {
   updated_at: Date;
 };
 
-function toView(row: RoutineRow): RoutineView {
+function toView(
+  row: RoutineRow,
+  link?: { taskId: string | null; conversationId: string | null },
+): RoutineView {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -193,6 +202,7 @@ function toView(row: RoutineRow): RoutineView {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(link ? { taskId: link.taskId, conversationId: link.conversationId } : {}),
   };
 }
 
@@ -383,6 +393,43 @@ export class RoutineService {
         routineId: id,
         previousStatus: current.status,
       });
+    });
+  }
+
+  get(actorUserId: string, workspaceId: string, routineId: string): Promise<RoutineView> {
+    const actorId = uuid(actorUserId);
+    const workspace = uuid(workspaceId);
+    const id = uuid(routineId);
+    return this.transaction(async (connection) => {
+      const preview = (
+        await connection.query<{ group_id: string }>(
+          'SELECT group_id FROM routines WHERE id=$1 AND workspace_id=$2',
+          [id, workspace],
+        )
+      ).rows[0];
+      if (!preview) throw new RoutineAccessError();
+      await this.lockGroup(connection, actorId, workspace, preview.group_id);
+      const current = (
+        await connection.query<RoutineRow>(
+          'SELECT * FROM routines WHERE id=$1 AND workspace_id=$2',
+          [id, workspace],
+        )
+      ).rows[0];
+      if (!current || current.group_id !== preview.group_id) throw new RoutineAccessError();
+      const link = (
+        await connection.query<{ task_id: string | null; conversation_id: string | null }>(
+          `SELECT task_id,conversation_id FROM routine_occurrences
+           WHERE routine_id=$1 AND outcome='created'
+           ORDER BY created_at,id LIMIT 1`,
+          [id],
+        )
+      ).rows[0];
+      return toView(
+        current,
+        link
+          ? { taskId: link.task_id, conversationId: link.conversation_id }
+          : { taskId: null, conversationId: null },
+      );
     });
   }
 

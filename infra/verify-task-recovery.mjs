@@ -67,7 +67,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0051_routines');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0052_routine_occurrences');
   assert.deepEqual(
     (
       await pool.query(
