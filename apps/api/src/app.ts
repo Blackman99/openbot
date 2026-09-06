@@ -12,6 +12,7 @@ import type { AttachmentService } from './attachments/service.js';
 import type { KnowledgeService } from './knowledge/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
+import { registerPublicTaskRoutes } from './tasks/public-routes.js';
 import type { TaskService } from './tasks/service.js';
 import { registerModelPriceRoutes } from './tasks/model-price-routes.js';
 import type { ModelPriceService } from './tasks/model-price-service.js';
@@ -249,6 +250,8 @@ export function buildApp({
     registerPublicBotRoutes(app, apiTokens, bots, botVersions, botLifecycle);
   if (apiTokens && groups && groupBots && groupRouting)
     registerPublicGroupRoutes(app, apiTokens, groups, groupBots, groupRouting);
+  if (apiTokens && tasks && conversations)
+    registerPublicTaskRoutes(app, apiTokens, tasks, conversations);
   if (auth) {
     if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);

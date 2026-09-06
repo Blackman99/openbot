@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-18, COL-19, and API-03 are complete on `feat/openbot-collaboration-system` / draft PR #1 with Tester PASS on [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070) at `f3ba1fa`. Product HEADs are `ae7f6dd`/`409aad6` (COL-18), `19044ce` (COL-19), and `dc05dba` (API-03). Fifty of 67 tickets are complete. Next ready work is API-04, API-06, ROUT-01, and DEPLOY-01. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-04 is in progress on `feat/openbot-collaboration-system` / draft PR #1. First TDD slice adds public `POST /v1/tasks` with `Idempotency-Key` (ACs 1–3 and AC6 submit denial), reusing the existing task service and token admission. COL-18, COL-19, and API-03 remain complete after [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070). Retrieve/cancel ACs remain for the next cut. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty of 67 tickets are implemented and independently reviewed, and all 50 are fully complete. All 401 original acceptance texts are preserved.
 

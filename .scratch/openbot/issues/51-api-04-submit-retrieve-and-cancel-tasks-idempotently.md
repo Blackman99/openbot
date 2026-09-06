@@ -2,7 +2,7 @@
 sequence: 51
 id: API-04
 title: "Submit, retrieve, and cancel tasks idempotently"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - API-01
   - COL-18

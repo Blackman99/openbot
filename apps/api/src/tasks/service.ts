@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { BotModelError, type BotConfiguration } from '../bots/service.js';
 import { ProviderError } from '../providers/url-policy.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
@@ -588,7 +589,13 @@ export class TaskService {
       };
     });
   }
-  submit(actorUserId: string, workspaceId: string, conversationId: string, input: unknown) {
+  submit(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    input: unknown,
+    admission?: TransactionAdmission,
+  ) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
     const value = input as Record<string, unknown>;
     if (
@@ -615,7 +622,11 @@ export class TaskService {
         { ...command, groupGrantId },
         this.now,
       );
-      if (admitted.priorTaskId) return readTask(connection, admitted.priorTaskId);
+      if (admitted.priorTaskId) {
+        const prior = await readTask(connection, admitted.priorTaskId);
+        await admission?.(connection);
+        return prior;
+      }
       const target = admitted.target;
       const conversation = target.conversation;
       const selectedGrantId = target.groupGrantId;
@@ -718,7 +729,9 @@ export class TaskService {
         ],
       );
       await appendQueuedRunState(connection, runId, this.now);
-      return readTask(connection, id);
+      const created = await readTask(connection, id);
+      await admission?.(connection);
+      return created;
     });
   }
   retry(
