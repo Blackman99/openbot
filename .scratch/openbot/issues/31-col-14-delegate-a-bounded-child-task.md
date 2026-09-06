@@ -2,7 +2,7 @@
 sequence: 31
 id: COL-14
 title: "Delegate a bounded child Task"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-12
   - COL-13

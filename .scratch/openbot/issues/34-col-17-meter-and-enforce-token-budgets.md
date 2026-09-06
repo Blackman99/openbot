@@ -2,7 +2,7 @@
 sequence: 34
 id: COL-17
 title: "Meter and enforce token budgets"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-12
   - COL-13
