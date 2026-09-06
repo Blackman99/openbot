@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-17 is in progress on `feat/openbot-collaboration-system` / draft PR #1. COL-14 is complete after Tester PASS on [Verify 34012044549](https://github.com/Blackman99/openbot/actions/runs/34012044549) at `eef3ba4`. Provider usage is stored as actual; local counts are estimated. Migration `0041` pairs `usage_estimated` with token columns. Original COL-17 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-17 is in progress on `feat/openbot-collaboration-system` / draft PR #1. The usage-persist slice passed Tester PASS on [Verify 34013070215](https://github.com/Blackman99/openbot/actions/runs/34013070215) at `041fd7c`. Reservation math is next. Original COL-17 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty-four of 67 tickets are implemented and independently reviewed, and all 44 are fully complete. All 401 original acceptance texts are preserved.
 

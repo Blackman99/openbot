@@ -44,4 +44,4 @@ Input, output, and total token budgets are atomically reserved and reconciled ac
 
 ## Implementation note
 
-First TDD slice classifies Run usage: provider counts are actual (`estimated=false`); omitted usage falls back to a local UTF-8/4 estimate (`estimated=true`). Invalid provider counts are rejected. Migration `0041_task_token_usage` stores `usage_estimated` paired with token counts. The UI labels stored usage Actual or Estimated. Original acceptance texts stay unchecked.
+Provider counts persist as actual (`estimated=false`); omitted usage falls back to a local UTF-8/4 estimate. Migration `0041_task_token_usage` stores `usage_estimated` paired with token counts. The persist slice passed [Verify 34013070215](https://github.com/Blackman99/openbot/actions/runs/34013070215) at `041fd7c`. Reservation math evaluates used+reserved+request against input, output, and total caps, warns at four fifths, and reconciles reserved tokens to recorded usage. Original acceptance texts stay unchecked.
