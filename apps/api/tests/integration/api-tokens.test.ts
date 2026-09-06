@@ -5,6 +5,7 @@ import { ApiTokenApiClient } from '../../../web/src/lib/server/api-token-api.js'
 import { PostgresWorkspaceRepository } from '../../src/workspaces/postgres-workspace-repository.js';
 import { WorkspaceService, WorkspaceAccessError } from '../../src/workspaces/service.js';
 import { newDb } from 'pg-mem';
+import { registerAdvisoryXactLockStub } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import {
@@ -27,6 +28,7 @@ afterEach(async () => {
 });
 async function fixture(logger = false) {
   const database = newDb({ noAstCoverageCheck: true });
+  registerAdvisoryXactLockStub(database);
   const pool = new (database.adapters.createPg().Pool)();
   cleanup.push(() => pool.end());
   await migrateDatabase(pool, { installPostgresGuards: false });

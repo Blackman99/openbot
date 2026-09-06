@@ -21,7 +21,7 @@ export async function authorizeProviderScope(
       .update(`openbot:model-scope:${access.scope.id.toLowerCase()}`)
       .digest()
       .readInt32BE(0);
-    await connection.query('SELECT pg_advisory_xact_lock($1, $2)', [739105, key]);
+    await connection.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [739105, key]);
     return { canManage: true };
   }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(access.scope.id))

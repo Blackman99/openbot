@@ -33,8 +33,7 @@ export function registerKnowledgeFtsStubs(database: ReturnType<typeof newDb>) {
   });
 }
 
-export function newProviderDatabase() {
-  const database = newDb({ noAstCoverageCheck: true });
+export function registerAdvisoryXactLockStub(database: ReturnType<typeof newDb>) {
   // pg-mem checks authorization/query behavior only. PostgreSQL runtime tests prove lock ordering.
   database.public.registerFunction({
     name: 'pg_advisory_xact_lock',
@@ -42,6 +41,11 @@ export function newProviderDatabase() {
     returns: DataType.integer,
     implementation: () => 0,
   });
+}
+
+export function newProviderDatabase() {
+  const database = newDb({ noAstCoverageCheck: true });
+  registerAdvisoryXactLockStub(database);
   registerKnowledgeFtsStubs(database);
   return database;
 }

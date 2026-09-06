@@ -1,4 +1,5 @@
 import { newDb } from 'pg-mem';
+import { registerAdvisoryXactLockStub } from '../helpers/provider-database.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { ConversationApiClient } from '../../../web/src/lib/server/conversation-api.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,7 +24,9 @@ describe('immutable conversation ledger', () => {
     for (const close of cleanup.splice(0).reverse()) await close();
   });
   async function fixture(onQuery?: (statement: string) => void) {
-    const pool = new (newDb({ noAstCoverageCheck: true }).adapters.createPg().Pool)();
+    const database = newDb({ noAstCoverageCheck: true });
+    registerAdvisoryXactLockStub(database);
+    const pool = new (database.adapters.createPg().Pool)();
     cleanup.push(() => pool.end());
     await migrateDatabase(pool, { installPostgresGuards: false });
     const auth = new LocalAuthService(new PostgresAuthRepository(pool), {

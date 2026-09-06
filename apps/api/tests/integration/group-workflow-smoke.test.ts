@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { newDb } from 'pg-mem';
+import { registerAdvisoryXactLockStub } from '../helpers/provider-database.js';
 import type { Pool } from 'pg';
 import { it, expect } from 'vitest';
 import { parse } from 'yaml';
@@ -21,6 +22,7 @@ import { PostgresWorkspaceMemberRepository } from '../../src/members/postgres-me
 it('executes the Compose group HTTP assertions against the actual API response contracts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'openbot-group-workflow-'));
   const database = newDb({ noAstCoverageCheck: true });
+  registerAdvisoryXactLockStub(database);
   const pool: Pool = new (database.adapters.createPg().Pool)();
   const auth = new LocalAuthService(new PostgresAuthRepository(pool), {
     hashPassword: async () => '$argon2id$workflow-test-only',

@@ -15,7 +15,7 @@ export async function lockWorkspaceAuthority(
     .update(`openbot:workspace-authority:${workspaceId.toLowerCase()}`)
     .digest()
     .readInt32BE(0);
-  await connection.query('SELECT pg_advisory_xact_lock($1, $2)', [739106, key]);
+  await connection.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [739106, key]);
   const workspace = await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
     workspaceId,
   ]);

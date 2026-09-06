@@ -74,7 +74,7 @@ export class PostgresOidcRepository implements OidcRepository {
   private async lockUser(connection: SqlConnection, userId: string): Promise<void> {
     // All OIDC credential changes serialize by user without granting UPDATE on users.
     const key = createHash('sha256').update(userId).digest().readInt32BE(0);
-    await connection.query('SELECT pg_advisory_xact_lock($1, $2)', [739104, key]);
+    await connection.query('SELECT pg_advisory_xact_lock($1::int, $2::int)', [739104, key]);
   }
   private async authenticate(
     connection: SqlConnection,
