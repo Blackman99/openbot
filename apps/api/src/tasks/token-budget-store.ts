@@ -28,14 +28,12 @@ WHERE scope_kind=$1 AND scope_id=$2`;
 export const INSERT_TOKEN_RESERVATION_SQL = `INSERT INTO task_token_reservations(run_id,input_tokens,output_tokens,created_at)
 VALUES($1,$2,$3,$4)`;
 
-export const READ_TOKEN_RESERVATION_SQL = `SELECT input_tokens,output_tokens FROM task_token_reservations WHERE run_id=$1 FOR UPDATE`;
+export const TAKE_TOKEN_RESERVATION_SQL = `DELETE FROM task_token_reservations WHERE run_id=$1 RETURNING input_tokens,output_tokens`;
 
 export const RECONCILE_TOKEN_LEDGER_SQL = `UPDATE task_token_ledgers
 SET reserved_input_tokens=reserved_input_tokens-$3,reserved_output_tokens=reserved_output_tokens-$4,
     used_input_tokens=used_input_tokens+$5,used_output_tokens=used_output_tokens+$6
 WHERE scope_kind=$1 AND scope_id=$2`;
-
-export const DELETE_TOKEN_RESERVATION_SQL = `DELETE FROM task_token_reservations WHERE run_id=$1`;
 
 export const READ_TOKEN_LEDGER_SQL = `SELECT used_input_tokens,used_output_tokens,reserved_input_tokens,reserved_output_tokens
 FROM task_token_ledgers WHERE scope_kind=$1 AND scope_id=$2`;
@@ -158,7 +156,7 @@ export async function reconcileRunTokenReservation(
 ) {
   const reserved = (
     await connection.query<{ input_tokens: string | number; output_tokens: string | number }>(
-      READ_TOKEN_RESERVATION_SQL,
+      TAKE_TOKEN_RESERVATION_SQL,
       [target.runId],
     )
   ).rows[0];
@@ -179,5 +177,4 @@ export async function reconcileRunTokenReservation(
       usage.outputTokens,
     ]);
   }
-  await connection.query(DELETE_TOKEN_RESERVATION_SQL, [target.runId]);
 }

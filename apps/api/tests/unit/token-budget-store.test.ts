@@ -4,6 +4,7 @@ import {
   applyRunTokenReservation,
   readTokenBudgetView,
   reconcileRunTokenReservation,
+  TAKE_TOKEN_RESERVATION_SQL,
   tokenBudgetScopes,
 } from '../../src/tasks/token-budget-store.js';
 import { reservationRequestForRun } from '../../src/tasks/token-budget.js';
@@ -53,8 +54,9 @@ function memoryConnection() {
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes('DELETE FROM task_token_reservations')) {
+        const row = reservations.get(String(parameters[0]));
         reservations.delete(String(parameters[0]));
-        return { rows: [], rowCount: 1 };
+        return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
       }
       if (sql.includes('FROM task_token_reservations')) {
         const row = reservations.get(String(parameters[0]));
@@ -94,6 +96,9 @@ describe('COL-17 token ledger reservation', () => {
     ]);
     expect(reservationRequestForRun(50, 12)).toEqual({ inputTokens: 12, outputTokens: 38 });
     expect(reservationRequestForRun(50, 80)).toEqual({ inputTokens: 50, outputTokens: 0 });
+    expect(TAKE_TOKEN_RESERVATION_SQL).toContain('DELETE FROM task_token_reservations');
+    expect(TAKE_TOKEN_RESERVATION_SQL).toContain('RETURNING');
+    expect(TAKE_TOKEN_RESERVATION_SQL).not.toContain('FOR UPDATE');
     const { connection, ledgers, reservations } = memoryConnection();
     const budgets = {
       workspace: { maxTotalTokens: 80 },

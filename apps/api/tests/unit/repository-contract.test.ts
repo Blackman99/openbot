@@ -256,6 +256,14 @@ describe('repository contract', () => {
     );
     expect(grants).toContain("to_regclass('task_delegations')");
     expect(grants).toContain('GRANT SELECT, INSERT ON task_delegations TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_token_ledgers')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_token_reservations')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime',
+    );
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime',
     );
