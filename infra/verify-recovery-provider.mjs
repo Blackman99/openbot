@@ -56,7 +56,10 @@ const server = createServer(async (request, response) => {
       return;
     }
     response.writeHead(200, { 'content-type': 'text/event-stream' });
-    complete(response, prompt === 'recover-after' ? 'Independent work completes.' : 'Recovered work completes.');
+    complete(
+      response,
+      prompt === 'recover-after' ? 'Independent work completes.' : 'Recovered work completes.',
+    );
   } catch {
     response.destroy();
   }

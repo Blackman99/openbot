@@ -162,9 +162,10 @@ try {
       assert.ok(new Date(lease.expires_at).getTime() <= Date.now());
       assert.equal(
         (
-          await pool.query('SELECT source_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1', [
-            task.runs[0].id,
-          ])
+          await pool.query(
+            'SELECT source_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1',
+            [task.runs[0].id],
+          )
         ).rows.length,
         0,
       );
@@ -197,7 +198,9 @@ try {
       const partial = (
         await pool.query('SELECT body FROM task_run_partial_outputs WHERE run_id=$1', [
           (
-            await pool.query('SELECT id FROM task_runs WHERE task_id=$1 AND attempt=1', [running.id])
+            await pool.query('SELECT id FROM task_runs WHERE task_id=$1 AND attempt=1', [
+              running.id,
+            ])
           ).rows[0].id,
         ])
       ).rows;
