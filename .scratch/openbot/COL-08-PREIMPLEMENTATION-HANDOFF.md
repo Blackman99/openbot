@@ -44,6 +44,6 @@ Queued pause only, selected Task only:
 
 - Compose behavioral evidence for pause/resume on a green Verify.
 
-Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, and native `protect_task` / `protect_task_run` overlays after 0033.
+Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, native `protect_task` / `protect_task_run` overlays after 0033, and native PostgreSQL coverage for running pause, service resume, and group subtree pause/resume.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

@@ -29,10 +29,11 @@ import { personalAccess } from '../../src/providers/scope.js';
 import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { ProviderError, ProviderUrlPolicy } from '../../src/providers/url-policy.js';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
-import { TaskQueue } from '../../src/tasks/queue.js';
+import { TaskQueue, type TaskClaim } from '../../src/tasks/queue.js';
 import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
 import { planNextAttempt } from '../../src/tasks/retry-schedule.js';
 import { planManualResume } from '../../src/tasks/resume.js';
+import { createQueuedTaskChild } from '../helpers/task-tree-fixture.js';
 import { TaskAccessError, TaskConflictError, TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { GroupRoutingService, RoutingSettingConflictError } from '../../src/routing/service.js';
@@ -2365,6 +2366,204 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       expect(
         (await runtime.query('SELECT status FROM task_runs WHERE id=$1', [queued.id])).rows[0],
       ).toEqual({ status: 'queued' });
+    });
+
+    it('pauses a running Task under openbot_runtime, resumes through the service, and keeps the interrupted Run', async () => {
+      const f = await fixture();
+      const task = await submit(f);
+      const queue = new TaskQueue(runtime);
+      const claimed = await queue.claimNext();
+      expect(claimed.claim?.taskId).toBe(task.id);
+      await queue.publishDelta(claimed.claim!, 'Visible prefix 🌿');
+      const interruptedBefore = (
+        await runtime.query(
+          'SELECT id,attempt,status,started_at,claim_token,deadline_at,connection_id,model_id,input_tokens,output_tokens FROM task_runs WHERE id=$1',
+          [claimed.claim!.runId],
+        )
+      ).rows[0];
+      const paused = await new TaskService(runtime).pause(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { idempotencyKey: 'native-running-pause', expectedRunId: claimed.claim!.runId },
+      );
+      expect(paused.task.status).toBe('paused');
+      expect(paused.pause).toMatchObject({
+        runId: claimed.claim!.runId,
+        attempt: 1,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      });
+      expect(await queue.isClaimActive(claimed.claim!)).toBe(false);
+      expect(await queue.finish(claimed.claim!, { body: 'Late answer', usage: null })).toBe(false);
+      expect(await queue.claimNext()).toEqual({ handled: false });
+      const interrupted = (
+        await runtime.query(
+          'SELECT id,attempt,status,started_at,claim_token,deadline_at,connection_id,model_id,input_tokens,output_tokens,error_code,output_event_id FROM task_runs WHERE id=$1',
+          [claimed.claim!.runId],
+        )
+      ).rows[0];
+      expect(interrupted).toMatchObject({
+        ...interruptedBefore,
+        status: 'paused',
+        error_code: null,
+        output_event_id: null,
+      });
+      expect(
+        (
+          await runtime.query(
+            'SELECT strategy,schema_version,end_byte FROM task_run_pause_checkpoints WHERE run_id=$1',
+            [claimed.claim!.runId],
+          )
+        ).rows,
+      ).toEqual([
+        {
+          strategy: 'restart_from_task_input_v1',
+          schema_version: 1,
+          end_byte: Buffer.byteLength('Visible prefix 🌿'),
+        },
+      ]);
+      expect(
+        (
+          await admin.query(
+            "SELECT has_function_privilege('openbot_runtime',$1,'EXECUTE') AS allowed",
+            ['lock_task_ancestry(uuid,boolean)'],
+          )
+        ).rows[0].allowed,
+      ).toBe(true);
+      const resumed = await new TaskService(runtime).resume(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { idempotencyKey: 'native-running-resume', expectedRunId: claimed.claim!.runId },
+      );
+      expect(resumed.task).toMatchObject({ id: task.id, status: 'queued', runCount: 2 });
+      expect(resumed.resume).toMatchObject({
+        sourceRunId: claimed.claim!.runId,
+        attempt: 2,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      });
+      expect(resumed.resume.runId).not.toBe(claimed.claim!.runId);
+      expect(
+        (
+          await runtime.query(
+            'SELECT id,attempt,status,started_at,claim_token,deadline_at,connection_id,model_id,input_tokens,output_tokens,error_code,output_event_id FROM task_runs WHERE id=$1',
+            [claimed.claim!.runId],
+          )
+        ).rows[0],
+      ).toEqual(interrupted);
+      expect(
+        await new TaskService(runtime).resume(f.actorId, f.workspaceId, f.conversationId, task.id, {
+          idempotencyKey: 'native-running-resume',
+          expectedRunId: claimed.claim!.runId,
+        }),
+      ).toEqual(resumed);
+      const noop = await new TaskService(runtime).resume(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { idempotencyKey: 'already-resumed', expectedRunId: claimed.claim!.runId },
+      );
+      expect(noop.task).toEqual(resumed.task);
+      expect(noop.resume).toMatchObject({
+        runId: resumed.resume.runId,
+        sourceRunId: claimed.claim!.runId,
+        checkpointId: resumed.resume.checkpointId,
+        resumedAt: resumed.resume.resumedAt,
+        affectedTaskCount: 0,
+        affectedRunCount: 0,
+      });
+      await expect(
+        new TaskService(runtime).resume(f.actorId, f.workspaceId, f.conversationId, task.id, {
+          idempotencyKey: 'stale-resume',
+          expectedRunId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ code: 'task_resume_run_conflict' });
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(2);
+    });
+
+    it('pauses a group subtree under openbot_runtime and resumes only the selected Task', async () => {
+      const f = await fixture('personal', true);
+      const parent = await submit(f);
+      const child = await createQueuedTaskChild(runtime, {
+        workspaceId: f.workspaceId,
+        conversationId: f.conversationId,
+        executionUserId: f.actorId,
+        botId: f.bot.id,
+        botVersionId: f.bot.currentVersion!.id,
+        groupGrantId: f.grant!.id,
+        parentTaskId: parent.id,
+      });
+      const queue = new TaskQueue(runtime);
+      const claims = new Map<string, TaskClaim>();
+      for (let index = 0; index < 2; index++) {
+        const next = await queue.claimNext();
+        expect(next.claim).toBeDefined();
+        claims.set(next.claim!.taskId, next.claim!);
+      }
+      expect(claims.has(parent.id)).toBe(true);
+      expect(claims.has(child.id)).toBe(true);
+      const paused = await new TaskService(runtime).pause(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        parent.id,
+        { idempotencyKey: 'native-tree-pause', expectedRunId: claims.get(parent.id)!.runId },
+      );
+      expect(paused.pause).toMatchObject({ affectedTaskCount: 2, affectedRunCount: 2 });
+      expect(await queue.isClaimActive(claims.get(parent.id)!)).toBe(false);
+      expect(await queue.isClaimActive(claims.get(child.id)!)).toBe(false);
+      expect(
+        (
+          await runtime.query('SELECT status FROM tasks WHERE id=$1 OR id=$2 ORDER BY id', [
+            parent.id,
+            child.id,
+          ])
+        ).rows.map((row) => row.status),
+      ).toEqual(['paused', 'paused']);
+      await expect(
+        new TaskService(runtime).resume(f.ownerId, f.workspaceId, f.conversationId, parent.id, {
+          idempotencyKey: 'admin-resume',
+          expectedRunId: claims.get(parent.id)!.runId,
+        }),
+      ).rejects.toBeInstanceOf(TaskAccessError);
+      await expect(
+        new TaskService(runtime).resume(f.actorId, f.workspaceId, f.conversationId, child.id, {
+          idempotencyKey: 'resume-child-first',
+          expectedRunId: child.runId,
+        }),
+      ).rejects.toMatchObject({ code: 'task_resume_paused_ancestor' });
+      const resumed = await new TaskService(runtime).resume(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        parent.id,
+        { idempotencyKey: 'resume-root', expectedRunId: claims.get(parent.id)!.runId },
+      );
+      expect(resumed.task).toMatchObject({ id: parent.id, status: 'queued', runCount: 2 });
+      expect(resumed.resume).toMatchObject({
+        sourceRunId: claims.get(parent.id)!.runId,
+        attempt: 2,
+        affectedTaskCount: 1,
+      });
+      expect(
+        (await runtime.query('SELECT status FROM tasks WHERE id=$1', [child.id])).rows,
+      ).toEqual([{ status: 'paused' }]);
+      const childResume = await new TaskService(runtime).resume(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        child.id,
+        { idempotencyKey: 'resume-child', expectedRunId: child.runId },
+      );
+      expect(childResume.task).toMatchObject({ id: child.id, status: 'queued', runCount: 2 });
+      expect(childResume.resume).toMatchObject({ sourceRunId: child.runId, attempt: 2 });
     });
   },
 );
