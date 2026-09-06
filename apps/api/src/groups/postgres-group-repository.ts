@@ -468,7 +468,16 @@ export class PostgresGroupRepository implements GroupRepository {
         [workspaceId, actorId],
       );
       if (!membership.rows[0]) throw new GroupAccessError();
-      const archived = options?.includeArchived ? '' : 'AND g.archived_at IS NULL';
+      const archived =
+        options?.includeArchived ||
+        !(
+          await connection.query(
+            `SELECT 1 FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='groups' AND column_name='archived_at'`,
+          )
+        ).rows[0]
+          ? ''
+          : 'AND g.archived_at IS NULL';
       const result = await connection.query<GroupRow>(
         `SELECT g.id,g.workspace_id,g.name,g.description,g.visibility,g.created_at,g.updated_at,gm.role FROM groups g INNER JOIN workspace_memberships wm ON wm.workspace_id=g.workspace_id AND wm.user_id=$2 LEFT JOIN group_memberships gm ON gm.group_id=g.id AND gm.user_id=$2 WHERE g.workspace_id=$1 AND (g.visibility='workspace' OR gm.user_id IS NOT NULL) ${archived} ${groupId ? 'AND g.id=$3' : ''} ORDER BY g.created_at,g.id`,
         groupId ? [workspaceId, actorId, groupId] : [workspaceId, actorId],
@@ -498,7 +507,7 @@ export class PostgresGroupRepository implements GroupRepository {
       );
       if (!membership.rows[0]) throw new GroupAccessError();
       await connection.query(
-        'INSERT INTO groups (id,workspace_id,name,description,visibility,created_by_user_id,created_at,updated_at,max_concurrent_runs) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8)',
+        'INSERT INTO groups (id,workspace_id,name,description,visibility,created_by_user_id,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)',
         [
           record.id,
           record.workspaceId,
@@ -507,9 +516,13 @@ export class PostgresGroupRepository implements GroupRepository {
           record.visibility,
           record.actorId,
           record.occurredAt,
-          record.maxConcurrentRuns ?? null,
         ],
       );
+      if (record.maxConcurrentRuns !== undefined)
+        await connection.query('UPDATE groups SET max_concurrent_runs=$2 WHERE id=$1', [
+          record.id,
+          record.maxConcurrentRuns,
+        ]);
       await connection.query(
         "INSERT INTO group_memberships (group_id,user_id,role,created_at) VALUES ($1,$2,'owner',$3)",
         [record.id, record.actorId, record.occurredAt],

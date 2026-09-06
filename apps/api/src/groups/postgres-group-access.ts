@@ -7,6 +7,22 @@ import {
   type GroupVisibility,
 } from './service.js';
 
+async function groupArchivedAt(connection: SqlConnection, groupId: string): Promise<Date | null> {
+  const column = await connection.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='groups' AND column_name='archived_at'`,
+  );
+  if (!column.rows[0]) return null;
+  return (
+    (
+      await connection.query<{ archived_at: Date | null }>(
+        'SELECT archived_at FROM groups WHERE id=$1',
+        [groupId],
+      )
+    ).rows[0]?.archived_at ?? null
+  );
+}
+
 // Borrow the caller's transaction. All membership writers take these same locks.
 export async function lockAuthorizedGroup(
   connection: SqlConnection,
@@ -31,9 +47,8 @@ export async function lockAuthorizedGroup(
       visibility: GroupVisibility;
       created_at: Date;
       updated_at: Date;
-      archived_at: Date | null;
     }>(
-      'SELECT id,workspace_id,name,description,visibility,created_at,updated_at,archived_at FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      'SELECT id,workspace_id,name,description,visibility,created_at,updated_at FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
       [access.workspaceId, access.groupId],
     )
   ).rows[0];
@@ -45,7 +60,8 @@ export async function lockAuthorizedGroup(
     )
   ).rows[0];
   if (!actor || (permission !== 'content' && actor.role === 'member')) throw new GroupAccessError();
-  if (permission === 'manage' && group.archived_at) throw new GroupArchivedError();
+  if (permission === 'manage' && (await groupArchivedAt(connection, group.id)))
+    throw new GroupArchivedError();
   return {
     id: group.id,
     workspaceId: group.workspace_id,
