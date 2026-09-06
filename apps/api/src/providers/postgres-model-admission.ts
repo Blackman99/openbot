@@ -84,7 +84,7 @@ export async function admitExecutionModel(
       policyDetails({
         metadata: row.metadata,
         revision: row.revision,
-        policy: currentPolicy(row.policy),
+        policy: currentPolicy(row.policy ?? undefined),
         canManage: false,
       }).flags.toolCalling.status === 'supported',
   };
