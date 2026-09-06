@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-08 is in progress on `feat/openbot-collaboration-system` / draft PR #1. Queued and running pause, subtree pause, `manual_resume` through the COL-10 writer, UI pause/resume forms, and native `protect_task` / `protect_task_run` overlays are implemented (migrations `0033_task_pause_checkpoints` and `0034_task_resume_commands`). The five original COL-08 acceptance texts stay unchecked until Tester stamps Compose evidence. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-08 is in progress on `feat/openbot-collaboration-system` / draft PR #1. Queued and running pause, subtree pause, `manual_resume` through the COL-10 writer, UI pause/resume forms, and native `protect_task` / `protect_task_run` overlays are implemented (migrations `0033_task_pause_checkpoints` and `0034_task_resume_commands`). Verify `34002190172` on `435d0a2` passed `postgres-tasks` and `compose-task-pause`; `postgres-bots` missed an advisory waiter because `waitForBlocked` required `wait_event_type='Lock'` before the `pg_locks` pair. The helper now matches that pair without waiting for `wait_event_type`. The five original COL-08 acceptance texts stay unchecked until Tester stamps Compose evidence. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Thirty-eight of 67 tickets are implemented and independently reviewed, and all 38 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12. COL-08 is in progress and consumes the single COL-10 next-attempt writer. COL-11 is ready-for-agent and shares that writer.
 

@@ -308,14 +308,18 @@ const databaseUrl = process.env.TEST_BOT_DATABASE_URL;
     await vi.waitFor(
       async () => {
         // pg_blocking_pids can omit an advisory holder while the waiter is
-        // inside the AFTER INSERT trigger. pg_locks is the same pair.
+        // inside the AFTER INSERT trigger. pg_locks is the same pair, and
+        // that pair must stay visible even before wait_event_type='Lock'.
         const result = await admin.query<{ pid: number }>(
           `SELECT a.pid
            FROM pg_stat_activity a
            WHERE a.application_name=$1
-             AND a.wait_event_type='Lock'
+             AND a.pid<>$2
              AND (
-               $2=ANY(pg_blocking_pids(a.pid))
+               (
+                 a.wait_event_type='Lock'
+                 AND $2=ANY(pg_blocking_pids(a.pid))
+               )
                OR EXISTS (
                  SELECT 1
                  FROM pg_locks waiter
