@@ -58,6 +58,7 @@ describe('repository contract', () => {
       OPENBOT_PROVIDER_ENCRYPTION_KEY: '',
       OPENBOT_PROVIDER_PRIVATE_CIDRS: '',
       OPENBOT_SETUP_TOKEN: 'local-only-openbot-setup-token-change-me',
+      OPENBOT_TELEMETRY: 'false',
       POSTGRES_DB: 'openbot',
       POSTGRES_PASSWORD: 'replace-me',
       POSTGRES_PORT: '5432',
@@ -111,6 +112,7 @@ describe('repository contract', () => {
       PGUSER: 'openbot_runtime',
       PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',
       OPENBOT_PROVIDER_ENCRYPTION_KEY: '${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}',
+      OPENBOT_TELEMETRY: '${OPENBOT_TELEMETRY:-false}',
       OBJECT_STORAGE_BACKEND: '${OBJECT_STORAGE_BACKEND:-local}',
       OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
     });
@@ -152,6 +154,7 @@ describe('repository contract', () => {
     expect(compose.services.api?.environment).toMatchObject({
       API_HOST: '0.0.0.0',
       OPENBOT_SETUP_TOKEN: '${OPENBOT_SETUP_TOKEN:?set OPENBOT_SETUP_TOKEN in .env}',
+      OPENBOT_TELEMETRY: '${OPENBOT_TELEMETRY:-false}',
       PGDATABASE: '${POSTGRES_DB:-openbot}',
       PGHOST: 'postgres',
       PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',

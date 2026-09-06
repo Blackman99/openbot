@@ -53,6 +53,10 @@ schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
 Stop the stack with `docker compose down`. Add `--volumes` only when you intentionally want to
 remove local PostgreSQL data and avatar objects.
 
+Product telemetry is disabled by default (`OPENBOT_TELEMETRY=false`). An idle API or worker
+makes no unnecessary outbound requests; leave the flag off for single-host deployments unless
+you deliberately enable a future exporter.
+
 ## Optional OIDC
 
 OIDC stays disabled when its environment values are empty. To enable a provider, register a
