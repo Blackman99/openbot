@@ -387,7 +387,11 @@ async function main() {
         eventId: output.id,
         sequence: Number(output.sequence),
       });
-      assert.deepEqual(projected.usage, { inputTokens: 7, outputTokens: 3 });
+      assert.deepEqual(projected.usage, {
+        inputTokens: 7,
+        outputTokens: 3,
+        estimated: false,
+      });
       assert.equal(states.at(-1).error, 'provider_failed');
       assert.equal(states.at(-1).output, null);
       assert.deepEqual(

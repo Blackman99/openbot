@@ -618,7 +618,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
       );
       expect(
         (await admin.query('SELECT * FROM task_runs WHERE id=$1', [running.runId])).rows,
-      ).toEqual(drained);
+      ).toEqual(drained.map((row) => ({ ...row, usage_estimated: null })));
       const removed = new Set([
         'tasks_status_check',
         'task_runs_status_check',

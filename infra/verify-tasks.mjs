@@ -313,7 +313,11 @@ try {
     const [success, failed] = listed.value.tasks;
     assert.equal(success.status, 'completed');
     assert.equal(success.runs[0].status, 'completed');
-    assert.deepEqual(success.runs[0].usage, { inputTokens: 7, outputTokens: 3 });
+    assert.deepEqual(success.runs[0].usage, {
+      inputTokens: 7,
+      outputTokens: 3,
+      estimated: false,
+    });
     assert.ok(success.runs[0].output);
     assert.equal(failed.status, 'failed');
     assert.equal(failed.runs[0].error, 'provider_failed');
