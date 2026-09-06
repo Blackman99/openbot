@@ -42,8 +42,8 @@ Queued pause only, selected Task only:
 
 ## Leftover before the original ACs can be stamped
 
-- Compose behavioral evidence for pause/resume on a green Verify.
+- Tester stamp of Compose pause/resume evidence on a green Verify (`compose-task-pause`).
 
-Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, native `protect_task` / `protect_task_run` overlays after 0033, and native PostgreSQL coverage for running pause, service resume, and group subtree pause/resume.
+Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, native `protect_task` / `protect_task_run` overlays after 0033, native PostgreSQL coverage for running pause, service resume, and group subtree pause/resume, and the `compose-task-pause` seed/pause/reloaded job.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

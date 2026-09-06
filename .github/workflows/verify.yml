@@ -1453,3 +1453,77 @@ jobs:
         run: |
           docker compose logs
           docker compose down --volumes
+
+  compose-task-pause:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-pause.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Pause queued work before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T pause-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-pause.mjs
+      - name: Observe independent worker HTTP abort for a running pause and resume
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T pause-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for(let attempt=0;attempt<100;attempt++) {
+            stats=await(await fetch('http://127.0.0.1:3100/stats')).json();
+            if(stats.pending===1)break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.deepEqual(stats.calls,[{prompt:'pause-running',modelId:'pause-compose-model'}]);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=pause api node --input-type=module < infra/verify-task-pause.mjs
+      - name: Retain interrupted output after resume, process restart and stream reclamation
+        run: |
+          docker compose restart worker api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-task-pause.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
