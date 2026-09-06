@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **40**
-- Fully complete: **40**
+- Implemented and independently reviewed: **41**
+- Fully complete: **41**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -50,8 +50,8 @@ This directory contains the approved implementation backlog for the open-source 
 | 26 | [COL-09 — Retry failed Tasks with immutable attempts](26-col-09-retry-failed-tasks-with-immutable-attempts.md) | complete | [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
 | 27 | [COL-10 — Add bounded retries and explicit model fallback](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) | complete | [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 28 | [COL-11 — Recover Runs after worker failure](28-col-11-recover-runs-after-worker-failure.md) | complete | [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
-| 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | in-progress | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
-| 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | blocked | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
+| 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | complete | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
+| 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | ready-for-agent | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
 | 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | blocked | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | blocked | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
 | 33 | [COL-16 — Transfer Task leadership through handoff](33-col-16-transfer-task-leadership-through-handoff.md) | blocked | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
@@ -68,7 +68,7 @@ This directory contains the approved implementation backlog for the open-source 
 | 44 | [DOC-01 — Query PDF, DOCX, and XLSX knowledge with precise locators](44-doc-01-query-pdf-docx-and-xlsx-knowledge-with-precise-locators.md) | complete | [RET-01](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md) |
 | 45 | [IMG-01 — Send authorized image attachments to vision-capable models](45-img-01-send-authorized-image-attachments-to-vision-capable-models.md) | complete | [ATT-01](41-att-01-upload-view-and-download-conversation-attachments-with-history-aw.md), [RET-01](43-ret-01-assemble-a-permission-aware-provenance-preserving-model-context.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 46 | [TPL-01 — Export and import a safe versioned single-Bot template](46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md) | complete | [BOT-03](14-bot-03-edit-compare-and-restore-bot-versions.md), [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md), [MEM-02](38-mem-02-promote-group-memory-to-bot-private-memory-with-explicit-approval.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
-| 47 | [TPL-02 — Atomically import and export a safe Bot-team template](47-tpl-02-atomically-import-and-export-a-safe-bot-team-template.md) | blocked | [TPL-01](46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
+| 47 | [TPL-02 — Atomically import and export a safe Bot-team template](47-tpl-02-atomically-import-and-export-a-safe-bot-team-template.md) | ready-for-agent | [TPL-01](46-tpl-01-export-and-import-a-safe-versioned-single-bot-template.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
 | 48 | [API-01 — Scoped API token lifecycle](48-api-01-scoped-api-token-lifecycle.md) | complete | [WS-03](05-ws-03-manage-workspace-members-and-roles.md) |
 | 49 | [API-02 — Manage bots through the public API](49-api-02-manage-bots-through-the-public-api.md) | complete | [API-01](48-api-01-scoped-api-token-lifecycle.md), [BOT-03](14-bot-03-edit-compare-and-restore-bot-versions.md), [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md), [BOT-06](17-bot-06-archive-restore-and-soft-delete-bots.md) |
 | 50 | [API-03 — Manage groups and membership through the public API](50-api-03-manage-groups-and-membership-through-the-public-api.md) | blocked | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-03](20-col-03-store-conversations-in-an-immutable-event-ledger.md), [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md) |

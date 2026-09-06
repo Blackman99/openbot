@@ -62,6 +62,8 @@ Authorized idempotent grant of one selected limit:
 
 ## Leftover before the original ACs can be stamped
 
-- Tester must stamp native `postgres-tasks` and `compose-task-limits` on a green Verify. Authored coverage is timeout-stays-failed, hard `waiting_budget` hold, authorized grant, and worker resume without rewriting the snapshot. Soft-threshold warnings remain integration-covered unless that native case is added later.
+None. Tester PASS on [Verify 34008091724](https://github.com/Blackman99/openbot/actions/runs/34008091724), HEAD `dacc663`, closed the six original ACs.
+
+Landed: hierarchical snapshot and policy resolution, four-fifths soft warning, Task-only `waiting_budget` hard hold, authorized idempotent grant, snapshotted duration deadline with timeout staying `failed`, `protect_task_run` admission of one `budget_grant` successor, native `postgres-tasks` grant/timeout coverage, and `compose-task-limits` seed/timeout/grant stages. Soft-threshold warnings remain integration-covered.
 
 Do not check the six AC boxes until Tester stamps those leftovers.

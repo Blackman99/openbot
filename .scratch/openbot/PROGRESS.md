@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-12 is in progress on `feat/openbot-collaboration-system` / draft PR #1. Verify 34006684818 on `f2cc5a9` went red: grant resume was rejected by `protect_task_run`, and a conversation-stream timeout assertion missed the failed-delivery sequence. Product now admits a granted successor from `waiting_budget`; native `postgres-tasks` and `compose-task-limits` author the timeout/hold/grant/resume path. Original COL-12 acceptance texts stay unchecked until Tester stamps that evidence. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-12 is complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on [Verify 34008091724](https://github.com/Blackman99/openbot/actions/runs/34008091724), HEAD `dacc663`, all 19 jobs green, including `postgres-tasks` and `compose-task-limits`. COL-13 and TPL-02 are ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty of 67 tickets are implemented and independently reviewed, and all 40 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12.
+Forty-one of 67 tickets are implemented and independently reviewed, and all 41 are fully complete. All 401 original acceptance texts are preserved. Next collaboration ticket is COL-13.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

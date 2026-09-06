@@ -2,7 +2,7 @@
 sequence: 30
 id: COL-13
 title: "Enforce atomic Run concurrency limits"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-11
   - COL-12

@@ -2,7 +2,7 @@
 sequence: 47
 id: TPL-02
 title: "Atomically import and export a safe Bot-team template"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - TPL-01
   - COL-02
