@@ -411,6 +411,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0039_group_imported_routines');
     expect(workflow).toContain('0040_task_delegation');
     expect(workflow).toContain('0041_task_token_usage');
+    expect(workflow).toContain('0042_task_token_budgets');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );
@@ -419,6 +420,12 @@ describe('repository contract', () => {
     );
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'task_delegations', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_token_ledgers', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_token_reservations', 'SELECT')",
     );
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",

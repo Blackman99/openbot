@@ -282,6 +282,12 @@ try {
       IF to_regclass('task_delegations') IS NOT NULL THEN
         GRANT SELECT, INSERT ON task_delegations TO openbot_runtime;
       END IF;
+      IF to_regclass('task_token_ledgers') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_token_reservations') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime;
+      END IF;
       IF to_regprocedure('task_has_child_result_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
         REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
         GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime;

@@ -79,6 +79,7 @@ import { TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS } from '../tasks/execution-concu
 import { TEAM_TEMPLATE_SCHEMA_STATEMENTS } from '../groups/team-template-schema.js';
 import { TASK_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/delegate-schema.js';
 import { TASK_TOKEN_USAGE_SCHEMA_STATEMENTS } from '../tasks/token-usage-schema.js';
+import { TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS } from '../tasks/token-budget-schema.js';
 import {
   COL12_ENFORCEMENT_POSTGRES_GUARDS,
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -443,6 +444,11 @@ const MIGRATIONS = [
   {
     version: '0041_task_token_usage',
     statements: TASK_TOKEN_USAGE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0042_task_token_budgets',
+    statements: TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;
