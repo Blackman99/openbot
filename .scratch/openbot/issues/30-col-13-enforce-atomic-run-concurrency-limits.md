@@ -45,4 +45,4 @@ See [COL-13-PREIMPLEMENTATION-HANDOFF.md](../COL-13-PREIMPLEMENTATION-HANDOFF.md
 
 ## Completion evidence
 
-Closed on 2026-09-06 after Tester PASS on [Verify 34009661399](https://github.com/Blackman99/openbot/actions/runs/34009661399) at product HEAD `242e37a` (all 19 jobs then present green), including native `postgres-tasks` fifth-run hold, skip-to-other-group, lease-release, and independent Task child-cap cases. Compose `compose-task-concurrency` evidence that a default group never runs a fifth concurrent Bot was authored on `8b1ebbd`. Original acceptance texts are unchanged.
+Closed on 2026-09-06 after Tester PASS on [Verify 34009661399](https://github.com/Blackman99/openbot/actions/runs/34009661399) at product HEAD `242e37a` (all 19 jobs then present green), including native `postgres-tasks` fifth-run hold, skip-to-other-group, lease-release, and independent Task child-cap cases. [Verify 34010559407](https://github.com/Blackman99/openbot/actions/runs/34010559407) on `e27cbab` then passed all 20 jobs, including `compose-task-concurrency`. Original acceptance texts are unchanged.

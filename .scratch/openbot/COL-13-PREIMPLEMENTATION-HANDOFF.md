@@ -39,8 +39,8 @@ Pure policy and occupancy landed first. Claim wiring and hold persistence are no
 
 ## Leftover before the original ACs can be stamped
 
-None. Tester PASS on [Verify 34009661399](https://github.com/Blackman99/openbot/actions/runs/34009661399), HEAD `242e37a`, closed the five original ACs.
+None. Tester PASS on [Verify 34009661399](https://github.com/Blackman99/openbot/actions/runs/34009661399), HEAD `242e37a`, closed the five original ACs. [Verify 34010559407](https://github.com/Blackman99/openbot/actions/runs/34010559407) on `e27cbab` then passed all 20 jobs, including `compose-task-concurrency`.
 
-Landed: slot occupancy only while `running` with a live COL-11 lease, default group cap of four, excess Runs staying queued with the blocking layer, skip-blocked claim so another group can run, Task child caps independent of group/workspace, expired-lease slot release, native `postgres-tasks` hold/skip/lease/child-cap coverage, and authored `compose-task-concurrency` evidence.
+Landed: slot occupancy only while `running` with a live COL-11 lease, default group cap of four, excess Runs staying queued with the blocking layer, skip-blocked claim so another group can run, Task child caps independent of group/workspace, expired-lease slot release, native `postgres-tasks` hold/skip/lease/child-cap coverage, and `compose-task-concurrency` evidence that a default group never runs a fifth concurrent Bot.
 
 Do not check the five AC boxes until Tester stamps those leftovers.
