@@ -161,6 +161,14 @@ services:
     security_opt: [no-new-privileges:true]
     tmpfs:
       - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pidof node >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
     stop_grace_period: 30s
 
@@ -181,7 +189,7 @@ services:
       - ${OPENBOT_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     networks: [frontend]
     init: true
     read_only: true

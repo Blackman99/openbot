@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** ROUT-01 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `5ba2a2a`, green [Verify 34035394210](https://github.com/Blackman99/openbot/actions/runs/34035394210), and Tester 6/6 PASS. DEPLOY-01 is in progress with the first TDD slice: telemetry stays disabled by default (`OPENBOT_TELEMETRY=false`), Compose passes the flag to API/worker, and idle API/worker smokes make no unnecessary outbound HTTP. Remaining DEPLOY-01 ACs cover one-command healthy startup/first-admin, migration-once failure readiness, restart durability, private-network model endpoints, and host port exposure (already contracted). ROUT-02 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** ROUT-01 is complete on `feat/openbot-collaboration-system` / draft PR #1. DEPLOY-01 is in progress: AC5–6 Tester-PASS at `f8ebc51` / [Verify 34036429806](https://github.com/Blackman99/openbot/actions/runs/34036429806). The second TDD slice contracts and lands worker healthcheck, web-waits-for-healthy-API, migrate-once/advisory-lock documentation, named-volume restart durability, and private-network model wiring/docs for AC1–4; those four ACs stay unchecked until Tester proves the live stack. ROUT-02 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-four of 67 tickets are implemented and independently reviewed, and all 54 are fully complete. All 401 original acceptance texts are preserved.
 

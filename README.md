@@ -31,7 +31,8 @@ Published ports bind to loopback by default. If the service must accept remote c
 `OPENBOT_BIND_ADDRESS` deliberately, use a high-entropy `OPENBOT_SETUP_TOKEN`, terminate TLS, and
 set `WEB_ORIGIN` to the exact external HTTPS origin before exposing either port.
 
-When every service is healthy:
+When every service is healthy (PostgreSQL, API, worker, and web each expose a Compose
+healthcheck; web waits for a healthy API):
 
 - Web status: <http://localhost:3000>
 - First-owner setup: <http://localhost:3000/setup>
@@ -50,8 +51,10 @@ as the fixed, non-superuser `openbot_runtime` role using `OPENBOT_DATABASE_PASSW
 can perform the application queries required by authentication, but cannot change database
 schema, remove the audit trigger, or update, delete, or truncate `audit_events`.
 
-Stop the stack with `docker compose down`. Add `--volumes` only when you intentionally want to
-remove local PostgreSQL data and avatar objects.
+Stop the stack with `docker compose down`. Restarting the stack, or running
+`docker compose down` without `--volumes`, preserves users, workspaces, task state, and attachments
+in the named `postgres-data` and `object-data` volumes. Add `--volumes` only when you intentionally
+want to remove local PostgreSQL data and object storage.
 
 Product telemetry is disabled by default (`OPENBOT_TELEMETRY=false`). An idle API or worker
 makes no unnecessary outbound requests; leave the flag off for single-host deployments unless
@@ -133,6 +136,13 @@ to `api.openai.com`. Schemes default to HTTPS; opt into HTTP through
 also requires its CIDR in `OPENBOT_PROVIDER_PRIVATE_CIDRS`. Every resolved address is checked
 before connecting, DNS answers are pinned for the request, and redirects are rejected. For a
 local provider, allow its hostname, scheme, and private CIDR explicitly.
+
+Default Compose stays without publishing a model service. The API and worker can still use
+a model endpoint on its private network: attach the provider to the `frontend` network (or another
+non-published Compose network the worker can reach), list its hostname in
+`OPENBOT_PROVIDER_ALLOWED_HOSTS`, allow `http` only when required, and set
+`OPENBOT_PROVIDER_PRIVATE_CIDRS` to the provider's private CIDR. The default stack leaves
+`OPENBOT_PROVIDER_PRIVATE_CIDRS` empty so private destinations stay denied until you opt in.
 
 Create a connection with an explicit protocol (**OpenAI Chat Completions**, **OpenAI Responses**, or **Anthropic Messages**),
 a name, base URL (for example `https://api.openai.com/v1`), model ID,
@@ -245,7 +255,7 @@ does not start during initial stack startup until the migration and privilege ga
 the first API process receives only the restricted runtime role. Run later schema changes during
 a maintenance window that restarts the API and worker after the migration service finishes. Once started,
 the API remains running and its readiness endpoint reports `Unavailable` during a later database
-outage. The web service starts after the API container.
+outage. The web service starts after the API container is healthy.
 PostgreSQL and migrations live on an internal data network; the web container can reach only the
 API over a separate frontend network.
 

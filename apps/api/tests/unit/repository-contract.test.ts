@@ -116,7 +116,7 @@ describe('repository contract', () => {
       OBJECT_STORAGE_BACKEND: '${OBJECT_STORAGE_BACKEND:-local}',
       OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
     });
-    expect(compose.services.web?.depends_on?.api?.condition).toBe('service_started');
+    expect(compose.services.web?.depends_on?.api?.condition).toBe('service_healthy');
     expect(compose.services.web?.environment).toMatchObject({
       ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
       WEB_ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
