@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0050_workspace_event_stream');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0051_routines');
   assert.deepEqual(
     (
       await pool.query(
