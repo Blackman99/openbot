@@ -81,8 +81,8 @@ async function loadConcurrencyPolicies(
   ).rows[0];
   const group = target.groupId
     ? (
-        await connection.query<{ execution_policy: unknown }>(
-          'SELECT execution_policy FROM groups WHERE id=$1 AND workspace_id=$2',
+        await connection.query<{ execution_policy: unknown; max_concurrent_runs: number | null }>(
+          'SELECT execution_policy,max_concurrent_runs FROM groups WHERE id=$1 AND workspace_id=$2',
           [target.groupId, target.workspaceId],
         )
       ).rows[0]
@@ -95,7 +95,14 @@ async function loadConcurrencyPolicies(
   ).rows[0];
   return {
     workspace: parseExecutionPolicy(workspace?.execution_policy),
-    group: target.groupId ? parseExecutionPolicy(group?.execution_policy ?? {}) : null,
+    group: target.groupId
+      ? {
+          ...parseExecutionPolicy(group?.execution_policy ?? {}),
+          ...(group?.max_concurrent_runs === null || group?.max_concurrent_runs === undefined
+            ? {}
+            : { maxConcurrentRuns: group.max_concurrent_runs }),
+        }
+      : null,
     task: parseExecutionPolicy(parent?.execution_policy ?? {}),
   };
 }

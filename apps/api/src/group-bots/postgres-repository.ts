@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
 import { BotAccessError, type BotConfiguration, type BotLifecycleState } from '../bots/service.js';
@@ -94,11 +95,15 @@ export class PostgresGroupBotRepository implements GroupBotRepository {
     private readonly pool: SqlPool,
     private readonly now: () => Date = () => new Date(),
   ) {}
-  private async transaction<T>(operation: (connection: SqlConnection) => Promise<T>) {
+  private async transaction<T>(
+    operation: (connection: SqlConnection) => Promise<T>,
+    admission?: TransactionAdmission,
+  ) {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
       const result = await operation(connection);
+      await admission?.(connection);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
@@ -111,7 +116,7 @@ export class PostgresGroupBotRepository implements GroupBotRepository {
       connection.release();
     }
   }
-  list(access: GroupBotAccess) {
+  list(access: GroupBotAccess, admission?: TransactionAdmission) {
     return this.transaction(async (connection) => {
       const group = await lockAuthorizedGroup(
         connection,
@@ -126,14 +131,19 @@ export class PostgresGroupBotRepository implements GroupBotRepository {
         maxActive: 8,
         canManage: group.role !== 'member',
       };
-    });
+    }, admission);
   }
   context(access: GroupBotAccess, grantId: string, read: MessageRead) {
     return this.transaction(async (connection) =>
       (await GroupBotTransaction.lock(connection, { ...access, grantId })).context(read),
     );
   }
-  remove(access: GroupBotAccess, grantId: string, idempotencyKey: string) {
+  remove(
+    access: GroupBotAccess,
+    grantId: string,
+    idempotencyKey: string,
+    admission?: TransactionAdmission,
+  ) {
     return this.transaction(async (connection) => {
       await lockAuthorizedGroup(
         connection,
@@ -178,9 +188,9 @@ export class PostgresGroupBotRepository implements GroupBotRepository {
         this.now,
       );
       return (await readGroupBotGrants(connection, access)).find((grant) => grant.id === grantId)!;
-    });
+    }, admission);
   }
-  invite(access: GroupBotAccess, command: GroupBotInvite) {
+  invite(access: GroupBotAccess, command: GroupBotInvite, admission?: TransactionAdmission) {
     return this.transaction(async (connection) => {
       await lockAuthorizedGroup(
         connection,
@@ -275,6 +285,6 @@ export class PostgresGroupBotRepository implements GroupBotRepository {
         ],
       );
       return (await readGroupBotGrants(connection, access)).find((grant) => grant.id === grantId)!;
-    });
+    }, admission);
   }
 }

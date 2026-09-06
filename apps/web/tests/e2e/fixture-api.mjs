@@ -3,6 +3,7 @@ import {
   resetTaskCancellationFixture,
 } from './task-cancellation-fixture.mjs';
 import { handlePublicBotFixture, resetPublicBotFixture } from './public-bot-fixture.mjs';
+import { handlePublicGroupFixture, resetPublicGroupFixture } from './public-group-fixture.mjs';
 import { handleRoutingFixture, resetRoutingFixture } from './routing-fixture.mjs';
 import { handleGroupBotFixture, resetGroupBotFixture } from './group-bot-fixture.mjs';
 import {
@@ -111,6 +112,7 @@ const server = createServer((request, response) => {
   if (handleConversationStreamFixture(request, response, { sendJson, trustedOrigin })) return;
   if (handleRoutingFixture(request, response, { sendJson, readJson, trustedOrigin })) return;
   if (handlePublicBotFixture(request, response, { sendJson, trustedOrigin })) return;
+  if (handlePublicGroupFixture(request, response, { sendJson, trustedOrigin })) return;
   if (
     handleMemoryFixture(request, response, {
       user: sessions.get(readSession(request)),
@@ -261,6 +263,7 @@ const server = createServer((request, response) => {
     readJson(request, ({ scenario: requestedScenario }) => {
       void resetRoutingFixture();
       void resetPublicBotFixture();
+      void resetPublicGroupFixture();
       scenario = requestedScenario === 'unavailable' ? 'unavailable' : 'ready';
       if (requestedScenario === 'unclaimed') {
         resetAuth();
@@ -565,6 +568,7 @@ const close = () => {
   server.close();
   void resetRoutingFixture();
   void resetPublicBotFixture();
+  void resetPublicGroupFixture();
 };
 process.once('SIGINT', close);
 process.once('SIGTERM', close);

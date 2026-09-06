@@ -3,6 +3,7 @@ import type { AuthService } from '../auth/service.js';
 import { readSessionToken } from '../auth/session-cookie.js';
 import {
   GroupAccessError,
+  GroupArchivedError,
   GroupInputError,
   GroupMemberNotFoundError,
   GroupMemberConflictError,
@@ -22,6 +23,8 @@ export function registerGroupRoutes(
       return payload;
     });
     routes.setErrorHandler((error, _request, reply) => {
+      if (error instanceof GroupArchivedError)
+        return reply.code(409).send({ error: { code: 'group_archived' } });
       if (error instanceof LastGroupOwnerError)
         return reply.code(409).send({ error: { code: 'last_group_owner_required' } });
       if (error instanceof GroupMemberNotFoundError)

@@ -347,7 +347,7 @@ try {
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;
     GRANT UPDATE (role) ON group_memberships TO openbot_runtime;
-    GRANT UPDATE (name, description, visibility, updated_at) ON groups TO openbot_runtime;
+    GRANT UPDATE (name, description, visibility, updated_at, archived_at, max_concurrent_runs) ON groups TO openbot_runtime;
     GRANT DELETE ON workspace_memberships TO openbot_runtime;
     GRANT SELECT, INSERT, DELETE ON oidc_identities, oidc_transactions TO openbot_runtime;
     GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;

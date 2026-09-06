@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth/service.js';
 import { readSessionToken } from '../auth/session-cookie.js';
+import { GroupArchivedError } from '../groups/service.js';
 import {
   GroupBotAccessError,
   GroupBotConflictError,
@@ -19,6 +20,8 @@ export function registerGroupBotRoutes(
       return payload;
     });
     routes.setErrorHandler((error, _request, reply) => {
+      if (error instanceof GroupArchivedError)
+        return reply.code(409).send({ error: { code: 'group_archived' } });
       if (error instanceof GroupBotAccessError)
         return reply.code(403).send({ error: { code: 'group_bot_forbidden' } });
       if (error instanceof GroupBotConflictError)

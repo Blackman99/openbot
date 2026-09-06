@@ -11,7 +11,7 @@ describe('COL-19 human request schema slice', () => {
   it('is the next ordered ledger after cost budgets and admits waiting human holds', () => {
     expect(COL19_HUMAN_REQUEST_REQUIRES_VERSION).toBe('0047_task_human_requests');
     expect(MIGRATION_VERSIONS).toContain('0046_task_cost_budgets');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0048_task_cost_grants');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0049_group_archive');
     expect(sql).toContain('waiting_input');
     expect(sql).toContain('waiting_approval');
     expect(sql).toContain('CREATE TABLE task_human_requests');

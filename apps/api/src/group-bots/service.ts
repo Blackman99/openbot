@@ -1,4 +1,5 @@
 import type { BotLifecycleState } from '../bots/service.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import {
   conversationUuid,
   InvalidConversationInputError,
@@ -59,8 +60,13 @@ export type GroupBotHistory =
   | { mode: 'since-event'; eventId: string }
   | { mode: 'since-time'; time: string };
 function historyChoice(value: unknown): GroupBotHistory {
-  if (value === undefined) return { mode: 'future-only' };
+  if (value === undefined || value === 'future' || value === 'future-only')
+    return { mode: 'future-only' };
+  if (value === 'all') return { mode: 'all' };
   const input = groupBotObject(value, ['mode', 'eventId', 'time']);
+  if (input.mode === 'future') input.mode = 'future-only';
+  if (input.mode === 'since' && 'eventId' in input) input.mode = 'since-event';
+  if (input.mode === 'since' && 'time' in input) input.mode = 'since-time';
   if ((input.mode === 'future-only' || input.mode === 'all') && Object.keys(input).length === 1)
     return { mode: input.mode };
   if (input.mode === 'since-event' && Object.keys(input).length === 2 && 'eventId' in input)
@@ -76,10 +82,19 @@ function historyChoice(value: unknown): GroupBotHistory {
   throw new GroupBotInputError();
 }
 export interface GroupBotRepository {
-  invite(access: GroupBotAccess, command: GroupBotInvite): Promise<GroupBotGrant>;
-  list(access: GroupBotAccess): Promise<GroupBotList>;
+  invite(
+    access: GroupBotAccess,
+    command: GroupBotInvite,
+    admission?: TransactionAdmission,
+  ): Promise<GroupBotGrant>;
+  list(access: GroupBotAccess, admission?: TransactionAdmission): Promise<GroupBotList>;
   context(access: GroupBotAccess, grantId: string, read: MessageRead): Promise<GroupBotContext>;
-  remove(access: GroupBotAccess, grantId: string, idempotencyKey: string): Promise<GroupBotGrant>;
+  remove(
+    access: GroupBotAccess,
+    grantId: string,
+    idempotencyKey: string,
+    admission?: TransactionAdmission,
+  ): Promise<GroupBotGrant>;
 }
 export interface GroupBotContext {
   grantId: string;
@@ -119,16 +134,47 @@ export function groupBotAccess(actorUserId: string, workspaceId: string, groupId
 }
 export class GroupBotService {
   constructor(private readonly repository: GroupBotRepository) {}
-  invite(actor: string, workspace: string, group: string, value: unknown) {
-    const input = groupBotObject(value, ['botId', 'idempotencyKey', 'history']);
-    return this.repository.invite(groupBotAccess(actor, workspace, group), {
-      botId: groupBotUuid(input.botId),
-      idempotencyKey: groupBotCommandKey(input.idempotencyKey),
-      history: historyChoice(input.history),
-    });
+  invite(
+    actor: string,
+    workspace: string,
+    group: string,
+    value: unknown,
+    admission?: TransactionAdmission,
+  ) {
+    const input = groupBotObject(value, [
+      'botId',
+      'idempotencyKey',
+      'history',
+      'historyAccess',
+      'eventId',
+      'time',
+    ]);
+    const history =
+      input.history ??
+      (input.historyAccess === 'all'
+        ? { mode: 'all' }
+        : input.historyAccess === 'since'
+          ? 'eventId' in input
+            ? { mode: 'since-event', eventId: input.eventId }
+            : { mode: 'since-time', time: input.time }
+          : input.historyAccess === 'future' || input.historyAccess === undefined
+            ? undefined
+            : input.historyAccess);
+    return this.repository.invite(
+      groupBotAccess(actor, workspace, group),
+      {
+        botId: groupBotUuid(input.botId),
+        idempotencyKey:
+          input.idempotencyKey === undefined
+            ? `${Date.now()}-${groupBotUuid(input.botId)}`
+            : groupBotCommandKey(input.idempotencyKey),
+        history: historyChoice(history),
+      },
+      admission,
+    );
   }
-  list(actor: string, workspace: string, group: string) {
-    return this.repository.list(groupBotAccess(actor, workspace, group));
+  list(actor: string, workspace: string, group: string, admission?: TransactionAdmission) {
+    return this.repository.list(groupBotAccess(actor, workspace, group), admission);
   }
   context(actor: string, workspace: string, group: string, grantId: string, query: unknown) {
     let read: MessageRead;
@@ -144,12 +190,20 @@ export class GroupBotService {
       read,
     );
   }
-  remove(actor: string, workspace: string, group: string, grantId: string, value: unknown) {
-    const input = groupBotObject(value, ['idempotencyKey']);
+  remove(
+    actor: string,
+    workspace: string,
+    group: string,
+    grantId: string,
+    value: unknown,
+    admission?: TransactionAdmission,
+  ) {
+    const input = groupBotObject(value ?? { idempotencyKey: grantId }, ['idempotencyKey']);
     return this.repository.remove(
       groupBotAccess(actor, workspace, group),
       groupBotUuid(grantId),
-      groupBotCommandKey(input.idempotencyKey),
+      groupBotCommandKey(input.idempotencyKey === undefined ? grantId : input.idempotencyKey),
+      admission,
     );
   }
 }

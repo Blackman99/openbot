@@ -2,7 +2,7 @@
 sequence: 50
 id: API-03
 title: "Manage groups and membership through the public API"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - API-01
   - COL-02

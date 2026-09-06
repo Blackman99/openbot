@@ -1,6 +1,7 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import {
   GroupAccessError,
+  GroupArchivedError,
   type GroupContentAccess,
   type GroupRole,
   type GroupVisibility,
@@ -10,7 +11,7 @@ import {
 export async function lockAuthorizedGroup(
   connection: SqlConnection,
   access: { actorId: string; workspaceId: string; groupId: string },
-  permission: 'content' | 'manage',
+  permission: 'content' | 'manage' | 'archive',
 ): Promise<GroupContentAccess> {
   const workspace = await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
     access.workspaceId,
@@ -30,8 +31,9 @@ export async function lockAuthorizedGroup(
       visibility: GroupVisibility;
       created_at: Date;
       updated_at: Date;
+      archived_at: Date | null;
     }>(
-      'SELECT id,workspace_id,name,description,visibility,created_at,updated_at FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      'SELECT id,workspace_id,name,description,visibility,created_at,updated_at,archived_at FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
       [access.workspaceId, access.groupId],
     )
   ).rows[0];
@@ -42,7 +44,8 @@ export async function lockAuthorizedGroup(
       [access.groupId, access.actorId],
     )
   ).rows[0];
-  if (!actor || (permission === 'manage' && actor.role === 'member')) throw new GroupAccessError();
+  if (!actor || (permission !== 'content' && actor.role === 'member')) throw new GroupAccessError();
+  if (permission === 'manage' && group.archived_at) throw new GroupArchivedError();
   return {
     id: group.id,
     workspaceId: group.workspace_id,

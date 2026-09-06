@@ -107,6 +107,14 @@ omitted fields and avatar references; a stale version returns 409. Bot pages use
 immutable versions; archive preserves that history. Tokens are checked again in the resource
 transaction before it commits, including after lock or audit waits.
 
+Public Group clients use `GET /v1/groups` and `GET /v1/groups/{groupId}` with `groups:read`.
+`groups:write` enables `POST /v1/groups`, `PATCH /v1/groups/{groupId}`, membership and Bot grant
+routes, routing updates, and `POST /v1/groups/{groupId}/archive`. Neither scope implies the other.
+History access on a Bot invitation is `future`, `since`, or `all`, and defaults to `future`. Group
+pages use the same exclusive `after` UUID cursor and `limit` of 1 to 100. The
+[Group OpenAPI 3.1 contract](docs/openapi/groups.openapi.json) covers those operations. Archived
+groups stay inspectable and reject further management writes.
+
 ## Personal model connections
 
 After signing in, select **Personal models** in the workspace, or open

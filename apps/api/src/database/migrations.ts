@@ -86,6 +86,7 @@ import { MODEL_PRICE_SCHEMA_STATEMENTS } from '../tasks/model-price-schema.js';
 import { TASK_COST_BUDGET_SCHEMA_STATEMENTS } from '../tasks/cost-budget-schema.js';
 import { TASK_COST_GRANT_SCHEMA_STATEMENTS } from '../tasks/cost-grant-schema.js';
 import { TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS } from '../tasks/human-request-schema.js';
+import { GROUP_ARCHIVE_SCHEMA_STATEMENTS } from '../groups/archive-schema.js';
 import {
   COL12_ENFORCEMENT_POSTGRES_GUARDS,
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -489,6 +490,11 @@ const MIGRATIONS = [
   {
     version: '0048_task_cost_grants',
     statements: TASK_COST_GRANT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0049_group_archive',
+    statements: GROUP_ARCHIVE_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

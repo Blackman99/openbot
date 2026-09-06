@@ -1,4 +1,5 @@
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import type { TransactionAdmission } from '../database/transaction-admission.js';
 import { randomUUID } from 'node:crypto';
 import { groupBotAccess, groupBotUuid } from '../group-bots/service.js';
 import { GroupBotTransaction } from '../group-bots/postgres-admission.js';
@@ -25,11 +26,15 @@ export class GroupRoutingService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  private async transaction<T>(operation: (connection: SqlConnection) => Promise<T>) {
+  private async transaction<T>(
+    operation: (connection: SqlConnection) => Promise<T>,
+    admission?: TransactionAdmission,
+  ) {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
       const result = await operation(connection);
+      await admission?.(connection);
       await connection.query('COMMIT');
       return result;
     } catch (error) {
@@ -40,7 +45,7 @@ export class GroupRoutingService {
     }
   }
 
-  get(actorUserId: string, workspaceId: string, groupId: string) {
+  get(actorUserId: string, workspaceId: string, groupId: string, admission?: TransactionAdmission) {
     const access = groupBotAccess(actorUserId, workspaceId, groupId);
     return this.transaction(async (connection) => {
       const group = await lockAuthorizedGroup(
@@ -53,10 +58,16 @@ export class GroupRoutingService {
         'content',
       );
       return this.readSetting(connection, access.groupId, group.role !== 'member');
-    });
+    }, admission);
   }
 
-  update(actorUserId: string, workspaceId: string, groupId: string, input: unknown) {
+  update(
+    actorUserId: string,
+    workspaceId: string,
+    groupId: string,
+    input: unknown,
+    admission?: TransactionAdmission,
+  ) {
     const access = groupBotAccess(actorUserId, workspaceId, groupId);
     if (!input || typeof input !== 'object' || Array.isArray(input))
       throw new RoutingSettingInputError();
@@ -133,7 +144,7 @@ export class GroupRoutingService {
         ],
       );
       return this.readSetting(connection, access.groupId, true);
-    });
+    }, admission);
   }
 
   private async readSetting(

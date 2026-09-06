@@ -20,6 +20,7 @@ import { registerGroupRoutingRoutes } from './routing/routes.js';
 import type { BotVersionService } from './bots/version-service.js';
 import { registerBotRoutes } from './bots/routes.js';
 import { registerPublicBotRoutes } from './bots/public-routes.js';
+import { registerPublicGroupRoutes } from './groups/public-routes.js';
 import { registerBotLifecycleRoutes } from './bots/lifecycle-routes.js';
 import type { BotLifecycleService } from './bots/lifecycle-service.js';
 import { registerBotAclRoutes } from './bots/acl-routes.js';
@@ -246,6 +247,8 @@ export function buildApp({
   if (apiTokens) registerPublicIdentityRoute(app, apiTokens);
   if (apiTokens && bots && botVersions && botLifecycle)
     registerPublicBotRoutes(app, apiTokens, bots, botVersions, botLifecycle);
+  if (apiTokens && groups && groupBots && groupRouting)
+    registerPublicGroupRoutes(app, apiTokens, groups, groupBots, groupRouting);
   if (auth) {
     if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);

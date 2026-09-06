@@ -422,7 +422,7 @@ describe('repository contract', () => {
       "has_column_privilege('openbot_runtime', 'sessions', 'token_digest', 'UPDATE')",
     );
     expect(workflow).toContain(
-      'created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false',
+      'archived_at:true,created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,max_concurrent_runs:true,name:true,updated_at:true,visibility:true,workspace_id:false',
     );
     expect(workflow).toContain("UPDATE audit_events SET metadata = '{}'::jsonb");
     expect(workflow).toContain('DELETE FROM audit_events');
@@ -450,6 +450,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0046_task_cost_budgets');
     expect(workflow).toContain('0047_task_human_requests');
     expect(workflow).toContain('0048_task_cost_grants');
+    expect(workflow).toContain('0049_group_archive');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );

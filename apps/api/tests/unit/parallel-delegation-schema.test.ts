@@ -11,7 +11,7 @@ describe('COL-15 parallel delegation schema slice', () => {
   it('is the next ordered ledger after token budgets and admits many children per parent Run', () => {
     expect(COL15_PARALLEL_DELEGATION_REQUIRES_VERSION).toBe('0043_task_parallel_delegations');
     expect(MIGRATION_VERSIONS).toContain('0042_task_token_budgets');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0048_task_cost_grants');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0049_group_archive');
     expect(sql).toContain('CREATE TABLE task_delegations_parallel');
     expect(sql).toContain('PRIMARY KEY (parent_run_id, child_task_id)');
     expect(sql).toContain('UNIQUE (parent_run_id, action_id)');
