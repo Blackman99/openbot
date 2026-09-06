@@ -28,6 +28,12 @@ import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from 
 import type { TaskPartialOutput } from './partial-output.js';
 import { lockTaskAncestry } from './tree.js';
 import { loadRunContinuations, type RunContinuation } from './continuation.js';
+import {
+  loadExecutionLimitPolicies,
+  persistTaskLimitSnapshot,
+  resolveExecutionLimits,
+  taskPolicyFromBotLimits,
+} from './execution-limits.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
@@ -462,6 +468,20 @@ export class TaskService {
       await connection.query(
         "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,1,'queued',$3)",
         [runId, id, occurredAt],
+      );
+      const policies = await loadExecutionLimitPolicies(
+        connection,
+        access.workspaceId,
+        admitted.groupId,
+      );
+      await persistTaskLimitSnapshot(
+        connection,
+        id,
+        resolveExecutionLimits({
+          ...policies,
+          task: taskPolicyFromBotLimits(bot.configuration.limits),
+        }),
+        occurredAt,
       );
       if (admitted.decision) {
         await connection.query(

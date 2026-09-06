@@ -69,6 +69,7 @@ describe('database migrations', () => {
       '0033_task_pause_checkpoints',
       '0034_task_resume_commands',
       '0035_task_run_recovery',
+      '0036_task_execution_limit_snapshots',
     ]);
 
     const database: DatabaseClient = {
@@ -151,6 +152,7 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
+      'task_execution_limit_snapshots',
       'task_pause_commands',
       'task_resume_commands',
       'task_retry_commands',
@@ -182,7 +184,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0035_task_run_recovery' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0036_task_execution_limit_snapshots' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

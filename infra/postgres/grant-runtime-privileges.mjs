@@ -261,6 +261,9 @@ try {
         GRANT SELECT, INSERT ON task_run_leases, task_run_recovery_receipts TO openbot_runtime;
         GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime;
       END IF;
+      IF to_regclass('task_execution_limit_snapshots') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_execution_limit_snapshots TO openbot_runtime;
+      END IF;
       IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
       END IF;

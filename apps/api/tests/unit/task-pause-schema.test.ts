@@ -18,7 +18,7 @@ describe('COL-08 pause schema first slice', () => {
   it('is the next ordered ledger after document locators and admits paused status', () => {
     expect(COL08_PAUSE_REQUIRES_VERSION).toBe('0033_task_pause_checkpoints');
     expect(COL08_RESUME_REQUIRES_VERSION).toBe('0034_task_resume_commands');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0035_task_run_recovery');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0036_task_execution_limit_snapshots');
     expect(TASK_RESUME_SCHEMA_STATEMENTS.join('\n')).toContain('CREATE TABLE task_resume_commands');
     expect(sql).toContain('DROP CONSTRAINT tasks_cancellation_status');
     expect(sql).toContain("'paused'");
