@@ -21,7 +21,12 @@ export function composeRetryDelayMs(
 }
 
 export type AttemptOrigin =
-  'initial' | 'manual_retry' | 'provider_retry' | 'model_fallback' | 'worker_recovery';
+  | 'initial'
+  | 'manual_retry'
+  | 'provider_retry'
+  | 'model_fallback'
+  | 'worker_recovery'
+  | 'manual_resume';
 
 export interface EffectiveRetryPolicy {
   maxAttemptsPerModel: number;
@@ -36,7 +41,7 @@ export interface ChainAttempt {
 }
 
 export interface NextAttemptPlan {
-  origin: 'provider_retry' | 'model_fallback';
+  origin: 'provider_retry' | 'model_fallback' | 'manual_resume';
   reason: string;
   binding: BotBinding;
   previousBinding: BotBinding;

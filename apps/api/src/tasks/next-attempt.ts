@@ -14,6 +14,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'provider_retry',
   'model_fallback',
   'worker_recovery',
+  'manual_resume',
 ]);
 
 export interface AttemptChain {
@@ -111,7 +112,12 @@ export async function writeNextAttempt(
     now: Date;
   },
 ): Promise<NextAttemptWrite> {
-  if (!(await lockTaskAncestry(connection, input.taskId)))
+  const resume = input.plan.origin === 'manual_resume';
+  if (
+    !(await lockTaskAncestry(connection, input.taskId, {
+      allowPausedTarget: resume,
+    }))
+  )
     return { scheduled: false, reason: 'cancelled' };
   const source = (
     await connection.query<{
@@ -127,9 +133,9 @@ export async function writeNextAttempt(
   const latest = source.at(-1);
   if (
     !latest ||
-    latest.status !== 'failed' ||
     latest.id !== input.sourceRunId ||
-    source.some((run) => run.attempt > input.sourceAttempt)
+    source.some((run) => run.attempt > input.sourceAttempt) ||
+    latest.status !== (resume ? 'paused' : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
   const parent = (

@@ -365,6 +365,28 @@ try {
     GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime;
     GRANT EXECUTE ON FUNCTION task_queued_audit_metadata_for_task(uuid) TO openbot_runtime;
     GRANT EXECUTE ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) TO openbot_runtime;
+    DO $grant_optional_pause_resume$
+    BEGIN
+      IF to_regclass('task_run_pause_checkpoints') IS NULL THEN
+        RETURN;
+      END IF;
+      CREATE OR REPLACE FUNCTION task_has_manual_resume_receipt(target uuid, run_id uuid, actor uuid)
+      RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+        SELECT EXISTS (
+          SELECT 1 FROM audit_events a
+          JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+          JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+          JOIN task_run_pause_checkpoints k ON k.run_id=previous.id
+          WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+            AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+            AND a.metadata->>'origin'='manual_resume'
+            AND previous.status='paused' AND previous.attempt::bigint+1=next_run.attempt
+        )
+      $$;
+      REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+      GRANT EXECUTE ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) TO openbot_runtime;
+    END
+    $grant_optional_pause_resume$;
     GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT ON api_tokens TO openbot_runtime;
     GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;

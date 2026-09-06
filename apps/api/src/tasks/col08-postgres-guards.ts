@@ -1,0 +1,191 @@
+// Repeatable overlay after 0033. It does not consume a ledger number and does
+// not rewrite published 0022/0023/0033 statement lists. migrateDatabase
+// reapplies these CREATE OR REPLACE bodies whenever 0033 is in the requested
+// target so already-applied databases pick up queued/running → paused and
+// paused → queued resume. COL-10 automatic-attempt recognition stays required.
+// Runtime still cannot SELECT audit_events; helpers are SECURITY DEFINER.
+
+import { COL08_PAUSE_REQUIRES_VERSION } from './pause-schema.js';
+
+export { COL08_PAUSE_REQUIRES_VERSION };
+
+export const COL08_PAUSE_HELPERS = [
+  `CREATE OR REPLACE FUNCTION task_has_manual_resume_receipt(target uuid, run_id uuid, actor uuid)
+RETURNS boolean
+LANGUAGE sql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM audit_events a
+    JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+    JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+    JOIN task_run_pause_checkpoints k ON k.run_id=previous.id
+    WHERE a.event_type='task.queued'
+      AND a.actor_user_id=actor
+      AND a.metadata->>'taskId'=target::text
+      AND a.metadata->>'runId'=run_id::text
+      AND a.metadata->>'origin'='manual_resume'
+      AND previous.status='paused'
+      AND previous.attempt::bigint+1=next_run.attempt
+  )
+$$`,
+  'REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC',
+] as const;
+
+export const COL08_PAUSE_POSTGRES_GUARDS = [
+  ...COL08_PAUSE_HELPERS,
+  `CREATE OR REPLACE FUNCTION protect_task() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    DECLARE latest task_runs%ROWTYPE;
+    BEGIN
+      IF TG_OP='UPDATE' THEN
+        IF NEW.status<>'cancelled' AND NOT lock_task_ancestry(NEW.id) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot advance';
+        END IF;
+        IF (to_jsonb(NEW)-'status') IS DISTINCT FROM (to_jsonb(OLD)-'status')
+          OR NOT ((OLD.status='queued' AND NEW.status IN ('running','failed','cancelled','paused'))
+            OR (OLD.status='running' AND NEW.status IN ('completed','failed','cancelled','paused'))
+            OR (OLD.status='failed' AND NEW.status='queued')
+            OR (OLD.status='paused' AND NEW.status='queued')) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task identity and completed/cancelled state are immutable';
+        END IF;
+        SELECT r.* INTO latest FROM task_runs r WHERE r.task_id=NEW.id ORDER BY r.attempt DESC LIMIT 1;
+        IF OLD.status='failed' AND NEW.status='queued' AND NOT EXISTS (
+          SELECT 1 FROM task_retry_commands c JOIN task_runs previous ON previous.id=c.expected_run_id AND previous.task_id=c.task_id
+          WHERE c.task_id=NEW.id AND c.actor_user_id=NEW.execution_user_id AND c.run_id=latest.id
+          AND latest.status='queued' AND previous.status='failed' AND previous.attempt::bigint+1=latest.attempt
+        ) AND NOT (
+          latest.status='queued' AND task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)
+        ) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task retry requires a new Run and its immutable receipt';
+        END IF;
+        IF OLD.status='paused' AND NEW.status='queued' AND NOT (
+          latest.status='queued' AND task_has_manual_resume_receipt(NEW.id, latest.id, NEW.execution_user_id)
+        ) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task resume requires a new Run and its immutable receipt';
+        END IF;
+        IF latest.id IS NULL OR latest.status<>NEW.status THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task state must match its current Run';
+        END IF;
+      ELSIF NEW.status<>'queued' THEN
+        RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='new Task must be queued';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM conversations c JOIN conversation_events e ON e.conversation_id=c.id
+        WHERE c.id=NEW.conversation_id AND c.workspace_id=NEW.workspace_id AND e.id=NEW.trigger_event_id
+        AND e.actor_user_id=NEW.execution_user_id AND e.event_type='message.created'
+        AND e.command_hash=NEW.command_hash
+        AND ((c.group_id IS NULL AND c.bot_id=NEW.bot_id AND c.creator_user_id=NEW.execution_user_id AND NEW.group_grant_id IS NULL)
+          OR (c.group_id IS NOT NULL AND EXISTS (SELECT 1 FROM group_bot_grants g
+            WHERE g.id=NEW.group_grant_id AND g.workspace_id=c.workspace_id AND g.group_id=c.group_id
+            AND g.conversation_id=c.id AND g.bot_id=NEW.bot_id AND e.sequence>=g.lower_bound)))) THEN
+        RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task requires its human trigger and exact target';
+      END IF;
+      RETURN NEW;
+    END;
+    $$`,
+  `CREATE OR REPLACE FUNCTION protect_task_run() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    DECLARE parent tasks%ROWTYPE; latest task_runs%ROWTYPE;
+    BEGIN
+      IF NEW.status<>'cancelled' AND NOT lock_task_ancestry(NEW.task_id) THEN
+        RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot create or advance a Run';
+      END IF;
+      SELECT t.* INTO parent FROM tasks t WHERE t.id=NEW.task_id FOR UPDATE;
+      SELECT r.* INTO latest FROM task_runs r WHERE r.task_id=NEW.task_id ORDER BY r.attempt DESC LIMIT 1;
+      IF TG_OP='INSERT' THEN
+        IF parent.id IS NULL OR NEW.status<>'queued' OR NEW.created_at<parent.created_at
+          OR NOT ((NEW.attempt=1 AND latest.id IS NULL AND parent.status='queued')
+            OR (latest.id IS NOT NULL AND parent.status='failed' AND latest.status='failed'
+              AND NEW.attempt::bigint=latest.attempt::bigint+1 AND NEW.created_at>=latest.finished_at)
+            OR (latest.id IS NOT NULL AND parent.status='paused' AND latest.status='paused'
+              AND NEW.attempt::bigint=latest.attempt::bigint+1 AND NEW.created_at>=latest.finished_at)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='new Task Run must be the next queued attempt';
+        END IF;
+      ELSE
+        IF ROW(NEW.id,NEW.task_id,NEW.attempt,NEW.created_at)
+          IS DISTINCT FROM ROW(OLD.id,OLD.task_id,OLD.attempt,OLD.created_at)
+          OR NOT ((OLD.status='queued' AND NEW.status IN ('running','failed','cancelled','paused'))
+            OR (OLD.status='running' AND NEW.status IN ('completed','failed','cancelled','paused'))) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Run identity and terminal state are immutable';
+        END IF;
+        IF parent.id IS NULL OR parent.status<>OLD.status OR latest.id<>OLD.id THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='only the current Task Run can advance';
+        END IF;
+        IF NEW.status='cancelled' AND (
+          ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+            NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+            IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+              OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id)
+          OR
+          ROW(NEW.input_tokens,NEW.output_tokens,NEW.error_code,NEW.output_event_id) IS DISTINCT FROM
+            ROW(OLD.input_tokens,OLD.output_tokens,OLD.error_code,OLD.output_event_id)
+          OR NOT EXISTS (SELECT 1 FROM task_run_cancellations m JOIN task_cancel_commands c ON c.id=m.command_id
+            WHERE m.run_id=NEW.id AND m.previous_status=OLD.status AND m.cancelled_at=NEW.finished_at
+            AND c.cancelled_at=NEW.finished_at)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='cancelled Run requires its exact command marker, retained claim and usage';
+        END IF;
+        IF NEW.status='paused' AND (
+          ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+            NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+            IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+              OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id)
+          OR
+          ROW(NEW.input_tokens,NEW.output_tokens,NEW.error_code,NEW.output_event_id) IS DISTINCT FROM
+            ROW(OLD.input_tokens,OLD.output_tokens,OLD.error_code,OLD.output_event_id)
+          OR NOT EXISTS (SELECT 1 FROM task_run_pauses m JOIN task_pause_commands c ON c.id=m.command_id
+            JOIN task_run_pause_checkpoints k ON k.command_id=c.id AND k.run_id=m.run_id
+            WHERE m.run_id=NEW.id AND m.previous_status=OLD.status AND m.paused_at=NEW.finished_at
+            AND c.paused_at=NEW.finished_at AND k.paused_at=NEW.finished_at
+            AND k.strategy='restart_from_task_input_v1' AND k.schema_version=1)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='paused Run requires its exact command marker, checkpoint, retained claim and usage';
+        END IF;
+        IF OLD.status='running' AND ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+          NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+          IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+          OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Run claim and provider identity are immutable';
+        END IF;
+        IF NEW.started_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM tasks t
+          JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+          WHERE t.id=NEW.task_id
+          AND ((NEW.provider_scope_kind='personal' AND NEW.provider_scope_id=t.execution_user_id)
+            OR (NEW.provider_scope_kind='workspace' AND NEW.provider_scope_id=t.workspace_id))
+          AND (
+            (
+              v.configuration->'modelBinding'->'scope'->>'kind'=NEW.provider_scope_kind
+              AND v.configuration->'modelBinding'->'scope'->>'id'=NEW.provider_scope_id::text
+              AND v.configuration->'modelBinding'->>'connectionId'=NEW.connection_id::text
+              AND v.configuration->'modelBinding'->>'modelId'=NEW.model_id
+            )
+            OR task_run_has_listed_continuation_binding(
+              NEW.task_id, NEW.id, NEW.provider_scope_kind, NEW.provider_scope_id, NEW.connection_id, NEW.model_id)
+          )) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Run must retain its admitted model binding';
+        END IF;
+        IF NEW.status='completed' AND NOT EXISTS (SELECT 1 FROM conversation_events e
+          JOIN tasks t ON t.id=NEW.task_id WHERE e.id=NEW.output_event_id AND e.bot_run_id=NEW.id
+          AND e.conversation_id=t.conversation_id AND e.event_type='bot.message.created') THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='completed Run requires its Bot output';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $$`,
+  `CREATE OR REPLACE FUNCTION require_current_task_run() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    DECLARE target UUID; parent tasks%ROWTYPE; latest task_runs%ROWTYPE;
+    BEGIN
+      IF TG_TABLE_NAME='tasks' THEN target:=NEW.id; ELSE target:=NEW.task_id; END IF;
+      SELECT t.* INTO parent FROM tasks t WHERE t.id=target;
+      SELECT r.* INTO latest FROM task_runs r WHERE r.task_id=target ORDER BY r.attempt DESC LIMIT 1;
+      IF parent.id IS NULL OR latest.id IS NULL OR parent.status<>latest.status
+        OR (latest.attempt>1 AND NOT EXISTS (SELECT 1 FROM task_retry_commands c
+          WHERE c.task_id=target AND c.run_id=latest.id AND c.actor_user_id=parent.execution_user_id)
+          AND NOT task_has_automatic_continuation_receipt(target, latest.id, parent.execution_user_id)
+          AND NOT task_has_manual_resume_receipt(target, latest.id, parent.execution_user_id)) THEN
+        RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task, current Run and retry receipt must commit together';
+      END IF;
+      RETURN NULL;
+    END;
+    $$`,
+] as const;

@@ -32,6 +32,7 @@ import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import { TaskQueue } from '../../src/tasks/queue.js';
 import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
 import { planNextAttempt } from '../../src/tasks/retry-schedule.js';
+import { planManualResume } from '../../src/tasks/resume.js';
 import { TaskAccessError, TaskConflictError, TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { GroupRoutingService, RoutingSettingConflictError } from '../../src/routing/service.js';
@@ -2164,6 +2165,189 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       expect(
         (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
       ).toHaveLength(1);
+    });
+
+    it('pauses a queued Task under openbot_runtime, holds no claim, and resumes once without mutating the interrupted Run', async () => {
+      const f = await fixture();
+      const task = await submit(f);
+      const queued = (
+        await runtime.query<{ id: string }>(
+          'SELECT id FROM task_runs WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1',
+          [task.id],
+        )
+      ).rows[0]!;
+      const paused = await new TaskService(runtime).pause(
+        f.actorId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        { idempotencyKey: 'native-pause', expectedRunId: queued.id },
+      );
+      expect(paused.task.status).toBe('paused');
+      expect(paused.pause).toMatchObject({
+        runId: queued.id,
+        attempt: 1,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      });
+      const interrupted = (
+        await runtime.query(
+          'SELECT id,attempt,status,finished_at,started_at,claim_token,error_code,output_event_id FROM task_runs WHERE id=$1',
+          [queued.id],
+        )
+      ).rows[0];
+      expect(interrupted).toMatchObject({
+        status: 'paused',
+        started_at: null,
+        claim_token: null,
+        error_code: null,
+        output_event_id: null,
+      });
+      expect(
+        (
+          await runtime.query(
+            'SELECT strategy,schema_version,end_byte FROM task_run_pause_checkpoints WHERE run_id=$1',
+            [queued.id],
+          )
+        ).rows,
+      ).toEqual([{ strategy: 'restart_from_task_input_v1', schema_version: 1, end_byte: 0 }]);
+      expect(await new TaskQueue(runtime).claimNext()).toEqual({ handled: false });
+      expect(
+        (
+          await admin.query(
+            "SELECT has_function_privilege('openbot_runtime',$1,'EXECUTE') AS allowed",
+            ['task_has_manual_resume_receipt(uuid,uuid,uuid)'],
+          )
+        ).rows[0].allowed,
+      ).toBe(true);
+      expect(
+        (
+          await admin.query("SELECT has_function_privilege('public',$1,'EXECUTE') AS allowed", [
+            'task_has_manual_resume_receipt(uuid,uuid,uuid)',
+          ])
+        ).rows[0].allowed,
+      ).toBe(false);
+      await expect(
+        runtime.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
+          queued.id,
+        ]),
+      ).rejects.toThrow(/command marker|immutable/u);
+      const now = new Date();
+      const connection = await runtime.connect();
+      let first: Awaited<ReturnType<typeof writeNextAttempt>>;
+      try {
+        await connection.query('BEGIN');
+        first = await writeNextAttempt(connection, {
+          taskId: task.id,
+          sourceRunId: queued.id,
+          workspaceId: f.workspaceId,
+          conversationId: f.conversationId,
+          executionUserId: f.actorId,
+          sourceAttempt: 1,
+          plan: planManualResume({
+            binding: {
+              scope: { kind: 'personal', id: f.ownerId },
+              connectionId: f.model.id,
+              modelId: f.model.modelId,
+            },
+            sourceRunId: queued.id,
+            chainRootRunId: queued.id,
+            chainAttemptOrdinal: 2,
+            chainLimitSnapshot: 4,
+            now,
+          }),
+          now,
+        });
+        await connection.query('COMMIT');
+      } finally {
+        connection.release();
+      }
+      expect(first).toMatchObject({ scheduled: true, runId: expect.any(String) });
+      const runs = (
+        await runtime.query(
+          'SELECT id,attempt,status,finished_at,started_at,claim_token,error_code,output_event_id FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows;
+      expect(runs).toHaveLength(2);
+      expect(runs[0]).toEqual(interrupted);
+      expect(runs[1]).toMatchObject({
+        id: first.scheduled ? first.runId : '',
+        attempt: 2,
+        status: 'queued',
+      });
+      expect(
+        (
+          await runtime.query<{ metadata: Record<string, unknown> }>(
+            'SELECT task_queued_audit_metadata($1::uuid) AS metadata',
+            [runs[1]!.id],
+          )
+        ).rows[0]!.metadata,
+      ).toMatchObject({ origin: 'manual_resume', sourceRunId: queued.id });
+      expect((await read(f, task.id)).status).toBe('queued');
+      const replay = await runtime.connect();
+      try {
+        await replay.query('BEGIN');
+        expect(
+          await writeNextAttempt(replay, {
+            taskId: task.id,
+            sourceRunId: queued.id,
+            workspaceId: f.workspaceId,
+            conversationId: f.conversationId,
+            executionUserId: f.actorId,
+            sourceAttempt: 1,
+            plan: planManualResume({
+              binding: {
+                scope: { kind: 'personal', id: f.ownerId },
+                connectionId: f.model.id,
+                modelId: f.model.modelId,
+              },
+              sourceRunId: queued.id,
+              chainRootRunId: queued.id,
+              chainAttemptOrdinal: 2,
+              chainLimitSnapshot: 4,
+              now,
+            }),
+            now,
+          }),
+        ).toEqual({ scheduled: false, reason: 'duplicate' });
+        await replay.query('COMMIT');
+      } finally {
+        replay.release();
+      }
+      expect(
+        (await runtime.query('SELECT id FROM task_runs WHERE task_id=$1', [task.id])).rows,
+      ).toHaveLength(2);
+      expect(
+        (
+          await runtime.query(
+            'SELECT id,attempt,status,finished_at,started_at,claim_token,error_code,output_event_id FROM task_runs WHERE id=$1',
+            [queued.id],
+          )
+        ).rows[0],
+      ).toEqual(interrupted);
+    });
+
+    it('rejects a forged queued-to-paused advance without its pause marker and checkpoint', async () => {
+      const f = await fixture();
+      const task = await submit(f);
+      const queued = (
+        await runtime.query<{ id: string }>(
+          'SELECT id FROM task_runs WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1',
+          [task.id],
+        )
+      ).rows[0]!;
+      await expect(
+        runtime.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
+          queued.id,
+        ]),
+      ).rejects.toThrow(/command marker|immutable/u);
+      expect(
+        (await runtime.query('SELECT status FROM tasks WHERE id=$1', [task.id])).rows[0],
+      ).toEqual({ status: 'queued' });
+      expect(
+        (await runtime.query('SELECT status FROM task_runs WHERE id=$1', [queued.id])).rows[0],
+      ).toEqual({ status: 'queued' });
     });
   },
 );

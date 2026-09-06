@@ -256,6 +256,75 @@ describe('database migrations', () => {
     expect(statements.at(-1)).toBe('COMMIT');
   });
 
+  it('reapplies COL-08 pause guards after 0033 without recording a new version', async () => {
+    const statements: string[] = [];
+    const connection = {
+      query: async (statement: string) => {
+        statements.push(statement);
+        return statement.startsWith('SELECT version FROM openbot_schema_migrations')
+          ? { rows: MIGRATION_VERSIONS.map((version) => ({ version })) }
+          : { rows: [] };
+      },
+      release: () => undefined,
+    };
+
+    await migrateDatabase({ connect: async () => connection });
+
+    const pauseOverlay = statements.findLastIndex((statement) =>
+      statement.includes('task_has_manual_resume_receipt'),
+    );
+    const automaticOverlay = statements.findIndex((statement) =>
+      statement.includes("origin' IN ('provider_retry','model_fallback')"),
+    );
+    expect(automaticOverlay).toBeGreaterThanOrEqual(0);
+    expect(pauseOverlay).toBeGreaterThan(automaticOverlay);
+    expect(statements.some((statement) => statement.includes("origin'='manual_resume'"))).toBe(
+      true,
+    );
+    expect(
+      statements.some((statement) =>
+        statement.includes(
+          "OLD.status='queued' AND NEW.status IN ('running','failed','cancelled','paused')",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      statements.some((statement) => statement.startsWith('INSERT INTO openbot_schema_migrations')),
+    ).toBe(false);
+    expect(statements.at(-1)).toBe('COMMIT');
+  });
+
+  it('does not apply COL-08 pause guards before migration 0033', async () => {
+    const statements: string[] = [];
+    const through0023 = MIGRATION_VERSIONS.slice(
+      0,
+      MIGRATION_VERSIONS.indexOf('0023_task_tree_cancellation') + 1,
+    );
+    const connection = {
+      query: async (statement: string) => {
+        statements.push(statement);
+        return statement.startsWith('SELECT version FROM openbot_schema_migrations')
+          ? { rows: through0023.map((version) => ({ version })) }
+          : { rows: [] };
+      },
+      release: () => undefined,
+    };
+
+    await migrateDatabase(
+      { connect: async () => connection },
+      { throughVersion: '0023_task_tree_cancellation' },
+    );
+
+    expect(
+      statements.some((statement) => statement.includes('task_has_manual_resume_receipt')),
+    ).toBe(false);
+    expect(
+      statements.some((statement) =>
+        statement.includes("origin' IN ('provider_retry','model_fallback')"),
+      ),
+    ).toBe(true);
+  });
+
   it('does not apply COL-10 automatic-attempt guards before migration 0023', async () => {
     const statements: string[] = [];
     const through0022 = MIGRATION_VERSIONS.slice(

@@ -3,6 +3,8 @@ import { buildApp } from '../../src/app.js';
 import { taskFixture } from '../helpers/task-fixture.js';
 import { installTaskCancellationFixture } from '../helpers/task-cancellation-fixture.js';
 import { TaskService } from '../../src/tasks/service.js';
+import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
+import { planManualResume } from '../../src/tasks/resume.js';
 import { randomUUID } from 'node:crypto';
 
 describe('COL-08 queued Task pause first slice', () => {
@@ -137,5 +139,110 @@ describe('COL-08 queued Task pause first slice', () => {
     expect((await f.pool.query('SELECT * FROM task_runs')).rows).toEqual(before);
     expect((await f.pool.query('SELECT id FROM task_pause_commands')).rows).toHaveLength(2);
     expect((await f.pool.query('SELECT id FROM task_run_pause_checkpoints')).rows).toHaveLength(1);
+  });
+
+  it('resumes a paused queued Task through the single next-attempt writer without mutating the interrupted Run', async () => {
+    const f = await fixture();
+    const paused = await f.post();
+    expect(paused.statusCode).toBe(200);
+    const interrupted = (
+      await f.pool.query(
+        'SELECT id,attempt,status,finished_at,error_code FROM task_runs WHERE id=$1',
+        [f.task.runs[0]!.id],
+      )
+    ).rows[0];
+    const now = new Date('2026-09-06T00:10:00.000Z');
+    const connection = await f.pool.connect();
+    let first: Awaited<ReturnType<typeof writeNextAttempt>>;
+    try {
+      await connection.query('BEGIN');
+      first = await writeNextAttempt(connection, {
+        taskId: f.task.id,
+        sourceRunId: interrupted.id,
+        workspaceId: f.owner.workspace.id,
+        conversationId: f.conversation.id,
+        executionUserId: f.owner.user.id,
+        sourceAttempt: 1,
+        plan: planManualResume({
+          binding: {
+            scope: { kind: 'personal', id: f.owner.user.id },
+            connectionId: f.model.id,
+            modelId: f.model.modelId,
+          },
+          sourceRunId: interrupted.id,
+          chainRootRunId: interrupted.id,
+          chainAttemptOrdinal: 2,
+          chainLimitSnapshot: 4,
+          now,
+        }),
+        now,
+      });
+      await connection.query('COMMIT');
+    } finally {
+      connection.release();
+    }
+    expect(first).toMatchObject({ scheduled: true, runId: expect.any(String) });
+    const runs = (
+      await f.pool.query(
+        'SELECT id,attempt,status,finished_at,error_code FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+        [f.task.id],
+      )
+    ).rows;
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toEqual(interrupted);
+    expect(runs[1]).toMatchObject({ attempt: 2, status: 'queued', error_code: null });
+    expect((await f.read()).status).toBe('queued');
+    const queuedAudit = (
+      await f.pool.query<{ metadata: Record<string, unknown> }>(
+        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+        [runs[1]!.id],
+      )
+    ).rows[0]!.metadata;
+    expect(queuedAudit).toMatchObject({
+      origin: 'manual_resume',
+      sourceRunId: interrupted.id,
+      previousRunId: interrupted.id,
+    });
+    const replay = await f.pool.connect();
+    try {
+      await replay.query('BEGIN');
+      expect(
+        await writeNextAttempt(replay, {
+          taskId: f.task.id,
+          sourceRunId: interrupted.id,
+          workspaceId: f.owner.workspace.id,
+          conversationId: f.conversation.id,
+          executionUserId: f.owner.user.id,
+          sourceAttempt: 1,
+          plan: planManualResume({
+            binding: {
+              scope: { kind: 'personal', id: f.owner.user.id },
+              connectionId: f.model.id,
+              modelId: f.model.modelId,
+            },
+            sourceRunId: interrupted.id,
+            chainRootRunId: interrupted.id,
+            chainAttemptOrdinal: 2,
+            chainLimitSnapshot: 4,
+            now,
+          }),
+          now,
+        }),
+      ).toEqual({ scheduled: false, reason: 'duplicate' });
+      await replay.query('COMMIT');
+    } finally {
+      replay.release();
+    }
+    expect(
+      (await f.pool.query('SELECT id FROM task_runs WHERE task_id=$1', [f.task.id])).rows,
+    ).toHaveLength(2);
+    expect(
+      (
+        await f.pool.query(
+          'SELECT id,attempt,status,finished_at,error_code FROM task_runs WHERE id=$1',
+          [interrupted.id],
+        )
+      ).rows[0],
+    ).toEqual(interrupted);
   });
 });

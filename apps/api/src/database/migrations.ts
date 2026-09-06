@@ -56,6 +56,10 @@ import {
   COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION,
 } from '../tasks/col10-postgres-guards.js';
 import {
+  COL08_PAUSE_POSTGRES_GUARDS,
+  COL08_PAUSE_REQUIRES_VERSION,
+} from '../tasks/col08-postgres-guards.js';
+import {
   CONVERSATION_STREAM_SCHEMA_STATEMENTS,
   CONVERSATION_STREAM_POSTGRES_GUARDS,
 } from '../conversations/stream-schema.js';
@@ -457,6 +461,14 @@ export async function migrateDatabase(
       targetMigrations.some(({ version }) => version === COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION)
     ) {
       for (const statement of COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL08_PAUSE_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL08_PAUSE_POSTGRES_GUARDS) {
         await connection.query(statement);
       }
     }

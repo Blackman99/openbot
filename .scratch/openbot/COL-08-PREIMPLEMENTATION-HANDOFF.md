@@ -44,8 +44,9 @@ Queued pause only, selected Task only:
 
 - Running pause and provider abort.
 - Recursive subtree pause; resume of the selected Task only.
-- `manual_resume` origin on the shared next-attempt writer, including native `protect_task` / `protect_task_run` overlays (COL-10 still reapplies after 0023 and currently allows only failed → queued successors).
-- UI pause/resume forms and interrupted-output history after resume.
-- Native PostgreSQL/Compose evidence for pause/resume.
+- Resume HTTP API, idempotent resume receipts, UI pause/resume forms, and interrupted-output history after resume.
+- Compose behavioral evidence for pause/resume.
+
+Landed in the overlay slice: native `protect_task` / `protect_task_run` CREATE OR REPLACE after 0033 admits `queued|running → paused` with the pause marker/checkpoint and `paused → queued` via `writeNextAttempt` origin `manual_resume`. Native `postgres-tasks` covers queued pause under `openbot_runtime` (not claimed) and a single resume that leaves the interrupted Run unchanged.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

@@ -50,6 +50,7 @@ export async function taskAncestryIsActive(
 export async function lockTaskAncestry(
   connection: SqlConnection,
   taskId: string,
+  options: { allowPausedTarget?: boolean } = {},
 ): Promise<boolean> {
   const root = (
     await connection.query<{ root_task_id: string }>('SELECT root_task_id FROM tasks WHERE id=$1', [
@@ -62,5 +63,9 @@ export async function lockTaskAncestry(
   for (const node of [...path].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)))
     if (node.id !== root.root_task_id)
       await connection.query('SELECT id FROM tasks WHERE id=$1 FOR UPDATE', [node.id]);
-  return path.every((node) => node.status !== 'cancelled' && node.status !== 'paused');
+  return path.every((node) => {
+    if (node.status === 'cancelled') return false;
+    if (node.status === 'paused') return Boolean(options.allowPausedTarget && node.id === taskId);
+    return true;
+  });
 }
