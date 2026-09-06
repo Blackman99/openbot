@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-05 AC5 live UI cut is on `feat/openbot-collaboration-system` / draft PR #1 after approvals tip `776eb44`. Task list/detail pages subscribe to the existing COL-05 conversation SSE and invalidate page data on `task.human.decided`, human-request, and `task.run.updated` events so API-driven approvals and retries re-render without a full refresh; conversation live progress also surfaces waiting_input/waiting_approval. With prior AC1-4 and AC6 approve work, all six API-05 acceptance criteria are implemented for Tester stamp (leave ticket checkboxes unchecked). Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-05 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `9d37502`, green [Verify 34022951730](https://github.com/Blackman99/openbot/actions/runs/34022951730), and Tester 6/6 PASS. API-06 is in progress with the first public SSE auth TDD slice (`GET /v1/events` session or Bearer `events:read`, reject URL credentials), reusing API-01 token patterns and COL-05 SSE framing; resumable cursors, scoped admission, domain producers, and backpressure remain open. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Fifty-one of 67 tickets are implemented and independently reviewed, and all 51 are fully complete. All 401 original acceptance texts are preserved.
+Fifty-two of 67 tickets are implemented and independently reviewed, and all 52 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
