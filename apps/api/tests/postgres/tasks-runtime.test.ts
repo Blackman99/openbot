@@ -2625,7 +2625,10 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       ).toMatchObject({ origin: 'worker_recovery', sourceRunId: claim.runId });
       expect(await queue.recoverExpiredClaims()).toBe(0);
       expect(
-        await queue.finish(claim, { body: 'Still late.', usage: { inputTokens: 1, outputTokens: 1 } }),
+        await queue.finish(claim, {
+          body: 'Still late.',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }),
       ).toBe(false);
       expect(
         (await runtime.query('SELECT status,error_code FROM task_runs WHERE id=$1', [claim.runId]))

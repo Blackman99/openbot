@@ -750,9 +750,10 @@ export class TaskQueue {
       )
         return false;
       const existing = (
-        await connection.query('SELECT source_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1', [
-          runId,
-        ])
+        await connection.query(
+          'SELECT source_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1',
+          [runId],
+        )
       ).rows[0];
       if (existing) return false;
       if (run.deadline_at && run.deadline_at.getTime() <= now.getTime()) {

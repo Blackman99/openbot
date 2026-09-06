@@ -91,9 +91,10 @@ describe('COL-11 worker crash recovery', () => {
         successor_run_id: string;
         decision: string;
         stop_reason: string | null;
-      }>('SELECT successor_run_id,decision,stop_reason FROM task_run_recovery_receipts WHERE source_run_id=$1', [
-        claim!.runId,
-      ])
+      }>(
+        'SELECT successor_run_id,decision,stop_reason FROM task_run_recovery_receipts WHERE source_run_id=$1',
+        [claim!.runId],
+      )
     ).rows[0];
     expect(receipt).toEqual({
       successor_run_id: runs[1]!.id,
@@ -122,12 +123,17 @@ describe('COL-11 worker crash recovery', () => {
     });
 
     expect(await queue.recoverExpiredClaims()).toBe(0);
-    expect((await taskRuns(f.pool, f.task.id)).map((run) => run.id)).toEqual(runs.map((run) => run.id));
+    expect((await taskRuns(f.pool, f.task.id)).map((run) => run.id)).toEqual(
+      runs.map((run) => run.id),
+    );
     expect(
       (await f.pool.query('SELECT source_run_id FROM task_run_recovery_receipts')).rows,
     ).toHaveLength(1);
     expect(
-      await queue.finish(claim!, { body: 'Still late.', usage: { inputTokens: 1, outputTokens: 1 } }),
+      await queue.finish(claim!, {
+        body: 'Still late.',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
     ).toBe(false);
     expect((await taskRuns(f.pool, f.task.id))[0]).toMatchObject({
       status: 'failed',
