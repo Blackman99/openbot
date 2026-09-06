@@ -2741,7 +2741,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       });
       expect(
         (
-          await runtime.query(
+          await admin.query(
             `SELECT event_type FROM audit_events
              WHERE metadata->>'taskId'=$1 AND event_type IN ('task.waiting_budget','task.limit.warning')`,
             [task.id],

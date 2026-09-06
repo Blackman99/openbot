@@ -142,7 +142,9 @@ try {
     ).rows[0];
     assert.equal(Number(snapshot.max_duration_ms), 1000);
     assert.equal(snapshot.duration_source, 'task');
-    assert.deepEqual((await stats()).calls, []);
+    assert.deepEqual((await stats()).calls, [
+      { modelId: 'limits-compose-model', prompt: 'Reply with OK.' },
+    ]);
   } else {
     const selected = await find(),
       path = `${base}/conversations/${selected.conversation_id}/tasks`;
@@ -184,9 +186,9 @@ try {
       assert.deepEqual(
         (
           await pool.query(
-            `SELECT event_type FROM audit_events
-             WHERE metadata->>'taskId'=$1 AND event_type IN ('task.waiting_budget','task.limit.warning')`,
-            [selected.id],
+            `SELECT event_type FROM conversation_events
+             WHERE conversation_id=$1 AND event_type='task.limit.warning'`,
+            [selected.conversation_id],
           )
         ).rows,
         [],
@@ -238,7 +240,10 @@ try {
       assert.equal(held.status, 'waiting_budget');
       assert.equal(held.runCount, 1);
       assert.equal(held.runs[0].error, 'execution_timeout');
-      assert.deepEqual((await stats()).calls, []);
+      assert.equal(
+        (await stats()).calls.filter((call) => call.prompt === 'limit-budget').length,
+        0,
+      );
     } else {
       stage = 'authorized grant resumes waiting_budget without rewriting the snapshot';
       const held = await read();
