@@ -2,7 +2,7 @@
 sequence: 35
 id: COL-18
 title: "Price model usage and enforce cost budgets"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-10
   - COL-17

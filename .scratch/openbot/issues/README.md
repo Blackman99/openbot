@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **44**
-- Fully complete: **44**
+- Implemented and independently reviewed: **45**
+- Fully complete: **45**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -55,8 +55,8 @@ This directory contains the approved implementation backlog for the open-source 
 | 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | complete | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | in-progress | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
 | 33 | [COL-16 — Transfer Task leadership through handoff](33-col-16-transfer-task-leadership-through-handoff.md) | ready-for-agent | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
-| 34 | [COL-17 — Meter and enforce token budgets](34-col-17-meter-and-enforce-token-budgets.md) | in-progress | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
-| 35 | [COL-18 — Price model usage and enforce cost budgets](35-col-18-price-model-usage-and-enforce-cost-budgets.md) | blocked | [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md), [COL-17](34-col-17-meter-and-enforce-token-budgets.md) |
+| 34 | [COL-17 — Meter and enforce token budgets](34-col-17-meter-and-enforce-token-budgets.md) | complete | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
+| 35 | [COL-18 — Price model usage and enforce cost budgets](35-col-18-price-model-usage-and-enforce-cost-budgets.md) | ready-for-agent | [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md), [COL-17](34-col-17-meter-and-enforce-token-budgets.md) |
 | 36 | [COL-19 — Pause Tasks for human input and approval](36-col-19-pause-tasks-for-human-input-and-approval.md) | blocked | [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-16](33-col-16-transfer-task-leadership-through-handoff.md) |
 | 37 | [MEM-01 — Save a group message as scoped memory and use it in the next answer](37-mem-01-save-a-group-message-as-scoped-memory-and-use-it-in-the-next-answ.md) | complete | [BOT-01](12-bot-01-create-and-inspect-a-persistent-bot-identity.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-03](20-col-03-store-conversations-in-an-immutable-event-ledger.md), [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
 | 38 | [MEM-02 — Promote group memory to Bot-private memory with explicit approval](38-mem-02-promote-group-memory-to-bot-private-memory-with-explicit-approval.md) | complete | [MEM-01](37-mem-01-save-a-group-message-as-scoped-memory-and-use-it-in-the-next-answ.md) |
