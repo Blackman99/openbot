@@ -20,6 +20,9 @@ async function control(page: Page, action: string) {
 async function state(page: Page) {
   return (await page.request.get(`${api}/__cancel/state`)).json();
 }
+function cancelForm(page: Page) {
+  return page.getByRole('region', { name: 'Cancel task' });
+}
 async function privateOutput(page: Page) {
   expect(await page.content()).not.toMatch(
     /cancel-provider-secret-sentinel|Private cancellation instructions sentinel|sealedCredentials|baseUrl/u,
@@ -196,8 +199,8 @@ test('an unknown post-commit outcome confirms the identical cancellation key and
 }) => {
   const f = await setup(page);
   await page.goto(f.detail);
-  const key = await page.locator('input[name="idempotencyKey"]').inputValue();
-  const expectedRun = await page.locator('input[name="expectedRunId"]').inputValue();
+  const key = await cancelForm(page).locator('input[name="idempotencyKey"]').inputValue();
+  const expectedRun = await cancelForm(page).locator('input[name="expectedRunId"]').inputValue();
   let intercepted = false;
   await page.route(
     (url) => url.pathname.endsWith(`/tasks/${f.taskId}`) && url.search === '?/cancel',
@@ -217,8 +220,8 @@ test('an unknown post-commit outcome confirms the identical cancellation key and
     page.getByRole('button', { name: 'Confirm unchanged cancellation', exact: true }),
   ).toBeEnabled();
   expect((await state(page)).task.status).toBe('cancelled');
-  await expect(page.locator('input[name="idempotencyKey"]')).toHaveValue(key);
-  await expect(page.locator('input[name="expectedRunId"]')).toHaveValue(expectedRun);
+  await expect(cancelForm(page).locator('input[name="idempotencyKey"]')).toHaveValue(key);
+  await expect(cancelForm(page).locator('input[name="expectedRunId"]')).toHaveValue(expectedRun);
   await page.getByRole('button', { name: 'Confirm unchanged cancellation', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Cancellation helper · Cancelled' }),
@@ -239,7 +242,7 @@ test('a stale cancellation is blocked until Refresh task loads the current Run a
 }) => {
   const f = await setup(page);
   await page.goto(f.detail);
-  const originalKey = await page.locator('input[name="idempotencyKey"]').inputValue();
+  const originalKey = await cancelForm(page).locator('input[name="idempotencyKey"]').inputValue();
   await control(page, 'advance');
   await page.getByRole('button', { name: 'Cancel task', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText(
@@ -249,7 +252,9 @@ test('a stale cancellation is blocked until Refresh task loads the current Run a
   await page.getByRole('link', { name: 'Refresh task', exact: true }).click();
   await expect(page.getByText('Current attempt 2 of 2')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel task', exact: true })).toBeEnabled();
-  expect(await page.locator('input[name="idempotencyKey"]').inputValue()).not.toBe(originalKey);
+  expect(await cancelForm(page).locator('input[name="idempotencyKey"]').inputValue()).not.toBe(
+    originalKey,
+  );
   await page.getByRole('button', { name: 'Cancel task', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Cancellation helper · Cancelled' }),
