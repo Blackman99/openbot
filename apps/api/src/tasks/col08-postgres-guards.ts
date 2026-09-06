@@ -79,7 +79,21 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
           WHERE c.task_id=NEW.id AND c.actor_user_id=NEW.execution_user_id AND c.run_id=latest.id
           AND latest.status='queued' AND previous.status='failed' AND previous.attempt::bigint+1=latest.attempt
         ) AND NOT (
-          latest.status='queued' AND task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)
+          latest.status='queued'
+          AND (
+            task_has_automatic_continuation_receipt(NEW.id, latest.id, NEW.execution_user_id)
+            OR (
+              COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')
+                IN ('provider_retry','model_fallback','worker_recovery')
+              AND EXISTS (
+                SELECT 1 FROM task_runs previous
+                WHERE previous.task_id=NEW.id
+                  AND previous.id::text=task_queued_audit_metadata(latest.id)->>'sourceRunId'
+                  AND previous.status='failed'
+                  AND previous.attempt::bigint+1=latest.attempt
+              )
+            )
+          )
         ) THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task retry requires a new Run and its immutable receipt';
         END IF;
@@ -218,7 +232,8 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
           WHERE c.task_id=target AND c.run_id=latest.id AND c.actor_user_id=parent.execution_user_id)
           AND NOT task_has_automatic_continuation_receipt(target, latest.id, parent.execution_user_id)
           AND NOT task_has_manual_resume_receipt(target, latest.id, parent.execution_user_id)
-          AND COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')<>'manual_resume') THEN
+          AND COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')
+            NOT IN ('manual_resume','provider_retry','model_fallback','worker_recovery')) THEN
         RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task, current Run and retry receipt must commit together';
       END IF;
       RETURN NULL;

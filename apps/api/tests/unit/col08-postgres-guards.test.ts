@@ -51,6 +51,7 @@ describe('COL-08 pause/resume PostgreSQL overlay', () => {
       "IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NOT lock_task_ancestry(NEW.task_id, TG_OP='INSERT')",
     );
     expect(sql).toContain('Task retry requires a new Run and its immutable receipt');
+    expect(sql).toContain('worker_recovery');
     expect(sql).toContain(
       'cancelled Run requires its exact command marker, retained claim and usage',
     );

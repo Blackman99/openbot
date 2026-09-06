@@ -70,7 +70,7 @@ $$`,
     BEGIN
       IF TG_OP='UPDATE' AND OLD.status='running' THEN
         IF NEW.status='completed'
-          OR (NEW.status='failed' AND NEW.error_code NOT IN ('worker_interrupted','execution_timeout')) THEN
+          OR (NEW.status='failed' AND NEW.error_code NOT IN ('worker_interrupted','execution_timeout','worker_stopped')) THEN
           IF NOT EXISTS (
             SELECT 1 FROM task_run_leases l
             WHERE l.run_id=NEW.id AND l.claim_token=NEW.claim_token AND l.expires_at>clock_timestamp()

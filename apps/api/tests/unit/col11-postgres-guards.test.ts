@@ -16,6 +16,7 @@ describe('COL-11 recovery PostgreSQL overlay', () => {
     expect(sql).toContain('CREATE OR REPLACE FUNCTION fence_expired_claim_publication()');
     expect(sql).toContain('expired Task Run lease cannot be renewed');
     expect(sql).toContain('expired Task Run lease cannot publish');
+    expect(sql).toContain('worker_stopped');
     expect(sql).toContain('worker interruption requires an expired lease');
     expect(sql).toContain('Task Run recovery receipts are immutable');
     expect(sql).not.toContain('INSERT INTO openbot_schema_migrations');

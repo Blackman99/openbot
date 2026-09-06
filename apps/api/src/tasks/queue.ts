@@ -526,12 +526,13 @@ export class TaskQueue {
           task.bot_version_id,
         );
         const run = await this.lockRun(connection, task);
-        if (
-          run?.status !== 'running' ||
-          run.claim_token !== claim.claimToken ||
-          !(await this.liveLease(connection, claim))
-        )
+        if (run?.status !== 'running' || run.claim_token !== claim.claimToken)
           throw new TaskPublicationError('worker_stopped');
+        if (!(await this.liveLease(connection, claim))) {
+          if (run.deadline_at && run.deadline_at.getTime() <= this.now().getTime())
+            throw new TaskPublicationError('execution_timeout');
+          throw new TaskPublicationError('worker_stopped');
+        }
         const binding = runBinding(run, target.configuration.modelBinding);
         await admitUsableModel(
           connection,
