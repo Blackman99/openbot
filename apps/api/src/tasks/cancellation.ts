@@ -7,6 +7,7 @@ import { resumeParentAfterChild } from './delegate-child.js';
 import { TaskAccessError, TaskConflictError, TaskInputError } from './errors.js';
 import { reconcileRunTokenReservation } from './token-budget-store.js';
 import { reconcileRunCostReservation } from './cost-budget-store.js';
+import { publishWorkspaceTaskEvent } from '../events/publish.js';
 import type { TaskStatus } from './service.js';
 
 export interface CancellationCommand {
@@ -245,6 +246,21 @@ export async function cancelTask(
       ],
     );
     await appendCancelledRunState(connection, run.id, now);
+    const group = (
+      await connection.query<{ group_id: string | null }>(
+        'SELECT c.group_id FROM tasks t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=$1',
+        [task.id],
+      )
+    ).rows[0];
+    await publishWorkspaceTaskEvent(connection, {
+      workspaceId: access.workspaceId,
+      groupId: group?.group_id ?? null,
+      type: 'task.cancelled',
+      taskId: task.id,
+      runId: run.id,
+      status: 'cancelled',
+      occurredAt: row.cancelled_at,
+    });
   }
   for (const task of affected) await resumeParentAfterChild(connection, task.id, occurredAt);
   return receipt(row);

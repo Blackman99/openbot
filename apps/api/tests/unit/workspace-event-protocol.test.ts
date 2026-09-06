@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   WorkspaceEventError,
+  encodeWorkspaceEventControl,
   encodeWorkspaceEventCursor,
   encodeWorkspaceEventFrame,
   parseWorkspaceEventCursor,
@@ -75,5 +76,12 @@ describe('public workspace event protocol', () => {
         },
       })}\n\n`,
     );
+  });
+
+  it('encodes content-free stream controls without durable ids', () => {
+    expect(encodeWorkspaceEventControl('slow_consumer')).toBe(
+      'event: stream.control\ndata: {"schemaVersion":1,"code":"slow_consumer"}\n\n',
+    );
+    expect(encodeWorkspaceEventControl('events_forbidden')).not.toContain('id:');
   });
 });

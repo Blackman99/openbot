@@ -4,11 +4,11 @@ import { readApiRequestToken } from '../api-tokens/routes.js';
 import {
   ApiTokenAuthenticationError,
   ApiTokenScopeError,
-  type ApiTokenIdentity,
   type ApiTokenService,
 } from '../api-tokens/service.js';
 import { readSessionToken } from '../auth/session-cookie.js';
-import type { AuthService, SessionIdentity } from '../auth/service.js';
+import type { AuthService } from '../auth/service.js';
+import { deliverWorkspaceEventStream, type WorkspaceEventAdmission } from './delivery.js';
 import { WorkspaceEventError } from './protocol.js';
 import type { WorkspaceEventService } from './service.js';
 
@@ -38,22 +38,51 @@ function headerValue(value: string | string[] | undefined): string | undefined {
   return value;
 }
 
+function drain(response: ServerResponse, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  if (!response.writableNeedDrain) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      response.off('drain', ready);
+      response.off('close', closed);
+      signal.removeEventListener('abort', aborted);
+    };
+    const ready = () => {
+      cleanup();
+      resolve();
+    };
+    const closed = () => {
+      cleanup();
+      reject(new Error('Stream closed'));
+    };
+    const aborted = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    response.once('drain', ready);
+    response.once('close', closed);
+    signal.addEventListener('abort', aborted, { once: true });
+    if (signal.aborted) aborted();
+  });
+}
+
 async function admitPublicEvents(
   auth: AuthService,
   tokens: ApiTokenService,
   request: { url: string; headers: Record<string, unknown>; query: unknown; body: unknown },
-): Promise<
-  { kind: 'token'; identity: ApiTokenIdentity } | { kind: 'session'; identity: SessionIdentity }
-> {
+): Promise<WorkspaceEventAdmission> {
   rejectUrlCredentials(request.url);
   const authorization = headerValue(request.headers.authorization as string | string[] | undefined);
   if (authorization !== undefined) {
     emptyInput(request.query, request.body);
-    const identity = await tokens.authorize(
-      readApiRequestToken({ url: request.url, headers: { authorization } }),
-      'events:read',
-    );
-    return { kind: 'token', identity };
+    const secret = readApiRequestToken({ url: request.url, headers: { authorization } });
+    const { identity, admit } = await tokens.authorizeResource(secret, 'events:read');
+    return {
+      kind: 'token',
+      userId: identity.user.id,
+      workspaceId: identity.workspace.id,
+      admit,
+    };
   }
   emptyInput(request.query, request.body);
   const sessionToken = readSessionToken(
@@ -61,16 +90,13 @@ async function admitPublicEvents(
   );
   if (!sessionToken) throw new ApiTokenAuthenticationError();
   const session = await auth.getSession(sessionToken);
-  if (!session) throw new ApiTokenAuthenticationError();
-  return { kind: 'session', identity: session };
-}
-
-function resolveWorkspaceId(
-  admission:
-    { kind: 'token'; identity: ApiTokenIdentity } | { kind: 'session'; identity: SessionIdentity },
-): string | undefined {
-  if (admission.kind === 'token') return admission.identity.workspace.id;
-  return admission.identity.workspace?.id;
+  if (!session?.workspace) throw new ApiTokenAuthenticationError();
+  return {
+    kind: 'session',
+    sessionToken,
+    userId: session.user.id,
+    workspaceId: session.workspace.id,
+  };
 }
 
 export function registerPublicEventRoutes(
@@ -78,8 +104,13 @@ export function registerPublicEventRoutes(
   auth: AuthService,
   tokens: ApiTokenService,
   events?: WorkspaceEventService,
+  timing?: { drainMs?: number; pollMs?: number; heartbeatMs?: number },
 ) {
   void app.register(async (routes) => {
+    const active = new Set<AbortController>();
+    routes.addHook('preClose', async () => {
+      for (const controller of active) controller.abort();
+    });
     routes.addHook('onSend', async (_request, reply, payload) => {
       reply.header('cache-control', 'private, no-store, no-transform');
       reply.header('x-content-type-options', 'nosniff');
@@ -98,20 +129,25 @@ export function registerPublicEventRoutes(
       throw error;
     });
     routes.get('/v1/events', async (request, reply) => {
+      if (!events) throw new WorkspaceEventError('events_unavailable');
       const admission = await admitPublicEvents(auth, tokens, {
         url: request.url,
         headers: request.headers as Record<string, unknown>,
         query: request.query,
         body: request.body,
       });
-      const workspaceId = resolveWorkspaceId(admission);
-      const lastEventId = request.headers['last-event-id'];
-      let frames: string[] = [];
-      if (lastEventId !== undefined) {
-        if (!workspaceId || !events) throw new WorkspaceEventError('invalid_stream_cursor');
-        frames = (await events.resolveReplay(workspaceId, lastEventId)).frames;
-      }
+      const workspaceId = admission.workspaceId;
+      const cursor = await events.openCursor(
+        admission,
+        workspaceId,
+        request.headers['last-event-id'],
+      );
+      const controller = new AbortController();
       const raw = reply.raw as ServerResponse;
+      active.add(controller);
+      const stop = () => controller.abort();
+      raw.once('close', stop);
+      request.raw.once('aborted', stop);
       reply.hijack();
       raw.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
@@ -122,8 +158,30 @@ export function registerPublicEventRoutes(
       raw.flushHeaders();
       // Open acknowledgement carries neither content nor a durable acknowledgement.
       raw.write(': connected\n\n');
-      for (const frame of frames) raw.write(frame);
-      raw.end();
+      try {
+        await deliverWorkspaceEventStream(
+          events,
+          admission,
+          workspaceId,
+          cursor,
+          {
+            queuedBytes: () => raw.writableLength,
+            write: (frame) => raw.write(frame),
+            drain: (signal) => drain(raw, signal),
+            close: () => {
+              if (raw.writableNeedDrain) raw.destroy();
+              else raw.end();
+            },
+          },
+          controller.signal,
+          timing,
+        );
+      } finally {
+        active.delete(controller);
+        raw.off('close', stop);
+        request.raw.off('aborted', stop);
+        controller.abort();
+      }
     });
   });
 }

@@ -1,6 +1,10 @@
 export const WORKSPACE_EVENT_LIMITS = Object.freeze({
   cursorCharacters: 512,
   frameBytes: 256 * 1024,
+  queuedBytes: 512 * 1024,
+  drainMs: 10_000,
+  pollMs: 1000,
+  heartbeatMs: 15_000,
   retainedEvents: 10_000,
   retainedBytes: 16 * 1024 * 1024,
   retentionMs: 24 * 60 * 60 * 1000,
@@ -35,9 +39,14 @@ export interface WorkspaceEventRecord {
 const statuses = {
   invalid_stream_cursor: 400,
   cursor_expired: 410,
+  invalid_api_token: 401,
+  insufficient_scope: 403,
+  events_forbidden: 403,
   events_unavailable: 503,
+  slow_consumer: 503,
 } as const;
 export type WorkspaceEventCode = keyof typeof statuses;
+export type WorkspaceEventControl = Exclude<WorkspaceEventCode, 'invalid_stream_cursor'>;
 export class WorkspaceEventError extends Error {
   readonly statusCode: number;
   constructor(readonly code: WorkspaceEventCode) {
@@ -119,3 +128,9 @@ export function encodeWorkspaceEventFrame(
     throw new WorkspaceEventError('events_unavailable');
   return frame;
 }
+
+export function encodeWorkspaceEventControl(code: WorkspaceEventControl): string {
+  return `event: stream.control\ndata: ${JSON.stringify({ schemaVersion: 1, code })}\n\n`;
+}
+
+export const WORKSPACE_EVENT_HEARTBEAT = ': heartbeat\n\n';

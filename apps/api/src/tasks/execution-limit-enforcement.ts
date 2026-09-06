@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { publishWorkspaceTaskEvent } from '../events/publish.js';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { reclaimConversationStream } from '../conversations/stream-retention.js';
 import { encodeConversationStreamEvent } from '../conversations/stream-protocol.js';
@@ -278,6 +279,20 @@ export async function holdTaskForBudget(
       }),
     ],
   );
+  const group = (
+    await connection.query<{ group_id: string | null }>(
+      'SELECT group_id FROM conversations WHERE id=$1',
+      [input.conversationId],
+    )
+  ).rows[0];
+  await publishWorkspaceTaskEvent(connection, {
+    workspaceId: input.workspaceId,
+    groupId: group?.group_id ?? null,
+    type: 'task.budget_exhausted',
+    taskId: input.taskId,
+    status: 'waiting_budget',
+    occurredAt: input.now,
+  });
 }
 
 async function appendExecutionLimitWarning(

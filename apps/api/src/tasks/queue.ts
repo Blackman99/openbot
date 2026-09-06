@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
 import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
+import { publishWorkspaceTaskEvent } from '../events/publish.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
 import { BotAccessError, type BotBinding, type BotConfiguration } from '../bots/service.js';
@@ -352,6 +353,15 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+    await publishWorkspaceTaskEvent(connection, {
+      workspaceId: task.workspace_id,
+      groupId: task.group_id,
+      type: 'task.terminal',
+      taskId: task.task_id,
+      runId: task.id,
+      status: 'failed',
+      extra: { error },
+    });
     // The claim deadline is the snapshotted duration cap. A timeout is a
     // terminal Run failure, not a soft warning or successor-budget hold.
     if (error !== 'execution_timeout')
@@ -375,6 +385,15 @@ export class TaskQueue {
     ]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+    await publishWorkspaceTaskEvent(connection, {
+      workspaceId: task.workspace_id,
+      groupId: task.group_id,
+      type: 'task.terminal',
+      taskId: task.task_id,
+      runId: task.id,
+      status: 'failed',
+      extra: { error },
+    });
     if (error !== 'execution_timeout')
       await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
     return true;
@@ -868,6 +887,14 @@ export class TaskQueue {
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
       await appendCompletedRunState(connection, task.id, this.now);
+      await publishWorkspaceTaskEvent(connection, {
+        workspaceId: task.workspace_id,
+        groupId: task.group_id,
+        type: 'task.terminal',
+        taskId: task.task_id,
+        runId: task.id,
+        status: 'completed',
+      });
       await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: false });
       const digest = (
         await connection.query<{ digest: string }>(

@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-06 continues on `feat/openbot-collaboration-system` / draft PR #1 after tip `744499a`, green [Verify 34024463431](https://github.com/Blackman99/openbot/actions/runs/34024463431). Delivered AC1 auth plus AC2/AC3 TDD: stable workspace/task event IDs, `Last-Event-ID` ordered replay, explicit `cursor_expired` past retention, and migration `0050_workspace_event_stream`. Ticket checkboxes remain unchecked. Permission-scoped live admission (AC4), live domain producers/heartbeats (AC5), and backpressure (AC6) remain open. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-06 AC4–AC6 land on `feat/openbot-collaboration-system` / draft PR #1 after tip `31a0acd`. Live permission-scoped SSE admission filters unauthorized groups and closes streams on token revocation; domain producers emit task terminal/cancel/approval/budget-exhaustion events with data-free heartbeats; slow consumers receive an explicit `slow_consumer` control and can resume from Last-Event-ID. AC1–AC3 remain intact. Ticket checkboxes remain unchecked. Verify URL pending after push. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-two of 67 tickets are implemented and independently reviewed, and all 52 are fully complete. All 401 original acceptance texts are preserved.
 

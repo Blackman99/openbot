@@ -5,6 +5,7 @@ import {
   appendWaitingInputRunState,
 } from '../conversations/append-event.js';
 import { reclaimConversationStream } from '../conversations/stream-retention.js';
+import { publishWorkspaceTaskEvent } from '../events/publish.js';
 import { encodeConversationStreamEvent } from '../conversations/stream-protocol.js';
 import { reconcileRunTokenReservation } from './token-budget-store.js';
 import { reconcileRunCostReservation } from './cost-budget-store.js';
@@ -128,6 +129,17 @@ export async function holdTaskForHumanRequest(
   );
   if (action.kind === 'input') await appendWaitingInputRunState(connection, run.id, () => now);
   else await appendWaitingApprovalRunState(connection, run.id, () => now);
+  if (action.kind === 'approval')
+    await publishWorkspaceTaskEvent(connection, {
+      workspaceId: parent.workspace_id,
+      groupId: group?.group_id ?? null,
+      type: 'task.approval',
+      taskId: parent.id,
+      runId: run.id,
+      status: 'waiting_approval',
+      occurredAt: now,
+      extra: { summary: action.summary },
+    });
   return true;
 }
 
