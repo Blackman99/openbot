@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** TPL-02 is complete on `feat/openbot-collaboration-system` / draft PR #1 after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1` (all 20 jobs green). COL-14, COL-17, and API-03 remain ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-14 is in progress on `feat/openbot-collaboration-system` / draft PR #1. TPL-02 is complete after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1`. The first COL-14 TDD slice admits only a schema-valid `delegate` action. Original COL-14 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-three of 67 tickets are implemented and independently reviewed, and all 43 are fully complete. All 401 original acceptance texts are preserved.
+Forty-three of 67 tickets are implemented and independently reviewed, and all 43 are fully complete. All 401 original acceptance texts are preserved. COL-14 original acceptance texts stay unchecked.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

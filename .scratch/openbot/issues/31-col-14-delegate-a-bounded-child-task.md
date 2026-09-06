@@ -2,7 +2,7 @@
 sequence: 31
 id: COL-14
 title: "Delegate a bounded child Task"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-12
   - COL-13
@@ -41,3 +41,7 @@ A Lead can invoke a validated delegate action that creates one bounded child Tas
 - Parallel fan-out
 - Transferring final ownership
 - Cross-group delegation
+
+## Implementation note
+
+First TDD slice admits only a schema-valid `delegate` model action with `grantId` and `body`. Plain text, @mentions, and JSON-looking prose return no action. Original acceptance texts stay unchecked.
