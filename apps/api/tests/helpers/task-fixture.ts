@@ -12,25 +12,32 @@ export async function taskFixture(
   options: {
     retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
     fallbackModel?: boolean;
+    submitInitialTask?: boolean;
   } = {},
 ) {
-  const f = await botAclFixture(cleanup, { now, ...options });
+  const { submitInitialTask = true, ...aclOptions } = options;
+  const f = await botAclFixture(cleanup, { now, ...aclOptions });
   const conversations = new ConversationService(new PostgresConversationRepository(f.pool, now));
   const conversation = await conversations.open(f.owner.user.id, f.owner.workspace.id, {
     subject: { kind: 'direct-bot', id: f.bot.id },
   });
   const tasks = new TaskService(f.pool, now);
-  const task = await tasks.submit(f.owner.user.id, f.owner.workspace.id, conversation.id, {
-    idempotencyKey: 'initial-task',
-    body: 'Explain the evidence.',
-  });
+  const task = submitInitialTask
+    ? await tasks.submit(f.owner.user.id, f.owner.workspace.id, conversation.id, {
+        idempotencyKey: 'initial-task',
+        body: 'Explain the evidence.',
+      })
+    : undefined;
   return {
     ...f,
     tasks,
     task,
     conversations,
     conversation,
-    read: () => tasks.get(f.owner.user.id, f.owner.workspace.id, conversation.id, task.id),
+    read: () => {
+      if (!task) throw new Error('taskFixture was created without an initial Task');
+      return tasks.get(f.owner.user.id, f.owner.workspace.id, conversation.id, task.id);
+    },
     worker: (generate: ModelAdapter['generate']) =>
       new TaskWorker(
         f.pool,
