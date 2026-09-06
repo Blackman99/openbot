@@ -29,13 +29,14 @@ export function parseHumanInputDecision(
   if (!object(input) || Object.keys(input).sort().join(',') !== 'idempotencyKey,values')
     throw new TaskInputError();
   if (!object(input.values)) throw new TaskInputError();
-  const names = Object.keys(input.values);
+  const submitted = input.values;
+  const names = Object.keys(submitted);
   if (names.some((name) => !schema.properties[name])) throw new TaskInputError();
-  if (schema.required.some((name) => !(name in input.values))) throw new TaskInputError();
+  if (schema.required.some((name) => !(name in submitted))) throw new TaskInputError();
   const values: Record<string, string | number | boolean> = {};
   for (const name of names) {
     const field = schema.properties[name]!;
-    const value = input.values[name];
+    const value = submitted[name];
     if (
       field.type === 'string' &&
       typeof value === 'string' &&
