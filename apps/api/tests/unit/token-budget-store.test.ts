@@ -150,9 +150,13 @@ describe('COL-17 token ledger reservation', () => {
     ]);
     await reconcileRunTokenReservation(connection, target, { inputTokens: 6, outputTokens: 4 });
     await expect(
-      readTokenBudgetView(connection, { ...target, runId: '55555555-5555-5555-5555-555555555555' }, {
-        run: { maxTotalTokens: 50 },
-      }),
+      readTokenBudgetView(
+        connection,
+        { ...target, runId: '55555555-5555-5555-5555-555555555555' },
+        {
+          run: { maxTotalTokens: 50 },
+        },
+      ),
     ).resolves.toEqual([
       {
         kind: 'run',
