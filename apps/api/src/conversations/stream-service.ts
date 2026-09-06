@@ -215,7 +215,8 @@ export class ConversationStreamService implements ConversationStreams {
             )
           ).rows[0];
           payload = warningPayload(ledger) ??
-            handoffPayload(ledger) ?? {
+            handoffPayload(ledger) ??
+            humanRequestPayload(ledger) ?? {
               type: 'conversation.invalidated',
               data: { reason: 'membership' },
             };
@@ -375,6 +376,16 @@ type LedgerNotice = {
     reason?: string;
     soft?: boolean;
     hard?: boolean;
+    prompt?: string;
+    summary?: string;
+    kind?: 'input' | 'approval';
+    decision?: 'input' | 'approve' | 'reject';
+    responseSchema?: {
+      type: 'object';
+      additionalProperties: false;
+      properties: Record<string, { type: 'string' | 'number' | 'boolean' }>;
+      required: string[];
+    };
   } | null;
 };
 
@@ -427,4 +438,29 @@ function handoffPayload(ledger?: LedgerNotice): ConversationStreamPayload | unde
       target: data.target,
     },
   };
+}
+
+function humanRequestPayload(ledger?: LedgerNotice): ConversationStreamPayload | undefined {
+  const data = ledger?.event_data;
+  if (!ledger?.body || !data) return undefined;
+  if (ledger.event_type === 'task.input.requested' && data.prompt && data.responseSchema)
+    return {
+      type: 'task.input.requested',
+      data: { taskId: data.taskId, prompt: data.prompt, responseSchema: data.responseSchema },
+    };
+  if (ledger.event_type === 'task.approval.requested' && data.summary)
+    return {
+      type: 'task.approval.requested',
+      data: { taskId: data.taskId, summary: data.summary },
+    };
+  if (
+    ledger.event_type === 'task.human.decided' &&
+    (data.kind === 'input' || data.kind === 'approval') &&
+    (data.decision === 'input' || data.decision === 'approve' || data.decision === 'reject')
+  )
+    return {
+      type: 'task.human.decided',
+      data: { taskId: data.taskId, kind: data.kind, decision: data.decision },
+    };
+  return undefined;
 }

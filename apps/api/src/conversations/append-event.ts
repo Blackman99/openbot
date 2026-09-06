@@ -113,6 +113,16 @@ export const appendWaitingChildRunState = (
   runId: string,
   now: () => Date,
 ) => appendRunState(connection, runId, 'waiting_child', now);
+export const appendWaitingInputRunState = (
+  connection: SqlConnection,
+  runId: string,
+  now: () => Date,
+) => appendRunState(connection, runId, 'waiting_input', now);
+export const appendWaitingApprovalRunState = (
+  connection: SqlConnection,
+  runId: string,
+  now: () => Date,
+) => appendRunState(connection, runId, 'waiting_approval', now);
 
 export async function appendAssistantDelta(
   connection: SqlConnection,

@@ -91,6 +91,25 @@ interface StreamEventPayloads {
     source: { grantId: string; botId: string; botName: string };
     target: { grantId: string; botId: string; botName: string };
   };
+  'task.input.requested': {
+    taskId: string;
+    prompt: string;
+    responseSchema: {
+      type: 'object';
+      additionalProperties: false;
+      properties: Record<string, { type: 'string' | 'number' | 'boolean' }>;
+      required: string[];
+    };
+  };
+  'task.approval.requested': {
+    taskId: string;
+    summary: string;
+  };
+  'task.human.decided': {
+    taskId: string;
+    kind: 'input' | 'approval';
+    decision: 'input' | 'approve' | 'reject';
+  };
   'conversation.invalidated': { reason: 'membership' };
 }
 export interface ExecutionLimitWarning {
@@ -567,7 +586,88 @@ export function parseConversationStreamEvent(
         target: data.target,
       },
     };
+  if (
+    value.type === 'task.input.requested' &&
+    keys(data, 'prompt,responseSchema,taskId') &&
+    uuid(data.taskId) &&
+    text(data.prompt, 8000) &&
+    parseStreamInputSchema(data.responseSchema)
+  )
+    return {
+      ...header,
+      type: 'task.input.requested',
+      data: {
+        taskId: data.taskId,
+        prompt: data.prompt,
+        responseSchema: parseStreamInputSchema(data.responseSchema)!,
+      },
+    };
+  if (
+    value.type === 'task.approval.requested' &&
+    keys(data, 'summary,taskId') &&
+    uuid(data.taskId) &&
+    text(data.summary, 8000)
+  )
+    return {
+      ...header,
+      type: 'task.approval.requested',
+      data: { taskId: data.taskId, summary: data.summary },
+    };
+  if (
+    value.type === 'task.human.decided' &&
+    keys(data, 'decision,kind,taskId') &&
+    uuid(data.taskId) &&
+    (data.kind === 'input' || data.kind === 'approval') &&
+    (data.decision === 'input' || data.decision === 'approve' || data.decision === 'reject')
+  )
+    return {
+      ...header,
+      type: 'task.human.decided',
+      data: { taskId: data.taskId, kind: data.kind, decision: data.decision },
+    };
   return undefined;
+}
+
+function parseStreamInputSchema(
+  value: unknown,
+): StreamEventPayloads['task.input.requested']['responseSchema'] | undefined {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !keys(value, 'additionalProperties,properties,required,type') ||
+    value.type !== 'object' ||
+    value.additionalProperties !== false ||
+    typeof value.properties !== 'object' ||
+    value.properties === null ||
+    Array.isArray(value.properties) ||
+    !Array.isArray(value.required)
+  )
+    return undefined;
+  const names = Object.keys(value.properties);
+  if (!names.length || names.length > 16) return undefined;
+  const properties: Record<string, { type: 'string' | 'number' | 'boolean' }> = {};
+  for (const name of names) {
+    const field = (value.properties as Record<string, unknown>)[name];
+    if (
+      typeof field !== 'object' ||
+      field === null ||
+      !keys(field, 'type') ||
+      (field.type !== 'string' && field.type !== 'number' && field.type !== 'boolean')
+    )
+      return undefined;
+    properties[name] = { type: field.type };
+  }
+  if (
+    value.required.some((item) => typeof item !== 'string' || !properties[item]) ||
+    new Set(value.required).size !== value.required.length
+  )
+    return undefined;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties,
+    required: value.required as string[],
+  };
 }
 
 function actorRef(value: unknown): value is { grantId: string; botId: string; botName: string } {

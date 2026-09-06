@@ -114,6 +114,10 @@ export async function loadTaskPage(
       page.user.id === result.value.executionUser.id &&
       result.value.status === 'paused',
     canConfirmResume: page.user.id === result.value.executionUser.id,
+    canDecide:
+      page.canWrite &&
+      (result.value.status === 'waiting_input' || result.value.status === 'waiting_approval') &&
+      Boolean(result.value.humanRequest),
     partialOutput,
     partialUnavailable,
     canRetry:
@@ -357,6 +361,104 @@ export async function resumeTask(
     303,
     `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
   );
+}
+export async function decideTask(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (
+    context.request.headers.get('origin') !==
+    new URL(process.env.WEB_ORIGIN ?? 'http://localhost:3000').origin
+  )
+    return decideFailure('forbidden', context, {});
+  const values: Record<string, string> = {};
+  try {
+    const form = await context.request.formData();
+    for (const [key, value] of form) {
+      if (typeof value !== 'string' || form.getAll(key).length !== 1 || value.length > 8000)
+        return decideFailure('invalid', context, values);
+      values[key] = value;
+    }
+  } catch {
+    return decideFailure('invalid', context, values);
+  }
+  if (!isCommandKey(values.idempotencyKey ?? '')) return decideFailure('invalid', context, values);
+  const current = await createTaskApiClient(context.fetch, context.request.signal).get(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+  );
+  if (current.status !== 'available') return decideFailure(current.status, context, values);
+  const request = current.value.humanRequest;
+  if (!request) return decideFailure('human-decision-state-conflict', context, values);
+  let body: Record<string, unknown>;
+  if (request.kind === 'approval') {
+    if (values.decision !== 'approve' && values.decision !== 'reject')
+      return decideFailure('invalid', context, values);
+    body = { idempotencyKey: values.idempotencyKey, decision: values.decision };
+  } else {
+    const schema = request.responseSchema;
+    if (!schema) return decideFailure('invalid', context, values);
+    const submitted: Record<string, string | number | boolean> = {};
+    for (const [name, field] of Object.entries(schema.properties)) {
+      if (!(name in values)) {
+        if (schema.required.includes(name)) return decideFailure('invalid', context, values);
+        continue;
+      }
+      const raw = values[name]!;
+      if (field.type === 'boolean') {
+        if (raw !== 'true' && raw !== 'false') return decideFailure('invalid', context, values);
+        submitted[name] = raw === 'true';
+      } else if (field.type === 'number') {
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed)) return decideFailure('invalid', context, values);
+        submitted[name] = parsed;
+      } else submitted[name] = raw;
+    }
+    body = { idempotencyKey: values.idempotencyKey, values: submitted };
+  }
+  const result = await createTaskApiClient(context.fetch, context.request.signal).decide(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+    body,
+  );
+  if (result.status !== 'available') return decideFailure(result.status, context, values);
+  redirect(
+    303,
+    `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
+  );
+}
+function decideFailure(status: string, context: Context, values: Record<string, string>) {
+  if (status === 'anonymous') readFailure(status, context);
+  const known: Record<string, [number, string]> = {
+    forbidden: [
+      403,
+      'Your current access does not allow this decision. The waiting task is preserved.',
+    ],
+    invalid: [400, 'This decision is invalid. Refresh the task before trying again.'],
+    'idempotency-conflict': [
+      409,
+      'This command key names a different decision. Refresh the task to inspect its saved state.',
+    ],
+    'human-decision-state-conflict': [
+      409,
+      'This task is no longer waiting for a decision. Refresh the task to inspect its current attempt.',
+    ],
+  };
+  const detail = known[status];
+  return fail(detail?.[0] ?? 503, {
+    decision: {
+      values,
+      error: detail?.[1] ?? 'The decision could not be confirmed. Refresh the task and try again.',
+      conflict: status === 'idempotency-conflict',
+    },
+  });
 }
 function pauseFailure(status: string, context: Context, values: Record<string, string>) {
   if (status === 'anonymous') readFailure(status, context);

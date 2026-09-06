@@ -101,6 +101,10 @@ import {
   COL16_HANDOFF_POSTGRES_GUARDS,
   COL16_HANDOFF_REQUIRES_VERSION,
 } from '../tasks/col16-postgres-guards.js';
+import {
+  COL19_HUMAN_REQUEST_POSTGRES_GUARDS,
+  COL19_HUMAN_REQUEST_REQUIRES_VERSION,
+} from '../tasks/col19-postgres-guards.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -627,6 +631,14 @@ export async function migrateDatabase(
       targetMigrations.some(({ version }) => version === COL16_HANDOFF_REQUIRES_VERSION)
     ) {
       for (const statement of COL16_HANDOFF_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL19_HUMAN_REQUEST_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL19_HUMAN_REQUEST_POSTGRES_GUARDS) {
         await connection.query(statement);
       }
     }

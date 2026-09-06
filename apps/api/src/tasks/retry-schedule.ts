@@ -29,7 +29,8 @@ export type AttemptOrigin =
   | 'manual_resume'
   | 'budget_grant'
   | 'child_result'
-  | 'handoff';
+  | 'handoff'
+  | 'human_decision';
 
 export interface EffectiveRetryPolicy {
   maxAttemptsPerModel: number;
@@ -51,7 +52,8 @@ export interface NextAttemptPlan {
     | 'worker_recovery'
     | 'budget_grant'
     | 'child_result'
-    | 'handoff';
+    | 'handoff'
+    | 'human_decision';
   reason: string;
   binding: BotBinding;
   previousBinding: BotBinding;

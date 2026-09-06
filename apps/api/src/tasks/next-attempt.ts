@@ -19,6 +19,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'budget_grant',
   'child_result',
   'handoff',
+  'human_decision',
 ]);
 
 export interface AttemptChain {
@@ -127,7 +128,8 @@ export async function writeNextAttempt(
     input.plan.origin === 'manual_resume' ||
     input.plan.origin === 'budget_grant' ||
     input.plan.origin === 'child_result' ||
-    input.plan.origin === 'handoff';
+    input.plan.origin === 'handoff' ||
+    input.plan.origin === 'human_decision';
   if (
     !(await lockTaskAncestry(connection, input.taskId, {
       allowPausedTarget: resume,
@@ -150,18 +152,7 @@ export async function writeNextAttempt(
     !latest ||
     latest.id !== input.sourceRunId ||
     source.some((run) => run.attempt > input.sourceAttempt) ||
-    latest.status !==
-      (input.plan.origin === 'manual_resume'
-        ? 'paused'
-        : input.plan.origin === 'child_result'
-          ? 'waiting_child'
-          : input.plan.origin === 'handoff'
-            ? 'failed'
-            : input.plan.origin === 'budget_grant'
-              ? latest.status === 'paused' || latest.status === 'failed'
-                ? latest.status
-                : 'failed'
-              : 'failed')
+    latest.status !== expectedLatestStatus(input.plan.origin, latest.status)
   )
     return { scheduled: false, reason: 'duplicate' };
   if (
@@ -297,6 +288,19 @@ function latestInstant(...values: Array<Date | string | number | null | undefine
     if (Number.isFinite(at)) latest = Math.max(latest, at);
   }
   return new Date(Number.isFinite(latest) ? latest : Date.now());
+}
+
+function expectedLatestStatus(origin: AttemptOrigin, latestStatus: string): string {
+  if (origin === 'manual_resume') return 'paused';
+  if (origin === 'child_result') return 'waiting_child';
+  if (origin === 'handoff') return 'failed';
+  if (origin === 'human_decision')
+    return latestStatus === 'waiting_input' || latestStatus === 'waiting_approval'
+      ? latestStatus
+      : 'waiting_input';
+  if (origin === 'budget_grant')
+    return latestStatus === 'paused' || latestStatus === 'failed' ? latestStatus : 'failed';
+  return 'failed';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

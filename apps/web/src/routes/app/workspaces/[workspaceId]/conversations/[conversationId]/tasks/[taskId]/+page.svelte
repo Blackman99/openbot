@@ -5,6 +5,7 @@
   import TaskCancellation from '$lib/components/TaskCancellation.svelte';
   import TaskPause from '$lib/components/TaskPause.svelte';
   import TaskResume from '$lib/components/TaskResume.svelte';
+  import TaskHumanDecision from '$lib/components/TaskHumanDecision.svelte';
   import TaskSummary from '$lib/components/TaskSummary.svelte';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
@@ -15,6 +16,7 @@
   let cancellationForm = $derived(form && 'cancellation' in form ? form.cancellation : undefined);
   let pauseForm = $derived(form && 'pause' in form ? form.pause : undefined);
   let resumeForm = $derived(form && 'resume' in form ? form.resume : undefined);
+  let decisionForm = $derived(form && 'decision' in form ? form.decision : undefined);
   let values = $derived(unconfirmed ?? retryForm?.values ?? {});
   let uncertain = $derived(Boolean(unconfirmed) || Boolean(retryForm?.uncertain));
   let canConfirm = $derived(uncertain && data.user.id === data.task.executionUser.id && Boolean(values.idempotencyKey && values.expectedRunId));
@@ -63,6 +65,9 @@
   <TaskCancellation canCancel={data.canCancel} canConfirm={data.canConfirmCancellation} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/cancel`} action={cancellationForm} />
   <TaskPause canPause={data.canPause} canConfirm={data.canConfirmPause} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/pause`} action={pauseForm} />
   <TaskResume canResume={data.canResume} canConfirm={data.canConfirmResume} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/resume`} action={resumeForm} />
+  {#if data.task.humanRequest}
+    <TaskHumanDecision canDecide={data.canDecide} request={data.task.humanRequest} idempotencyKey={data.idempotencyKey} actionUrl={`${base}/tasks/${data.task.id}?/decide`} action={decisionForm} />
+  {/if}
   {#if transportError || retryForm?.error}<p role="alert">{transportError || retryForm?.error}</p>{/if}
   {#if data.canRetry || canConfirm}
     <section aria-labelledby="retry-heading">

@@ -261,6 +261,9 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) TO openbot_runtime',
     );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
     expect(grants).toContain("to_regclass('task_token_ledgers')");
     expect(grants).toContain(
       'GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime',

@@ -87,6 +87,20 @@ export interface CostBudgetScopeView {
   reservedMicros: number;
   remainingMicros: number;
 }
+export interface HumanInputSchema {
+  type: 'object';
+  additionalProperties: false;
+  properties: Record<string, { type: 'string' | 'number' | 'boolean' }>;
+  required: string[];
+}
+export interface TaskHumanRequest {
+  id: string;
+  kind: 'input' | 'approval';
+  prompt?: string;
+  responseSchema?: HumanInputSchema;
+  summary?: string;
+  createdAt: string;
+}
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -101,6 +115,7 @@ export interface TaskView {
   olderRunsCursor: string | null;
   tokenBudgets?: TokenBudgetScopeView[];
   costBudgets?: CostBudgetScopeView[];
+  humanRequest?: TaskHumanRequest;
   runs: TaskRun[];
 }
 export interface TaskPage {
@@ -396,40 +411,108 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     ...(price ? { price } : {}),
   };
 }
+function matchesTaskViewKeys(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const extras = ['costBudgets', 'humanRequest', 'routing', 'tokenBudgets'].filter(
+    (key) => key in value,
+  );
+  return taskKeys(
+    value,
+    [
+      'bot',
+      'conversationId',
+      ...extras.filter((key) => key === 'costBudgets'),
+      'createdAt',
+      'executionUser',
+      'groupGrantId',
+      ...extras.filter((key) => key === 'humanRequest'),
+      'id',
+      'olderRunsCursor',
+      ...extras.filter((key) => key === 'routing'),
+      'runCount',
+      'runs',
+      'status',
+      ...extras.filter((key) => key === 'tokenBudgets'),
+      'trigger',
+    ].join(','),
+  );
+}
+
+function parseHumanInputSchema(value: unknown): HumanInputSchema | undefined {
+  if (!taskKeys(value, 'additionalProperties,properties,required,type')) return undefined;
+  if (
+    value.type !== 'object' ||
+    value.additionalProperties !== false ||
+    typeof value.properties !== 'object' ||
+    value.properties === null ||
+    Array.isArray(value.properties)
+  )
+    return undefined;
+  if (!Array.isArray(value.required) || value.required.some((item) => typeof item !== 'string'))
+    return undefined;
+  const names = Object.keys(value.properties);
+  if (!names.length || names.length > 16) return undefined;
+  const properties: HumanInputSchema['properties'] = {};
+  for (const name of names) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/u.test(name)) return undefined;
+    const field = (value.properties as Record<string, unknown>)[name];
+    if (!taskKeys(field, 'type')) return undefined;
+    if (field.type !== 'string' && field.type !== 'number' && field.type !== 'boolean')
+      return undefined;
+    properties[name] = { type: field.type };
+  }
+  if (new Set(value.required).size !== value.required.length) return undefined;
+  if (value.required.some((name) => !properties[name as string])) return undefined;
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties,
+    required: value.required as string[],
+  };
+}
+
+function parseHumanRequest(value: unknown): TaskHumanRequest | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.kind === 'input') {
+    if (!taskKeys(record, 'createdAt,id,kind,prompt,responseSchema')) return undefined;
+    if (
+      !isConversationUuid(record.id) ||
+      !taskText(record.prompt, 8000) ||
+      !taskDate(record.createdAt)
+    )
+      return undefined;
+    const responseSchema = parseHumanInputSchema(record.responseSchema);
+    if (!responseSchema) return undefined;
+    return {
+      id: record.id.toLowerCase(),
+      kind: 'input',
+      prompt: record.prompt,
+      responseSchema,
+      createdAt: record.createdAt,
+    };
+  }
+  if (record.kind === 'approval') {
+    if (!taskKeys(record, 'createdAt,id,kind,summary')) return undefined;
+    if (
+      !isConversationUuid(record.id) ||
+      !taskText(record.summary, 8000) ||
+      !taskDate(record.createdAt)
+    )
+      return undefined;
+    return {
+      id: record.id.toLowerCase(),
+      kind: 'approval',
+      summary: record.summary,
+      createdAt: record.createdAt,
+    };
+  }
+  return undefined;
+}
+
 export function parseTask(value: unknown, conversationId: string): TaskView | undefined {
   if (
-    (!taskKeys(
-      value,
-      'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,trigger',
-    ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,tokenBudgets,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,tokenBudgets,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,tokenBudgets,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,tokenBudgets,trigger',
-      )) ||
+    !matchesTaskViewKeys(value) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.conversationId) ||
     value.conversationId.toLowerCase() !== conversationId.toLowerCase() ||
@@ -469,6 +552,16 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     costBudgets = parseCostBudgets(value.costBudgets);
     if (!costBudgets) return undefined;
   }
+  let humanRequest: TaskView['humanRequest'];
+  if ('humanRequest' in value) {
+    humanRequest = parseHumanRequest(value.humanRequest);
+    if (!humanRequest) return undefined;
+  }
+  if (value.status === 'waiting_input') {
+    if (!humanRequest || humanRequest.kind !== 'input') return undefined;
+  } else if (value.status === 'waiting_approval') {
+    if (!humanRequest || humanRequest.kind !== 'approval') return undefined;
+  } else if (humanRequest) return undefined;
   const trigger = receipt(value.trigger),
     attempt = parseTaskRun(value.runs[0], value.createdAt);
   if (
@@ -506,6 +599,7 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     trigger,
     ...(tokenBudgets ? { tokenBudgets } : {}),
     ...(costBudgets ? { costBudgets } : {}),
+    ...(humanRequest ? { humanRequest } : {}),
     runs: [attempt],
   };
 }

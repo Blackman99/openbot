@@ -100,6 +100,7 @@ export type TaskResult<T> =
         | 'resume-state-conflict'
         | 'resume-run-conflict'
         | 'resume-paused-ancestor'
+        | 'human-decision-state-conflict'
         | 'partial-state-conflict'
         | 'attempt-exhausted'
         | 'routing-unavailable'
@@ -503,6 +504,59 @@ export class TaskApiClient {
       },
     };
   }
+  async decide(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    command: Record<string, unknown>,
+  ): Promise<
+    TaskResult<{
+      task: TaskView;
+      decision: { requestId: string; runId: string; attempt: number; decidedAt: string };
+    }>
+  > {
+    if (
+      !isConversationUuid(taskId) ||
+      typeof command.idempotencyKey !== 'string' ||
+      !isCommandKey(command.idempotencyKey)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/human-decisions',
+      command,
+      202,
+    );
+    if (result.status !== 'available') return result;
+    if (!taskKeys(result.value, 'decision,task')) return { status: 'unavailable' };
+    const task = parseTask(result.value.task, conversationId),
+      decision = result.value.decision;
+    if (
+      !task ||
+      task.id !== taskId.toLowerCase() ||
+      !taskKeys(decision, 'attempt,decidedAt,requestId,runId') ||
+      !isConversationUuid(decision.requestId) ||
+      !isConversationUuid(decision.runId) ||
+      !taskInteger(decision.attempt, 2) ||
+      !taskDate(decision.decidedAt)
+    )
+      return { status: 'unavailable' };
+    return {
+      status: 'available',
+      value: {
+        task,
+        decision: {
+          requestId: decision.requestId.toLowerCase(),
+          runId: decision.runId.toLowerCase(),
+          attempt: decision.attempt,
+          decidedAt: decision.decidedAt,
+        },
+      },
+    };
+  }
   async partialOutput(
     session: string | undefined,
     workspaceId: string,
@@ -582,7 +636,7 @@ export class TaskApiClient {
     workspaceId: string,
     conversationId: string,
     suffix: string,
-    body?: TaskCommand | TaskRetryCommand,
+    body?: TaskCommand | TaskRetryCommand | Record<string, unknown>,
     expectedStatus?: number,
   ): Promise<TaskResult<unknown>> {
     if (!session || !/^[A-Za-z0-9_-]{43}$/u.test(session)) return { status: 'anonymous' };
@@ -650,6 +704,8 @@ export class TaskApiClient {
           return { status: 'resume-run-conflict' };
         if (response.status === 409 && code === 'task_resume_paused_ancestor')
           return { status: 'resume-paused-ancestor' };
+        if (response.status === 409 && code === 'task_human_decision_state_conflict')
+          return { status: 'human-decision-state-conflict' };
         if (response.status === 409 && code === 'task_partial_state_conflict')
           return { status: 'partial-state-conflict' };
       }

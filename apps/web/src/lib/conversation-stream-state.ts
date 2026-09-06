@@ -128,7 +128,10 @@ export function applyConversationStreamEvent(
   if (
     event.type === 'conversation.invalidated' ||
     event.type === 'task.limit.warning' ||
-    event.type === 'task.handoff'
+    event.type === 'task.handoff' ||
+    event.type === 'task.input.requested' ||
+    event.type === 'task.approval.requested' ||
+    event.type === 'task.human.decided'
   )
     return applied(state, event);
   if (event.type === 'task.run.updated') {

@@ -289,6 +289,10 @@ try {
         REVOKE ALL ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
         GRANT EXECUTE ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) TO openbot_runtime;
       END IF;
+      IF to_regprocedure('task_has_human_decision_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
       IF to_regprocedure('task_has_handoff_lead_change(uuid,uuid,uuid,uuid)') IS NOT NULL THEN
         REVOKE ALL ON FUNCTION task_has_handoff_lead_change(uuid,uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
         GRANT EXECUTE ON FUNCTION task_has_handoff_lead_change(uuid,uuid,uuid,uuid) TO openbot_runtime;

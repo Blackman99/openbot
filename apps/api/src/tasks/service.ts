@@ -44,6 +44,8 @@ import { type CostBudgetScopeView } from './cost-budget.js';
 import { loadResolvedCostBudgets, readCostBudgetView } from './cost-budget-store.js';
 import { costMicros } from './model-price.js';
 import { loadPinnedModelPrice } from './model-price-service.js';
+import { decideHumanRequest } from './human-decision-resume.js';
+import { parseHumanInputSchema, type HumanInputSchema } from './human-request-action.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 export type TaskStatus =
@@ -71,6 +73,14 @@ export interface TaskView {
   olderRunsCursor: string | null;
   tokenBudgets: TokenBudgetScopeView[];
   costBudgets?: CostBudgetScopeView[];
+  humanRequest?: {
+    id: string;
+    kind: 'input' | 'approval';
+    prompt?: string;
+    responseSchema?: HumanInputSchema;
+    summary?: string;
+    createdAt: Date;
+  };
   runs: {
     id: string;
     attempt: number;
@@ -280,7 +290,54 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
     },
     tokenBudgets,
     ...(costBudgets.length ? { costBudgets } : {}),
+    ...(await readHumanRequest(connection, row.id, row.status)),
     runs,
+  };
+}
+
+async function readHumanRequest(
+  connection: SqlConnection,
+  taskId: string,
+  status: TaskStatus,
+): Promise<Pick<TaskView, 'humanRequest'>> {
+  if (status !== 'waiting_input' && status !== 'waiting_approval') return {};
+  const row = (
+    await connection.query<{
+      id: string;
+      kind: 'input' | 'approval';
+      prompt: string | null;
+      response_schema: unknown;
+      summary: string | null;
+      created_at: Date;
+    }>(
+      `SELECT id,kind,prompt,response_schema,summary,created_at
+       FROM task_human_requests WHERE task_id=$1 AND resolved_at IS NULL
+       ORDER BY created_at DESC,id DESC LIMIT 1`,
+      [taskId],
+    )
+  ).rows[0];
+  if (!row) return {};
+  if (row.kind === 'input') {
+    const responseSchema = parseHumanInputSchema(row.response_schema);
+    if (!row.prompt || !responseSchema) return {};
+    return {
+      humanRequest: {
+        id: row.id,
+        kind: 'input',
+        prompt: row.prompt,
+        responseSchema,
+        createdAt: row.created_at,
+      },
+    };
+  }
+  if (!row.summary) return {};
+  return {
+    humanRequest: {
+      id: row.id,
+      kind: 'approval',
+      summary: row.summary,
+      createdAt: row.created_at,
+    },
   };
 }
 export class TaskService {
@@ -378,6 +435,20 @@ export class TaskService {
     return this.transaction(async (connection) => {
       const resume = await resumeTask(connection, access, id, command, this.now);
       return { task: await readTask(connection, id), resume };
+    });
+  }
+  decide(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId);
+    return this.transaction(async (connection) => {
+      const decision = await decideHumanRequest(connection, access, id, input, this.now);
+      return { task: await readTask(connection, id), decision };
     });
   }
   partialOutput(

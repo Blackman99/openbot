@@ -97,12 +97,34 @@ export interface TaskHandoffNotice {
   source: { grantId: string; botId: string; botName: string };
   target: { grantId: string; botId: string; botName: string };
 }
+export interface TaskInputRequestedNotice {
+  taskId: string;
+  prompt: string;
+  responseSchema: {
+    type: 'object';
+    additionalProperties: false;
+    properties: Record<string, { type: 'string' | 'number' | 'boolean' }>;
+    required: string[];
+  };
+}
+export interface TaskApprovalRequestedNotice {
+  taskId: string;
+  summary: string;
+}
+export interface TaskHumanDecidedNotice {
+  taskId: string;
+  kind: 'input' | 'approval';
+  decision: 'input' | 'approve' | 'reject';
+}
 export type ConversationStreamPayload =
   | { type: 'message.changed'; data: { message: MessageReference } }
   | { type: 'task.run.updated'; data: { execution: ExecutionState } }
   | { type: 'assistant.delta'; data: AssistantDelta }
   | { type: 'task.limit.warning'; data: ExecutionLimitWarning }
   | { type: 'task.handoff'; data: TaskHandoffNotice }
+  | { type: 'task.input.requested'; data: TaskInputRequestedNotice }
+  | { type: 'task.approval.requested'; data: TaskApprovalRequestedNotice }
+  | { type: 'task.human.decided'; data: TaskHumanDecidedNotice }
   | { type: 'conversation.invalidated'; data: { reason: 'membership' } };
 export type ConversationStreamEvent = ConversationStreamPayload & {
   schemaVersion: 1;
@@ -306,6 +328,38 @@ function projectPayload(payload: ConversationStreamPayload): ConversationStreamP
         type: payload.type,
         data: { taskId, reason, source, target },
       };
+    }
+    case 'task.input.requested': {
+      const { taskId, prompt, responseSchema } = payload.data;
+      if (
+        !uuidPattern.test(taskId) ||
+        !prompt ||
+        Buffer.byteLength(prompt) > 8000 ||
+        responseSchema.type !== 'object' ||
+        responseSchema.additionalProperties !== false ||
+        !Array.isArray(responseSchema.required) ||
+        !responseSchema.properties ||
+        Object.keys(responseSchema.properties).length < 1 ||
+        Object.keys(responseSchema.properties).length > 16
+      )
+        throw new ConversationStreamError('conversation_stream_unavailable');
+      return { type: payload.type, data: { taskId, prompt, responseSchema } };
+    }
+    case 'task.approval.requested': {
+      const { taskId, summary } = payload.data;
+      if (!uuidPattern.test(taskId) || !summary || Buffer.byteLength(summary) > 8000)
+        throw new ConversationStreamError('conversation_stream_unavailable');
+      return { type: payload.type, data: { taskId, summary } };
+    }
+    case 'task.human.decided': {
+      const { taskId, kind, decision } = payload.data;
+      if (
+        !uuidPattern.test(taskId) ||
+        (kind !== 'input' && kind !== 'approval') ||
+        (decision !== 'input' && decision !== 'approve' && decision !== 'reject')
+      )
+        throw new ConversationStreamError('conversation_stream_unavailable');
+      return { type: payload.type, data: { taskId, kind, decision } };
     }
     case 'task.limit.warning': {
       const { taskId, dimension, used, limit, source, soft, hard, body } = payload.data;

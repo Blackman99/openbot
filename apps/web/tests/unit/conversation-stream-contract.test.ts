@@ -261,6 +261,31 @@ describe('conversation stream wire contract', () => {
     expect(
       parseConversationStreamEvent(envelope(costWarning, 'task.limit.warning'), scope),
     ).toEqual(envelope(costWarning, 'task.limit.warning'));
+    const requested = {
+      taskId,
+      prompt: 'What should we keep?',
+      responseSchema: {
+        type: 'object' as const,
+        additionalProperties: false as const,
+        properties: { note: { type: 'string' as const } },
+        required: ['note'],
+      },
+    };
+    expect(
+      parseConversationStreamEvent(envelope(requested, 'task.input.requested'), scope),
+    ).toEqual(envelope(requested, 'task.input.requested'));
+    expect(
+      parseConversationStreamEvent(
+        envelope({ taskId, summary: 'Publish the draft.' }, 'task.approval.requested'),
+        scope,
+      ),
+    ).toEqual(envelope({ taskId, summary: 'Publish the draft.' }, 'task.approval.requested'));
+    expect(
+      parseConversationStreamEvent(
+        envelope({ taskId, kind: 'approval', decision: 'approve' }, 'task.human.decided'),
+        scope,
+      ),
+    ).toEqual(envelope({ taskId, kind: 'approval', decision: 'approve' }, 'task.human.decided'));
   });
 
   it('accepts positive safe persisted attempts without adding run history', () => {

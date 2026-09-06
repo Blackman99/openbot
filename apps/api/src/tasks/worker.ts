@@ -10,6 +10,7 @@ import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
 import { ExtractionWorker } from '../memories/extraction-worker.js';
 import { parseDelegateAction } from './delegate-action.js';
 import { parseHandoffAction } from './handoff-action.js';
+import { parseRequestApprovalAction, parseRequestInputAction } from './human-request-action.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -158,21 +159,51 @@ export class TaskWorker {
         if (actions.length) {
           const delegates = [];
           const handoffs = [];
+          const inputs = [];
+          const approvals = [];
           for (const event of actions) {
             const actionId = typeof event.id === 'string' ? event.id : '';
             const delegate = parseDelegateAction(event);
             const handoff = parseHandoffAction(event);
+            const input = parseRequestInputAction(event);
+            const approval = parseRequestApprovalAction(event);
             if (delegate && actionId) delegates.push({ action: delegate, actionId });
             else if (handoff && actionId) handoffs.push(handoff);
+            else if (input && actionId) inputs.push(input);
+            else if (approval && actionId) approvals.push(approval);
             else {
               delegates.length = 0;
               handoffs.length = 0;
+              inputs.length = 0;
+              approvals.length = 0;
               break;
             }
           }
           if (
+            inputs.length === 1 &&
+            !approvals.length &&
+            !delegates.length &&
+            !handoffs.length &&
+            (await this.queue.requestHuman(claim, { kind: 'input', ...inputs[0]! }))
+          ) {
+            await publication.discard();
+            return true;
+          }
+          if (
+            approvals.length === 1 &&
+            !inputs.length &&
+            !delegates.length &&
+            !handoffs.length &&
+            (await this.queue.requestHuman(claim, { kind: 'approval', ...approvals[0]! }))
+          ) {
+            await publication.discard();
+            return true;
+          }
+          if (
             handoffs.length === 1 &&
             !delegates.length &&
+            !inputs.length &&
+            !approvals.length &&
             (await this.queue.handoff(claim, handoffs[0]!))
           ) {
             await publication.discard();
@@ -181,6 +212,8 @@ export class TaskWorker {
           if (
             delegates.length &&
             !handoffs.length &&
+            !inputs.length &&
+            !approvals.length &&
             (await this.queue.delegate(claim, delegates))
           ) {
             await publication.discard();

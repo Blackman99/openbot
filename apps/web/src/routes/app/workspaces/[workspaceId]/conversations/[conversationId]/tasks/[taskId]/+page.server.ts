@@ -4,6 +4,7 @@ import {
   cancelTask,
   pauseTask,
   resumeTask,
+  decideTask,
 } from '$lib/server/task-page.js';
 import type { PageServerLoad, Actions } from './$types';
 export const load: PageServerLoad = (event) =>
@@ -15,6 +16,8 @@ export const actions: Actions = {
     pauseTask(event, event.params.workspaceId, event.params.conversationId, event.params.taskId),
   resume: (event) =>
     resumeTask(event, event.params.workspaceId, event.params.conversationId, event.params.taskId),
+  decide: (event) =>
+    decideTask(event, event.params.workspaceId, event.params.conversationId, event.params.taskId),
   retry: (event) =>
     retryTask(event, event.params.workspaceId, event.params.conversationId, event.params.taskId),
 };

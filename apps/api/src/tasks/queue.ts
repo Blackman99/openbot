@@ -72,6 +72,9 @@ import type { DelegateAction } from './delegate-action.js';
 import { HANDOFF_TOOL } from './handoff.js';
 import type { HandoffAction } from './handoff-action.js';
 import { transferTaskLead } from './handoff-lead.js';
+import { REQUEST_APPROVAL_TOOL, REQUEST_INPUT_TOOL } from './human-request.js';
+import type { HumanHoldAction } from './human-request-hold.js';
+import { holdTaskForHumanRequest } from './human-request-hold.js';
 import { persistTokenUsage } from './token-usage.js';
 import { readQueuedAuditMetadata } from './queued-audit.js';
 import {
@@ -700,7 +703,11 @@ export class TaskQueue {
               ? [...messages, { role: 'user' as const, content: attributed }]
               : messages,
             maxTotalTokens: target.configuration.limits.maxTotalTokens,
-            ...(task.group_grant_id ? { tools: [DELEGATE_TOOL, HANDOFF_TOOL] } : {}),
+            tools: [
+              REQUEST_INPUT_TOOL,
+              REQUEST_APPROVAL_TOOL,
+              ...(task.group_grant_id ? [DELEGATE_TOOL, HANDOFF_TOOL] : []),
+            ],
           },
         };
       }
@@ -904,6 +911,16 @@ export class TaskQueue {
   async handoff(claim: TaskClaim, action: HandoffAction): Promise<boolean> {
     return this.transaction(async (connection) =>
       transferTaskLead(
+        connection,
+        { runId: claim.runId, taskId: claim.taskId, claimToken: claim.claimToken },
+        action,
+        this.now(),
+      ),
+    );
+  }
+  async requestHuman(claim: TaskClaim, action: HumanHoldAction): Promise<boolean> {
+    return this.transaction(async (connection) =>
+      holdTaskForHumanRequest(
         connection,
         { runId: claim.runId, taskId: claim.taskId, claimToken: claim.claimToken },
         action,

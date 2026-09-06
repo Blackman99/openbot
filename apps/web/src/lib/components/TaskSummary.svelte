@@ -28,6 +28,23 @@
       {/each}
     </section>
   {/if}
+  {#if task.humanRequest?.kind === 'input'}
+    <section aria-label="Requested input">
+      <h3>Requested input</h3>
+      <p>{task.humanRequest.prompt}</p>
+      <ul>
+        {#each Object.entries(task.humanRequest.responseSchema?.properties ?? {}) as [name, field] (name)}
+          <li>{name} ({field.type}{task.humanRequest.responseSchema?.required.includes(name) ? ', required' : ''})</li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+  {#if task.humanRequest?.kind === 'approval'}
+    <section aria-label="Requested approval">
+      <h3>Requested approval</h3>
+      <p>{task.humanRequest.summary}</p>
+    </section>
+  {/if}
   {#if task.olderRunsCursor}<p><a href={`${conversationBase}/tasks/${task.id}/runs?cursor=${encodeURIComponent(task.olderRunsCursor)}`}>View earlier attempts</a></p>{/if}
   {#each task.runs as run (run.id)}
     <TaskRunSummary {run} {conversationBase} />
