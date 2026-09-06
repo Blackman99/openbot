@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.js';
 import { taskFixture } from '../helpers/task-fixture.js';
-import { installTaskCancellationFixture } from '../helpers/task-cancellation-fixture.js';
+import {
+  groupCancellationFixture,
+  installTaskCancellationFixture,
+} from '../helpers/task-cancellation-fixture.js';
+import { createQueuedTaskChild } from '../helpers/task-tree-fixture.js';
+import { TaskQueue, type TaskClaim } from '../../src/tasks/queue.js';
 import { TaskService } from '../../src/tasks/service.js';
 import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
 import { planManualResume } from '../../src/tasks/resume.js';
 import { randomUUID } from 'node:crypto';
 
-describe('COL-08 queued Task pause first slice', () => {
+describe('COL-08 Task pause and resume', () => {
   const cleanup: Array<() => Promise<unknown>> = [];
   afterEach(async () => {
     for (const close of cleanup.splice(0).reverse()) await close();
@@ -245,4 +250,269 @@ describe('COL-08 queued Task pause first slice', () => {
       ).rows[0],
     ).toEqual(interrupted);
   });
+
+  it('pauses a running Task, drops its claim, and keeps the same Run', async () => {
+    const f = await fixture();
+    const queue = new TaskQueue(f.pool);
+    const claimed = await queue.claimNext();
+    expect(claimed.claim?.runId).toBe(f.task.runs[0]!.id);
+    await queue.publishDelta(claimed.claim!, 'Visible prefix 🌿');
+    const response = await f.post();
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      task: {
+        id: f.task.id,
+        status: 'paused',
+        runs: [
+          {
+            id: f.task.runs[0]!.id,
+            status: 'paused',
+            startedAt: expect.any(String),
+            provider: { protocol: expect.any(String), modelId: expect.any(String) },
+            usage: null,
+            error: null,
+            output: null,
+          },
+        ],
+      },
+      pause: {
+        runId: f.task.runs[0]!.id,
+        attempt: 1,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      },
+    });
+    expect(await queue.isClaimActive(claimed.claim!)).toBe(false);
+    expect(await queue.finish(claimed.claim!, { body: 'Late answer', usage: null })).toBe(false);
+    expect((await f.pool.query('SELECT id,status FROM task_runs')).rows).toEqual([
+      { id: f.task.runs[0]!.id, status: 'paused' },
+    ]);
+    expect(
+      (
+        await f.pool.query('SELECT end_byte FROM task_run_pause_checkpoints WHERE run_id=$1', [
+          f.task.runs[0]!.id,
+        ])
+      ).rows,
+    ).toEqual([{ end_byte: Buffer.byteLength('Visible prefix 🌿') }]);
+    expect(
+      await f.tasks.partialOutput(
+        f.owner.user.id,
+        f.owner.workspace.id,
+        f.conversation.id,
+        f.task.id,
+        f.task.runs[0]!.id,
+      ),
+    ).toMatchObject({
+      partial: { text: 'Visible prefix 🌿', interrupted: true },
+    });
+    const restarted = new TaskService(f.pool);
+    expect(
+      await restarted.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, f.task.id),
+    ).toMatchObject({
+      status: 'paused',
+      runs: [{ id: f.task.runs[0]!.id, status: 'paused' }],
+    });
+    let calls = 0;
+    await expect(
+      f
+        .worker(async () => {
+          calls++;
+          throw new Error('must not call provider');
+        })
+        .runOnce(),
+    ).resolves.toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  it('resumes a paused Task as a new queued attempt without mutating the interrupted Run', async () => {
+    const f = await fixture();
+    const paused = await f.post();
+    expect(paused.statusCode).toBe(200);
+    const before = (await f.pool.query('SELECT * FROM task_runs')).rows;
+    const url = `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${f.conversation.id}/tasks/${f.task.id}/resumes`;
+    const command = { idempotencyKey: 'resume-once', expectedRunId: f.task.runs[0]!.id };
+    const post = (payload: unknown = command) =>
+      f.app.inject({
+        method: 'POST',
+        url,
+        headers: { ...f.headers, 'content-type': 'application/json' },
+        payload: JSON.stringify(payload),
+      });
+    const response = await post();
+    expect(response.statusCode).toBe(202);
+    const body = response.json();
+    expect(body.task).toMatchObject({
+      id: f.task.id,
+      status: 'queued',
+      runCount: 2,
+      runs: [{ status: 'queued', attempt: 2 }],
+    });
+    expect(body.resume).toMatchObject({
+      taskId: f.task.id,
+      sourceRunId: f.task.runs[0]!.id,
+      attempt: 2,
+      checkpointId: paused.json().pause.checkpointId,
+      affectedTaskCount: 1,
+      affectedRunCount: 1,
+    });
+    expect(body.resume.runId).not.toBe(f.task.runs[0]!.id);
+    expect(body.task.runs[0]!.id).toBe(body.resume.runId);
+    expect(
+      (await f.pool.query('SELECT * FROM task_runs WHERE id=$1', [f.task.runs[0]!.id])).rows,
+    ).toEqual(before);
+    expect(
+      (
+        await f.app.inject({
+          method: 'POST',
+          url,
+          headers: { ...f.headers, 'content-type': 'application/json' },
+          payload: JSON.stringify(command),
+        })
+      ).json(),
+    ).toEqual(body);
+    const stale = await post({ idempotencyKey: 'stale-resume', expectedRunId: randomUUID() });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toEqual({ error: { code: 'task_resume_run_conflict' } });
+    const noop = await post({ ...command, idempotencyKey: 'already-resumed' });
+    expect(noop.statusCode).toBe(202);
+    expect(noop.json()).toMatchObject({
+      task: body.task,
+      resume: {
+        runId: body.resume.runId,
+        sourceRunId: f.task.runs[0]!.id,
+        checkpointId: body.resume.checkpointId,
+        resumedAt: body.resume.resumedAt,
+        affectedTaskCount: 0,
+        affectedRunCount: 0,
+      },
+    });
+    expect((await f.pool.query('SELECT id FROM task_runs')).rows).toHaveLength(2);
+    let calls = 0;
+    await expect(
+      f
+        .worker(async () => {
+          calls++;
+          return {
+            events: [
+              { type: 'text', text: 'Resumed answer' },
+              { type: 'complete', stopReason: 'stop' },
+            ],
+            raw: '',
+          };
+        })
+        .runOnce(),
+    ).resolves.toBe(true);
+    expect(calls).toBe(1);
+    expect(
+      await new TaskService(f.pool).get(
+        f.owner.user.id,
+        f.owner.workspace.id,
+        f.conversation.id,
+        f.task.id,
+      ),
+    ).toMatchObject({
+      status: 'completed',
+      runCount: 2,
+      runs: [{ id: body.resume.runId, status: 'completed', attempt: 2 }],
+    });
+    expect(
+      (await f.pool.query('SELECT status FROM task_runs WHERE id=$1', [f.task.runs[0]!.id])).rows,
+    ).toEqual([{ status: 'paused' }]);
+  });
+
+  it('pauses a subtree and resumes only the selected Task', async () => {
+    const f = await groupCancellationFixture(cleanup);
+    const input = {
+      workspaceId: f.owner.workspace.id,
+      conversationId: f.grant.conversationId,
+      executionUserId: f.member.id,
+      botId: f.sharedBot.id,
+      botVersionId: f.sharedBot.currentVersion!.id,
+      groupGrantId: f.grant.id,
+      parentTaskId: f.groupTask.id,
+    };
+    const child = await createQueuedTaskChild(f.pool, input);
+    const queue = new TaskQueue(f.pool);
+    const claims = new Map<string, TaskClaim>();
+    while (true) {
+      const next = await queue.claimNext();
+      if (!next.handled) break;
+      if (next.claim) claims.set(next.claim.taskId, next.claim);
+    }
+    expect(claims.has(f.groupTask.id)).toBe(true);
+    expect(claims.has(child.id)).toBe(true);
+    const app = buildApp({
+      auth: f.auth,
+      tasks: f.tasks,
+      readiness: { check: async () => ({ database: 'ready', migrations: 'current' }) },
+    });
+    cleanup.push(() => app.close());
+    const headers = { ...f.member.headers, 'content-type': 'application/json' };
+    const pauseUrl = `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${f.grant.conversationId}/tasks/${f.groupTask.id}/pauses`;
+    const paused = await app.inject({
+      method: 'POST',
+      url: pauseUrl,
+      headers,
+      payload: JSON.stringify({
+        idempotencyKey: 'pause-tree',
+        expectedRunId: f.groupTask.runs[0]!.id,
+      }),
+    });
+    expect(paused.statusCode).toBe(200);
+    expect(paused.json().pause).toMatchObject({ affectedTaskCount: 2, affectedRunCount: 2 });
+    expect(await queue.isClaimActive(claims.get(f.groupTask.id)!)).toBe(false);
+    expect(await queue.isClaimActive(claims.get(child.id)!)).toBe(false);
+    expect(
+      (
+        await f.pool.query('SELECT status FROM tasks WHERE id=$1 OR id=$2 ORDER BY id', [
+          f.groupTask.id,
+          child.id,
+        ])
+      ).rows.map((row) => row.status),
+    ).toEqual(['paused', 'paused']);
+    const adminResume = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${f.grant.conversationId}/tasks/${f.groupTask.id}/resumes`,
+      headers: { ...f.admin.headers, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        idempotencyKey: 'admin-resume',
+        expectedRunId: f.groupTask.runs[0]!.id,
+      }),
+    });
+    expect(adminResume.statusCode).toBe(403);
+    const resumed = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${f.grant.conversationId}/tasks/${f.groupTask.id}/resumes`,
+      headers,
+      payload: JSON.stringify({
+        idempotencyKey: 'resume-root',
+        expectedRunId: f.groupTask.runs[0]!.id,
+      }),
+    });
+    expect(resumed.statusCode).toBe(202);
+    expect(resumed.json()).toMatchObject({
+      task: { id: f.groupTask.id, status: 'queued', runCount: 2 },
+      resume: { sourceRunId: f.groupTask.runs[0]!.id, attempt: 2, affectedTaskCount: 1 },
+    });
+    expect((await f.pool.query('SELECT status FROM tasks WHERE id=$1', [child.id])).rows).toEqual([
+      { status: 'paused' },
+    ]);
+    expect(
+      (await f.pool.query('SELECT status FROM task_runs WHERE id=$1', [child.runId])).rows,
+    ).toEqual([{ status: 'paused' }]);
+    const childResume = await app.inject({
+      method: 'POST',
+      url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${f.grant.conversationId}/tasks/${child.id}/resumes`,
+      headers,
+      payload: JSON.stringify({
+        idempotencyKey: 'resume-child',
+        expectedRunId: child.runId,
+      }),
+    });
+    expect(childResume.statusCode).toBe(202);
+    expect(childResume.json()).toMatchObject({
+      task: { id: child.id, status: 'queued', runCount: 2 },
+      resume: { sourceRunId: child.runId, attempt: 2 },
+    });
+  }, 15000);
 });

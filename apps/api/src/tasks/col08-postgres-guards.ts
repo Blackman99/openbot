@@ -32,6 +32,29 @@ AS $$
   )
 $$`,
   'REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC',
+  `CREATE OR REPLACE FUNCTION lock_task_ancestry(target UUID, allow_paused BOOLEAN) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
+    DECLARE root_id UUID; ancestor UUID;
+    BEGIN
+      SELECT root_task_id INTO STRICT root_id FROM tasks WHERE id=target;
+      PERFORM id FROM tasks WHERE id=root_id FOR UPDATE;
+      FOR ancestor IN WITH RECURSIVE chain AS (
+        SELECT id,parent_task_id FROM tasks WHERE id=target
+        UNION ALL SELECT t.id,t.parent_task_id FROM tasks t JOIN chain c ON t.id=c.parent_task_id
+      ) SELECT id FROM chain ORDER BY id LOOP
+        PERFORM id FROM tasks WHERE id=ancestor FOR UPDATE;
+      END LOOP;
+      RETURN NOT EXISTS (WITH RECURSIVE chain AS (
+        SELECT id,parent_task_id,status FROM tasks WHERE id=target
+        UNION ALL SELECT t.id,t.parent_task_id,t.status FROM tasks t JOIN chain c ON t.id=c.parent_task_id
+      ) SELECT 1 FROM chain WHERE status='cancelled'
+        OR (status='paused' AND NOT (allow_paused AND id=target)));
+    END;
+    $$`,
+  `CREATE OR REPLACE FUNCTION lock_task_ancestry(target UUID) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
+    BEGIN
+      RETURN lock_task_ancestry(target, false);
+    END;
+    $$`,
 ] as const;
 
 export const COL08_PAUSE_POSTGRES_GUARDS = [
@@ -40,7 +63,7 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
     DECLARE latest task_runs%ROWTYPE;
     BEGIN
       IF TG_OP='UPDATE' THEN
-        IF NEW.status<>'cancelled' AND NOT lock_task_ancestry(NEW.id) THEN
+        IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NOT lock_task_ancestry(NEW.id, OLD.status='paused' AND NEW.status='queued') THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot advance';
         END IF;
         IF (to_jsonb(NEW)-'status') IS DISTINCT FROM (to_jsonb(OLD)-'status')
@@ -100,7 +123,7 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
   `CREATE OR REPLACE FUNCTION protect_task_run() RETURNS TRIGGER LANGUAGE plpgsql AS $$
     DECLARE parent tasks%ROWTYPE; latest task_runs%ROWTYPE;
     BEGIN
-      IF NEW.status<>'cancelled' AND NOT lock_task_ancestry(NEW.task_id) THEN
+      IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NOT lock_task_ancestry(NEW.task_id, TG_OP='INSERT') THEN
         RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot create or advance a Run';
       END IF;
       SELECT t.* INTO parent FROM tasks t WHERE t.id=NEW.task_id FOR UPDATE;

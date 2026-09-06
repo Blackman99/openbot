@@ -22,6 +22,7 @@ import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { TaskFailure, Usage } from './queue.js';
 import { cancelTask, cancellationCommand } from './cancellation.js';
 import { pauseTask, pauseCommand } from './pause.js';
+import { resumeTask, resumeCommand } from './resume.js';
 import { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from './run-history.js';
 import type { TaskPartialOutput } from './partial-output.js';
@@ -247,6 +248,21 @@ export class TaskService {
       return { task: await readTask(connection, id), pause };
     });
   }
+  resume(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId),
+      command = resumeCommand(input);
+    return this.transaction(async (connection) => {
+      const resume = await resumeTask(connection, access, id, command, this.now);
+      return { task: await readTask(connection, id), resume };
+    });
+  }
   partialOutput(
     actorUserId: string,
     workspaceId: string,
@@ -266,7 +282,8 @@ export class TaskService {
         )
       ).rows[0];
       if (!run) throw new TaskAccessError();
-      if (run.status !== 'cancelled') throw new TaskConflictError('task_partial_state_conflict');
+      if (run.status !== 'cancelled' && run.status !== 'paused')
+        throw new TaskConflictError('task_partial_state_conflict');
       const row = (
         await connection.query<{ body: string; end_byte: number }>(
           'SELECT body,end_byte FROM task_run_partial_outputs WHERE run_id=$1',

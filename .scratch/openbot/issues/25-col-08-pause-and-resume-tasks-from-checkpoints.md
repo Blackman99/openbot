@@ -44,4 +44,4 @@ The [approved pause/resume handoff](../COL-08-PREIMPLEMENTATION-HANDOFF.md) uses
 
 ## Implementation note
 
-Queued pause is through the API with a durable `paused` status, zero-byte `restart_from_task_input_v1` checkpoint, and claim fence across `TaskService` reconstruction. Native `protect_task` / `protect_task_run` overlays now admit `queued → paused` (and `paused → queued` resume) under `openbot_runtime`. The first resume slice consumes the single COL-10 `writeNextAttempt` writer with origin `manual_resume` and does not mutate the interrupted Run. Acceptance criteria stay unchecked until Tester stamps the remaining running-pause, resume API/UI, subtree, and Compose work.
+Pause now covers queued and running Tasks, including a recursive subtree, and resume creates one new queued Run through `writeNextAttempt` with origin `manual_resume`. Native `protect_task` / `protect_task_run` overlays admit those transitions under `openbot_runtime`. The UI exposes pause and resume forms and keeps interrupted output visible after resume. Acceptance criteria stay unchecked until Tester stamps Compose evidence on a green Verify.

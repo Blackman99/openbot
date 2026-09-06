@@ -22,6 +22,10 @@ const base = {
   canWrite: true,
   canCancel: false,
   canConfirmCancellation: false,
+  canPause: false,
+  canConfirmPause: false,
+  canResume: false,
+  canConfirmResume: false,
   partialOutput: null,
   partialUnavailable: false,
 };

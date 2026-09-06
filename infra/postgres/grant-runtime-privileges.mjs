@@ -254,8 +254,14 @@ try {
       IF to_regclass('task_pause_commands') IS NOT NULL THEN
         GRANT SELECT, INSERT ON task_pause_commands, task_run_pauses, task_run_pause_checkpoints TO openbot_runtime;
       END IF;
+      IF to_regclass('task_resume_commands') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_resume_commands TO openbot_runtime;
+      END IF;
       IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('lock_task_ancestry(uuid,boolean)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID, BOOLEAN) TO openbot_runtime;
       END IF;
     END
     $grant_optional_task_tree$;

@@ -64,6 +64,7 @@ import {
   CONVERSATION_STREAM_POSTGRES_GUARDS,
 } from '../conversations/stream-schema.js';
 import { TASK_PAUSE_SCHEMA_STATEMENTS } from '../tasks/pause-schema.js';
+import { TASK_RESUME_SCHEMA_STATEMENTS } from '../tasks/resume-schema.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -377,6 +378,11 @@ const MIGRATIONS = [
   {
     version: '0033_task_pause_checkpoints',
     statements: TASK_PAUSE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0034_task_resume_commands',
+    statements: TASK_RESUME_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

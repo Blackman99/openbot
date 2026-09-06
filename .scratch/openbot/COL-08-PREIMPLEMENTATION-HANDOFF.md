@@ -42,11 +42,8 @@ Queued pause only, selected Task only:
 
 ## Leftover before the original ACs can be stamped
 
-- Running pause and provider abort.
-- Recursive subtree pause; resume of the selected Task only.
-- Resume HTTP API, idempotent resume receipts, UI pause/resume forms, and interrupted-output history after resume.
-- Compose behavioral evidence for pause/resume.
+- Compose behavioral evidence for pause/resume on a green Verify.
 
-Landed in the overlay slice: native `protect_task` / `protect_task_run` CREATE OR REPLACE after 0033 admits `queued|running → paused` with the pause marker/checkpoint and `paused → queued` via `writeNextAttempt` origin `manual_resume`. Native `postgres-tasks` covers queued pause under `openbot_runtime` (not claimed) and a single resume that leaves the interrupted Run unchanged.
+Landed: queued and running pause, subtree pause, resume HTTP API through `writeNextAttempt` origin `manual_resume`, UI pause/resume forms, interrupted-output history, and native `protect_task` / `protect_task_run` overlays after 0033.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

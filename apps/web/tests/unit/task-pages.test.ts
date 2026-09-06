@@ -14,6 +14,10 @@ const base = {
   canWrite: true,
   canCancel: false,
   canConfirmCancellation: false,
+  canPause: false,
+  canConfirmPause: false,
+  canResume: false,
+  canConfirmResume: false,
   partialOutput: null,
   partialUnavailable: false,
 };
@@ -57,6 +61,8 @@ describe('Task pages', () => {
           canRetry: false,
           canCancel: true,
           canConfirmCancellation: true,
+          canPause: true,
+          canConfirmPause: true,
           idempotencyKey: 'stop-command',
         },
         params: { ...params, taskId: task.id },
@@ -64,10 +70,12 @@ describe('Task pages', () => {
       },
     }).body;
     expect(html).toContain('Cancel task');
+    expect(html).toContain('Pause task');
     expect(html).toContain('unfinished work');
     expect(html).toContain('stop-command');
     expect(html).toContain(`name="expectedRunId" value="${task.runs[0]!.id}"`);
     expect(html).not.toContain('Retry failed task');
+    expect(html).not.toContain('Resume paused task');
   });
   it('renders an escaped interrupted prefix and keeps only the original cancellation confirmation', () => {
     const stopped: TaskView = {
@@ -113,7 +121,59 @@ describe('Task pages', () => {
     expect(html).toContain('Confirm unchanged cancellation');
     expect(html).toContain('original-stop');
     expect(html).not.toContain('Confirm unchanged retry');
+    expect(html).not.toContain('Confirm unchanged pause');
     expect(html).not.toContain('Edit message');
+  });
+  it('renders pause confirmation, resume, and interrupted output for a paused Task', () => {
+    const paused: TaskView = {
+      ...task,
+      status: 'paused',
+      runs: [{ ...task.runs[0]!, status: 'paused', finishedAt: '2026-09-05T00:00:01.000Z' }],
+    };
+    const text = 'Paused 🌲';
+    const html = render(DetailPage, {
+      props: {
+        data: {
+          ...base,
+          task: paused,
+          canRetry: false,
+          canPause: false,
+          canConfirmPause: true,
+          canResume: true,
+          canConfirmResume: true,
+          idempotencyKey: 'resume-command',
+          partialOutput: {
+            conversationId: conversation.id,
+            taskId: task.id,
+            runId: task.runs[0]!.id,
+            partial: {
+              text,
+              endByte: new TextEncoder().encode(text).byteLength,
+              interrupted: true,
+            },
+          },
+        },
+        params: { ...params, taskId: task.id },
+        form: {
+          pause: {
+            values: { idempotencyKey: 'original-pause', expectedRunId: task.runs[0]!.id },
+            uncertain: true,
+            conflict: false,
+            error: 'Confirm the saved pause.',
+          },
+        },
+      },
+    }).body;
+    expect(html).toContain('Paused');
+    expect(html).toContain('Interrupted output');
+    expect(html).toContain('restart from the original task input');
+    expect(html).toContain('Paused 🌲');
+    expect(html).toContain('Confirm unchanged pause');
+    expect(html).toContain('original-pause');
+    expect(html).toContain('Resume paused task');
+    expect(html).toContain('resume-command');
+    expect(html).not.toContain('Cancel task');
+    expect(html).not.toContain('Retry failed task');
   });
   it('renders saved earlier attempt evidence and bounded navigation alongside the current answer', () => {
     const current: TaskView = {

@@ -48,18 +48,39 @@ export async function loadTaskPage(
   }
   let partialOutput: TaskPartialOutput | null = null,
     partialUnavailable = false;
-  if (result.value.status === 'cancelled') {
+  let interruptedRunId = result.value.runs[0]!.id;
+  if (result.value.status === 'cancelled' || result.value.status === 'paused') {
+    interruptedRunId = result.value.runs[0]!.id;
+  } else if (result.value.olderRunsCursor) {
+    const history = await createTaskApiClient(context.fetch, context.request.signal).runs(
+      readSessionCookie(context.cookies),
+      page.workspace.id,
+      page.conversation.id,
+      result.value.id,
+      { limit: 20 },
+    );
+    if (history.status === 'anonymous' || history.status === 'forbidden')
+      readFailure(history.status, context);
+    const paused =
+      history.status === 'available'
+        ? history.value.runs.find((run) => run.status === 'paused')
+        : undefined;
+    if (paused) interruptedRunId = paused.id;
+    else interruptedRunId = '';
+  } else interruptedRunId = '';
+  if (interruptedRunId) {
     const partial = await createTaskApiClient(context.fetch, context.request.signal).partialOutput(
       readSessionCookie(context.cookies),
       page.workspace.id,
       page.conversation.id,
       result.value.id,
-      result.value.runs[0]!.id,
+      interruptedRunId,
     );
     if (partial.status === 'anonymous' || partial.status === 'forbidden')
       readFailure(partial.status, context);
     if (partial.status === 'available') partialOutput = partial.value;
-    else partialUnavailable = true;
+    else if (result.value.status === 'cancelled' || result.value.status === 'paused')
+      partialUnavailable = true;
   }
   const routing = await readTaskRoutingDecision(
     context.fetch,
@@ -76,6 +97,13 @@ export async function loadTaskPage(
     ...(routing.value === null ? {} : { routingDecision: routing.value }),
     canCancel: mayCancel && ['queued', 'running'].includes(result.value.status),
     canConfirmCancellation: mayCancel,
+    canPause: mayCancel && ['queued', 'running'].includes(result.value.status),
+    canConfirmPause: mayCancel,
+    canResume:
+      page.canWrite &&
+      page.user.id === result.value.executionUser.id &&
+      result.value.status === 'paused',
+    canConfirmResume: page.user.id === result.value.executionUser.id,
     partialOutput,
     partialUnavailable,
     canRetry:
@@ -233,6 +261,173 @@ export async function cancelTask(
     303,
     `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
   );
+}
+export async function pauseTask(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (
+    context.request.headers.get('origin') !==
+    new URL(process.env.WEB_ORIGIN ?? 'http://localhost:3000').origin
+  )
+    return pauseFailure('forbidden', context, {});
+  const values: Record<string, string> = {};
+  try {
+    const form = await context.request.formData();
+    for (const [key, value] of form) {
+      if (
+        !['idempotencyKey', 'expectedRunId'].includes(key) ||
+        typeof value !== 'string' ||
+        form.getAll(key).length !== 1 ||
+        value.length > 128
+      )
+        return pauseFailure('invalid', context, values);
+      values[key] = value;
+    }
+  } catch {
+    return pauseFailure('invalid', context, values);
+  }
+  if (!isCommandKey(values.idempotencyKey) || !isConversationUuid(values.expectedRunId))
+    return pauseFailure('invalid', context, values);
+  const result = await createTaskApiClient(context.fetch, context.request.signal).pause(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+    { idempotencyKey: values.idempotencyKey, expectedRunId: values.expectedRunId },
+  );
+  if (result.status !== 'available') return pauseFailure(result.status, context, values);
+  redirect(
+    303,
+    `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
+  );
+}
+export async function resumeTask(
+  context: Context,
+  workspaceId: string,
+  conversationId: string,
+  taskId: string,
+) {
+  preventAuthenticationCaching(context.setHeaders);
+  if (
+    context.request.headers.get('origin') !==
+    new URL(process.env.WEB_ORIGIN ?? 'http://localhost:3000').origin
+  )
+    return resumeFailure('forbidden', context, {});
+  const values: Record<string, string> = {};
+  try {
+    const form = await context.request.formData();
+    for (const [key, value] of form) {
+      if (
+        !['idempotencyKey', 'expectedRunId'].includes(key) ||
+        typeof value !== 'string' ||
+        form.getAll(key).length !== 1 ||
+        value.length > 128
+      )
+        return resumeFailure('invalid', context, values);
+      values[key] = value;
+    }
+  } catch {
+    return resumeFailure('invalid', context, values);
+  }
+  if (!isCommandKey(values.idempotencyKey) || !isConversationUuid(values.expectedRunId))
+    return resumeFailure('invalid', context, values);
+  const result = await createTaskApiClient(context.fetch, context.request.signal).resume(
+    readSessionCookie(context.cookies),
+    workspaceId,
+    conversationId,
+    taskId,
+    { idempotencyKey: values.idempotencyKey, expectedRunId: values.expectedRunId },
+  );
+  if (result.status !== 'available') return resumeFailure(result.status, context, values);
+  redirect(
+    303,
+    `/app/workspaces/${workspaceId.toLowerCase()}/conversations/${conversationId.toLowerCase()}/tasks/${result.value.task.id}`,
+  );
+}
+function pauseFailure(status: string, context: Context, values: Record<string, string>) {
+  if (status === 'anonymous') readFailure(status, context);
+  const known: Record<string, [number, string]> = {
+    forbidden: [403, 'Your current access does not allow this pause. The saved task is preserved.'],
+    invalid: [400, 'This pause request is invalid. Refresh the task before trying again.'],
+    'idempotency-conflict': [
+      409,
+      'This command key names a different pause. Refresh the task to inspect its saved state.',
+    ],
+    'pause-state-conflict': [
+      409,
+      'This task has already finished. Refresh the task to inspect its saved result.',
+    ],
+    'pause-run-conflict': [409, 'A newer attempt exists. Refresh the task before pausing it.'],
+  };
+  const detail = known[status];
+  return fail(detail?.[0] ?? 503, {
+    pause: {
+      values,
+      uncertain: !detail,
+      conflict: [
+        'invalid',
+        'idempotency-conflict',
+        'pause-state-conflict',
+        'pause-run-conflict',
+      ].includes(status),
+      error:
+        detail?.[1] ??
+        'The pause could not be confirmed. Confirm this unchanged command to check its saved result.',
+    },
+  });
+}
+function resumeFailure(status: string, context: Context, values: Record<string, string>) {
+  if (status === 'anonymous') readFailure(status, context);
+  const known: Record<string, [number, string]> = {
+    forbidden: [
+      403,
+      'Only the person who submitted this task can resume it. The saved paused attempt is preserved.',
+    ],
+    invalid: [400, 'This resume request is invalid. Refresh the task before trying again.'],
+    'model-unavailable': [
+      409,
+      'The original Bot model is currently unavailable to you. The paused attempt is preserved.',
+    ],
+    'idempotency-conflict': [
+      409,
+      'This command key names a different resume. Refresh the task to inspect its saved state.',
+    ],
+    'resume-state-conflict': [
+      409,
+      'This task is no longer paused. Refresh the task to inspect its current attempt.',
+    ],
+    'resume-run-conflict': [409, 'A newer attempt exists. Refresh the task before resuming it.'],
+    'resume-paused-ancestor': [
+      409,
+      'This task belongs to a paused task tree. Resume the parent task first.',
+    ],
+    'attempt-exhausted': [
+      409,
+      'This task cannot create another attempt. Its existing attempts remain available.',
+    ],
+  };
+  const detail = known[status];
+  return fail(detail?.[0] ?? 503, {
+    resume: {
+      values,
+      uncertain: !detail,
+      conflict: [
+        'invalid',
+        'idempotency-conflict',
+        'resume-state-conflict',
+        'resume-run-conflict',
+        'resume-paused-ancestor',
+        'attempt-exhausted',
+      ].includes(status),
+      error:
+        detail?.[1] ??
+        'The resume could not be confirmed. Confirm this unchanged command to check whether its attempt was created.',
+    },
+  });
 }
 export async function retryTask(
   context: Context,

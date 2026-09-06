@@ -107,6 +107,27 @@ export function registerTaskRoutes(
       },
     );
     routes.post<{ Params: { workspaceId: string; conversationId: string; taskId: string } }>(
+      `${base}/:taskId/resumes`,
+      async (request, reply) => {
+        if (request.headers.origin !== webOrigin)
+          return reply.code(403).send({ error: { code: 'invalid_origin' } });
+        const token = readSessionToken(request.headers.cookie),
+          identity = token ? await auth.getSession(token) : undefined;
+        if (!identity) return reply.code(401).send({ error: { code: 'authentication_required' } });
+        return reply
+          .code(202)
+          .send(
+            await tasks.resume(
+              identity.user.id,
+              request.params.workspaceId,
+              request.params.conversationId,
+              request.params.taskId,
+              request.body,
+            ),
+          );
+      },
+    );
+    routes.post<{ Params: { workspaceId: string; conversationId: string; taskId: string } }>(
       `${base}/:taskId/retries`,
       async (request, reply) => {
         if (request.headers.origin !== webOrigin)

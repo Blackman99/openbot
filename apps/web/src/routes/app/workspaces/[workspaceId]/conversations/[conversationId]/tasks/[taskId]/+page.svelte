@@ -3,6 +3,8 @@
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
   import TaskCancellation from '$lib/components/TaskCancellation.svelte';
+  import TaskPause from '$lib/components/TaskPause.svelte';
+  import TaskResume from '$lib/components/TaskResume.svelte';
   import TaskSummary from '$lib/components/TaskSummary.svelte';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
@@ -11,6 +13,8 @@
   let unconfirmed = $state<Record<string, string> | null>(null);
   let retryForm = $derived(form && 'values' in form ? form : null);
   let cancellationForm = $derived(form && 'cancellation' in form ? form.cancellation : undefined);
+  let pauseForm = $derived(form && 'pause' in form ? form.pause : undefined);
+  let resumeForm = $derived(form && 'resume' in form ? form.resume : undefined);
   let values = $derived(unconfirmed ?? retryForm?.values ?? {});
   let uncertain = $derived(Boolean(unconfirmed) || Boolean(retryForm?.uncertain));
   let canConfirm = $derived(uncertain && data.user.id === data.task.executionUser.id && Boolean(values.idempotencyKey && values.expectedRunId));
@@ -45,15 +49,20 @@
   <nav aria-label="Task navigation"><a href={`${base}/tasks/${data.task.id}`} data-sveltekit-reload>Refresh task</a><a href={base}>Open conversation</a></nav>
   <TaskSummary task={data.task} conversationBase={base} showLink={false} />
   {#if data.routingDecision}<RoutingDecision decision={data.routingDecision} />{/if}
-  {#if data.task.status === 'cancelled'}
+  {#if data.task.status === 'cancelled' || data.task.status === 'paused' || data.partialOutput}
     <section aria-labelledby="partial-heading">
       <h2 id="partial-heading">Interrupted output</h2>
       {#if data.partialUnavailable}<p role="alert">Saved partial output is unavailable. Refresh this task to try again.</p>
-      {:else if data.partialOutput?.partial}<p>This task was cancelled. The saved output is incomplete.</p><pre>{data.partialOutput.partial.text}</pre>
-      {:else}<p>No output was saved before cancellation.</p>{/if}
+      {:else if data.partialOutput?.partial}
+        <p>{data.task.status === 'cancelled' ? 'This task was cancelled. The saved output is incomplete.' : 'This task was paused. Resume starts a new attempt from the original task input. The saved output is incomplete.'}</p>
+        <p>Checkpoint: restart from the original task input.</p>
+        <pre>{data.partialOutput.partial.text}</pre>
+      {:else}<p>{data.task.status === 'cancelled' ? 'No output was saved before cancellation.' : 'No output was saved before the pause.'}</p>{/if}
     </section>
   {/if}
   <TaskCancellation canCancel={data.canCancel} canConfirm={data.canConfirmCancellation} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/cancel`} action={cancellationForm} />
+  <TaskPause canPause={data.canPause} canConfirm={data.canConfirmPause} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/pause`} action={pauseForm} />
+  <TaskResume canResume={data.canResume} canConfirm={data.canConfirmResume} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/resume`} action={resumeForm} />
   {#if transportError || retryForm?.error}<p role="alert">{transportError || retryForm?.error}</p>{/if}
   {#if data.canRetry || canConfirm}
     <section aria-labelledby="retry-heading">

@@ -6,6 +6,8 @@ import {
   submitTask,
   retryTask,
   cancelTask,
+  pauseTask,
+  resumeTask,
 } from '../../src/lib/server/task-page.js';
 import { task, conversation, workspace, user, token } from '../fixtures/tasks.js';
 import { page } from '../fixtures/conversations.js';
@@ -103,6 +105,108 @@ describe('Task page boundary', () => {
     }
     expect(event.cookies.delete).not.toHaveBeenCalled();
   });
+  it('preserves an unknown pause outcome and confirms the identical command', async () => {
+    const event = context(),
+      values = { idempotencyKey: 'uncertain-pause', expectedRunId: task.runs[0]!.id };
+    const pausedAt = '2026-09-05T00:00:01.000Z';
+    const saved = {
+      task: {
+        ...task,
+        status: 'paused',
+        runs: [{ ...task.runs[0], status: 'paused', finishedAt: pausedAt }],
+      },
+      pause: {
+        commandId: grant.id,
+        taskId: task.id,
+        rootTaskId: task.id,
+        runId: values.expectedRunId,
+        attempt: 1,
+        checkpointId: grant.id,
+        pausedAt,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      },
+    };
+    event.fetch
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: 'task_unavailable' } }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(Response.json(saved));
+    const request = () =>
+      new Request(event.url, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        body: new URLSearchParams(values),
+      });
+    expect(
+      await pauseTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).toMatchObject({
+      status: 503,
+      data: { pause: { values, uncertain: true, conflict: false } },
+    });
+    await expect(
+      pauseTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/tasks/${task.id}`,
+    });
+    for (const [url, init] of event.fetch.mock.calls) {
+      expect(String(url)).toContain('/pauses');
+      expect(JSON.parse(String(init?.body))).toEqual(values);
+    }
+  });
+  it('preserves an unknown resume outcome and confirms the identical new attempt', async () => {
+    const event = context(),
+      values = { idempotencyKey: 'uncertain-resume', expectedRunId: task.runs[0]!.id };
+    const resumedAt = '2026-09-05T00:00:02.000Z';
+    const nextRun = '80000000-0000-4000-8000-000000000008';
+    const saved = {
+      task: {
+        ...task,
+        runCount: 2,
+        olderRunsCursor: 'older_attempt',
+        runs: [{ ...task.runs[0], id: nextRun, attempt: 2 }],
+      },
+      resume: {
+        commandId: grant.id,
+        taskId: task.id,
+        runId: nextRun,
+        attempt: 2,
+        sourceRunId: values.expectedRunId,
+        checkpointId: grant.id,
+        resumedAt,
+        affectedTaskCount: 1,
+        affectedRunCount: 1,
+      },
+    };
+    event.fetch
+      .mockResolvedValueOnce(
+        Response.json({ error: { code: 'task_unavailable' } }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(Response.json(saved, { status: 202 }));
+    const request = () =>
+      new Request(event.url, {
+        method: 'POST',
+        headers: { origin: 'http://localhost:3000' },
+        body: new URLSearchParams(values),
+      });
+    expect(
+      await resumeTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).toMatchObject({
+      status: 503,
+      data: { resume: { values, uncertain: true, conflict: false } },
+    });
+    await expect(
+      resumeTask({ ...event, request: request() }, workspace.id, conversation.id, task.id),
+    ).rejects.toMatchObject({
+      status: 303,
+      location: `/app/workspaces/${workspace.id}/conversations/${conversation.id}/tasks/${task.id}`,
+    });
+    for (const [url, init] of event.fetch.mock.calls) {
+      expect(String(url)).toContain('/resumes');
+      expect(JSON.parse(String(init?.body))).toEqual(values);
+    }
+  });
   it('loads a planned fallback with previous model, next model and reason and drops secrets', async () => {
     const event = context(),
       original = event.fetch.getMockImplementation()!;
@@ -183,6 +287,8 @@ describe('Task page boundary', () => {
     });
     expect(await loadTaskPage(event, workspace.id, conversation.id, task.id)).toMatchObject({
       canCancel: true,
+      canPause: true,
+      canResume: false,
       canRetry: false,
       partialOutput: null,
     });
@@ -371,7 +477,7 @@ describe('Task page boundary', () => {
       cursor: 'older_attempt',
       limit: 5,
     });
-    expect(event.fetch.mock.calls).toHaveLength(5);
+    expect(event.fetch.mock.calls).toHaveLength(6);
     expect(event.fetch.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(
       true,
     );

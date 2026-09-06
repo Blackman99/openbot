@@ -47,6 +47,34 @@ export interface TaskCancellationResult {
     affectedRunCount: number;
   };
 }
+export interface TaskPauseResult {
+  task: TaskView;
+  pause: {
+    commandId: string;
+    taskId: string;
+    rootTaskId: string;
+    runId: string;
+    attempt: number;
+    checkpointId: string;
+    pausedAt: string;
+    affectedTaskCount: number;
+    affectedRunCount: number;
+  };
+}
+export interface TaskResumeResult {
+  task: TaskView;
+  resume: {
+    commandId: string;
+    taskId: string;
+    runId: string;
+    attempt: number;
+    sourceRunId: string;
+    checkpointId: string;
+    resumedAt: string;
+    affectedTaskCount: number;
+    affectedRunCount: number;
+  };
+}
 export interface TaskRunsPage {
   conversationId: string;
   taskId: string;
@@ -67,6 +95,11 @@ export type TaskResult<T> =
         | 'retry-cancelled-ancestor'
         | 'cancel-state-conflict'
         | 'cancel-run-conflict'
+        | 'pause-state-conflict'
+        | 'pause-run-conflict'
+        | 'resume-state-conflict'
+        | 'resume-run-conflict'
+        | 'resume-paused-ancestor'
         | 'partial-state-conflict'
         | 'attempt-exhausted'
         | 'routing-unavailable'
@@ -330,6 +363,146 @@ export class TaskApiClient {
       },
     };
   }
+  async pause(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    command: TaskRetryCommand,
+  ): Promise<TaskResult<TaskPauseResult>> {
+    if (
+      !isConversationUuid(taskId) ||
+      !taskKeys(command, 'expectedRunId,idempotencyKey') ||
+      !isCommandKey(command.idempotencyKey) ||
+      !isConversationUuid(command.expectedRunId)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/pauses',
+      {
+        idempotencyKey: command.idempotencyKey,
+        expectedRunId: command.expectedRunId.toLowerCase(),
+      },
+      200,
+    );
+    if (result.status !== 'available') return result;
+    if (!taskKeys(result.value, 'pause,task')) return { status: 'unavailable' };
+    const task = parseTask(result.value.task, conversationId),
+      pause = result.value.pause;
+    if (
+      !task ||
+      task.id !== taskId.toLowerCase() ||
+      task.status !== 'paused' ||
+      !taskKeys(
+        pause,
+        'affectedRunCount,affectedTaskCount,attempt,checkpointId,commandId,pausedAt,rootTaskId,runId,taskId',
+      ) ||
+      !isConversationUuid(pause.commandId) ||
+      !isConversationUuid(pause.rootTaskId) ||
+      !isConversationUuid(pause.taskId) ||
+      pause.taskId.toLowerCase() !== task.id ||
+      !isConversationUuid(pause.runId) ||
+      !isConversationUuid(pause.checkpointId) ||
+      pause.runId.toLowerCase() !== command.expectedRunId.toLowerCase() ||
+      pause.runId.toLowerCase() !== task.runs[0]?.id ||
+      pause.attempt !== task.runCount ||
+      !taskInteger(pause.affectedTaskCount, 0) ||
+      pause.affectedRunCount !== pause.affectedTaskCount ||
+      !taskDate(pause.pausedAt) ||
+      pause.pausedAt !== task.runs[0].finishedAt
+    )
+      return { status: 'unavailable' };
+    return {
+      status: 'available',
+      value: {
+        task,
+        pause: {
+          commandId: pause.commandId.toLowerCase(),
+          taskId: task.id,
+          rootTaskId: pause.rootTaskId.toLowerCase(),
+          runId: pause.runId.toLowerCase(),
+          attempt: task.runCount,
+          checkpointId: pause.checkpointId.toLowerCase(),
+          pausedAt: pause.pausedAt,
+          affectedTaskCount: pause.affectedTaskCount,
+          affectedRunCount: pause.affectedTaskCount,
+        },
+      },
+    };
+  }
+  async resume(
+    session: string | undefined,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    command: TaskRetryCommand,
+  ): Promise<TaskResult<TaskResumeResult>> {
+    if (
+      !isConversationUuid(taskId) ||
+      !taskKeys(command, 'expectedRunId,idempotencyKey') ||
+      !isCommandKey(command.idempotencyKey) ||
+      !isConversationUuid(command.expectedRunId)
+    )
+      return { status: 'invalid' };
+    const result = await this.send(
+      session,
+      workspaceId,
+      conversationId,
+      '/' + taskId.toLowerCase() + '/resumes',
+      {
+        idempotencyKey: command.idempotencyKey,
+        expectedRunId: command.expectedRunId.toLowerCase(),
+      },
+      202,
+    );
+    if (result.status !== 'available') return result;
+    if (!taskKeys(result.value, 'resume,task')) return { status: 'unavailable' };
+    const task = parseTask(result.value.task, conversationId),
+      resume = result.value.resume;
+    if (
+      !task ||
+      task.id !== taskId.toLowerCase() ||
+      !taskKeys(
+        resume,
+        'affectedRunCount,affectedTaskCount,attempt,checkpointId,commandId,resumedAt,runId,sourceRunId,taskId',
+      ) ||
+      !isConversationUuid(resume.commandId) ||
+      !isConversationUuid(resume.taskId) ||
+      resume.taskId.toLowerCase() !== task.id ||
+      !isConversationUuid(resume.runId) ||
+      !isConversationUuid(resume.sourceRunId) ||
+      !isConversationUuid(resume.checkpointId) ||
+      resume.sourceRunId.toLowerCase() !== command.expectedRunId.toLowerCase() ||
+      resume.runId.toLowerCase() === command.expectedRunId.toLowerCase() ||
+      !taskInteger(resume.attempt, 2) ||
+      resume.attempt > task.runCount ||
+      (resume.attempt === task.runCount) !== (resume.runId.toLowerCase() === task.runs[0]?.id) ||
+      !taskInteger(resume.affectedTaskCount, 0) ||
+      resume.affectedRunCount !== resume.affectedTaskCount ||
+      !taskDate(resume.resumedAt)
+    )
+      return { status: 'unavailable' };
+    return {
+      status: 'available',
+      value: {
+        task,
+        resume: {
+          commandId: resume.commandId.toLowerCase(),
+          taskId: task.id,
+          runId: resume.runId.toLowerCase(),
+          attempt: resume.attempt,
+          sourceRunId: resume.sourceRunId.toLowerCase(),
+          checkpointId: resume.checkpointId.toLowerCase(),
+          resumedAt: resume.resumedAt,
+          affectedTaskCount: resume.affectedTaskCount,
+          affectedRunCount: resume.affectedTaskCount,
+        },
+      },
+    };
+  }
   async partialOutput(
     session: string | undefined,
     workspaceId: string,
@@ -467,6 +640,16 @@ export class TaskApiClient {
           return { status: 'cancel-state-conflict' };
         if (response.status === 409 && code === 'task_cancel_run_conflict')
           return { status: 'cancel-run-conflict' };
+        if (response.status === 409 && code === 'task_pause_state_conflict')
+          return { status: 'pause-state-conflict' };
+        if (response.status === 409 && code === 'task_pause_run_conflict')
+          return { status: 'pause-run-conflict' };
+        if (response.status === 409 && code === 'task_resume_state_conflict')
+          return { status: 'resume-state-conflict' };
+        if (response.status === 409 && code === 'task_resume_run_conflict')
+          return { status: 'resume-run-conflict' };
+        if (response.status === 409 && code === 'task_resume_paused_ancestor')
+          return { status: 'resume-paused-ancestor' };
         if (response.status === 409 && code === 'task_partial_state_conflict')
           return { status: 'partial-state-conflict' };
       }
