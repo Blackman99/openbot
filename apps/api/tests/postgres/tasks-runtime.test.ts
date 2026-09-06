@@ -2719,7 +2719,9 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
     }, 15000);
 
     it('grants one selected duration cap and resumes waiting_budget without rewriting the snapshot', async () => {
-      let current = new Date('2026-09-06T06:00:00.000Z');
+      // The cancel fence compares deadline_at to clock_timestamp(). Keep the
+      // snapshotted 1s cap ahead of wall time so publishDelta stays live.
+      let current = new Date(Date.now() + 60_000);
       const f = await fixture('personal', false, {
         retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
       });
