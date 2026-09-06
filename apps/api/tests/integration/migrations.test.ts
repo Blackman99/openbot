@@ -83,6 +83,7 @@ describe('database migrations', () => {
       '0047_task_human_requests',
       '0048_task_cost_grants',
       '0049_group_archive',
+      '0050_workspace_event_stream',
     ]);
 
     const database: DatabaseClient = {
@@ -194,6 +195,8 @@ describe('database migrations', () => {
       'task_token_reservations',
       'tasks',
       'users',
+      'workspace_event_streams',
+      'workspace_events',
       'workspace_invitations',
       'workspace_memberships',
       'workspace_model_connections',
@@ -210,7 +213,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0049_group_archive' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0050_workspace_event_stream' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

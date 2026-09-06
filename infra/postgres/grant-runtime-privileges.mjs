@@ -338,6 +338,8 @@ try {
     GRANT DELETE ON bot_acl TO openbot_runtime;
     GRANT UPDATE (last_sequence) ON conversations TO openbot_runtime;
     GRANT SELECT, INSERT, DELETE ON conversation_delivery_events TO openbot_runtime;
+    GRANT SELECT, INSERT, UPDATE ON workspace_event_streams TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON workspace_events TO openbot_runtime;
     GRANT SELECT, INSERT ON conversation_delivery_state, task_run_streams, task_run_delivery_receipts TO openbot_runtime;
     GRANT UPDATE (floor, retained_count, retained_bytes) ON conversation_delivery_state TO openbot_runtime;
     GRANT UPDATE (delivered_bytes) ON task_run_streams TO openbot_runtime;

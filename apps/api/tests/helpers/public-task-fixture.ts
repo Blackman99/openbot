@@ -9,6 +9,7 @@ import { GroupRoutingService } from '../../src/routing/service.js';
 import { ConversationService } from '../../src/conversations/service.js';
 import { PostgresConversationRepository } from '../../src/conversations/postgres-repository.js';
 import { TaskService } from '../../src/tasks/service.js';
+import { WorkspaceEventService } from '../../src/events/service.js';
 import { botAclFixture } from './bot-acl-fixture.js';
 
 export async function publicTaskFixture(
@@ -22,6 +23,7 @@ export async function publicTaskFixture(
   const groupRouting = new GroupRoutingService(base.pool);
   const conversations = new ConversationService(new PostgresConversationRepository(base.pool));
   const tasks = new TaskService(base.pool);
+  const workspaceEvents = new WorkspaceEventService(base.pool);
   const publicApp = buildApp({
     auth: base.auth,
     apiTokens: tokens,
@@ -30,6 +32,7 @@ export async function publicTaskFixture(
     groupRouting,
     conversations,
     tasks,
+    workspaceEvents,
     readiness: { check: async () => ({ database: 'ready', migrations: 'current' }) },
   });
   cleanup.push(() => publicApp.close());
@@ -40,6 +43,7 @@ export async function publicTaskFixture(
     groupRouting,
     conversations,
     tasks,
+    workspaceEvents,
     readiness: { check: async () => ({ database: 'ready', migrations: 'current' }) },
     webOrigin: 'http://localhost:3000',
   });
@@ -79,6 +83,7 @@ export async function publicTaskFixture(
     groupRouting,
     conversations,
     tasks,
+    workspaceEvents,
     bearer,
     readyGroup,
   };

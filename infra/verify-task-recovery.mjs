@@ -67,7 +67,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0049_group_archive');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0050_workspace_event_stream');
   assert.deepEqual(
     (
       await pool.query(

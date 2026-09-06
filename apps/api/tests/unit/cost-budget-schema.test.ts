@@ -11,7 +11,7 @@ describe('COL-18 cost budget schema slice', () => {
   it('is the next ordered ledger after prices and stores used plus reserved micros', () => {
     expect(COL18_COST_BUDGET_REQUIRES_VERSION).toBe('0046_task_cost_budgets');
     expect(MIGRATION_VERSIONS).toContain('0045_model_price_versions');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0049_group_archive');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0050_workspace_event_stream');
     expect(sql).toContain('CREATE TABLE task_cost_ledgers');
     expect(sql).toContain('CREATE TABLE task_cost_reservations');
     expect(sql).toContain("scope_kind IN ('workspace','group','task')");

@@ -11,7 +11,7 @@ describe('COL-17 token budget schema slice', () => {
   it('is the next ordered ledger after token usage and stores used plus reserved', () => {
     expect(COL17_TOKEN_BUDGET_REQUIRES_VERSION).toBe('0042_task_token_budgets');
     expect(MIGRATION_VERSIONS).toContain('0041_task_token_usage');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0049_group_archive');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0050_workspace_event_stream');
     expect(sql).toContain('CREATE TABLE task_token_ledgers');
     expect(sql).toContain('CREATE TABLE task_token_reservations');
     expect(sql).toContain("scope_kind IN ('workspace','group','task','run')");
