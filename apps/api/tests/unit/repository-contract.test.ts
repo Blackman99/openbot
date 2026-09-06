@@ -449,6 +449,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0045_model_price_versions');
     expect(workflow).toContain('0046_task_cost_budgets');
     expect(workflow).toContain('0047_task_human_requests');
+    expect(workflow).toContain('0048_task_cost_grants');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );

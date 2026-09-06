@@ -75,6 +75,29 @@ export function resolveCostBudgets(
   return budgets;
 }
 
+export function tightestCostLimit(
+  budgets: Partial<Record<CostBudgetLayer, CostBudget>>,
+): number | undefined {
+  const caps = COST_BUDGET_LAYERS.map((kind) => budgets[kind]?.maxCostMicros).filter(
+    (value): value is number => value !== undefined,
+  );
+  return caps.length ? Math.min(...caps) : undefined;
+}
+
+export function overlayCostGrant(
+  budgets: Partial<Record<CostBudgetLayer, CostBudget>>,
+  grantedLimit?: number,
+): Partial<Record<CostBudgetLayer, CostBudget>> {
+  if (grantedLimit === undefined) return budgets;
+  const overlay: Partial<Record<CostBudgetLayer, CostBudget>> = {};
+  for (const kind of COST_BUDGET_LAYERS) {
+    const current = budgets[kind];
+    if (current) overlay[kind] = { maxCostMicros: Math.max(current.maxCostMicros, grantedLimit) };
+  }
+  overlay.task = { maxCostMicros: Math.max(overlay.task?.maxCostMicros ?? 0, grantedLimit) };
+  return overlay;
+}
+
 export type CostReservationDecision = ReturnType<typeof evaluateCostReservation>;
 
 export function evaluateScopedCostReservation(input: {

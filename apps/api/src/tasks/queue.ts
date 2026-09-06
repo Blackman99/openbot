@@ -52,8 +52,11 @@ import {
   reconcileRunTokenReservation,
   type TokenBudgetTarget,
 } from './token-budget-store.js';
-import { resolveCostBudgets } from './cost-budget.js';
-import { applyRunCostReservation, reconcileRunCostReservation } from './cost-budget-store.js';
+import {
+  applyRunCostReservation,
+  loadResolvedCostBudgets,
+  reconcileRunCostReservation,
+} from './cost-budget-store.js';
 import { costMicros } from './model-price.js';
 import { loadActiveModelPrice, loadPinnedModelPrice } from './model-price-service.js';
 import { estimateTokens } from './token-usage.js';
@@ -268,17 +271,10 @@ export class TaskQueue {
     });
   }
   private async costBudgets(connection: SqlConnection, task: Candidate) {
-    const layers = await loadExecutionLimitPolicies(connection, task.workspace_id, task.group_id);
-    const taskPolicy = (
-      await connection.query<{ execution_policy: unknown }>(
-        'SELECT execution_policy FROM tasks WHERE id=$1',
-        [task.task_id],
-      )
-    ).rows[0];
-    return resolveCostBudgets({
-      workspace: layers.workspace,
-      group: layers.group,
-      task: parseExecutionPolicy(taskPolicy?.execution_policy),
+    return loadResolvedCostBudgets(connection, {
+      taskId: task.task_id,
+      workspaceId: task.workspace_id,
+      groupId: task.group_id,
     });
   }
   private async settleTokens(connection: SqlConnection, task: Candidate, usage: Usage | null) {

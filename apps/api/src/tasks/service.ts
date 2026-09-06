@@ -40,8 +40,8 @@ import {
 } from './execution-limits.js';
 import { resolveTokenBudgets, type TokenBudgetScopeView } from './token-budget.js';
 import { readTokenBudgetView } from './token-budget-store.js';
-import { resolveCostBudgets, type CostBudgetScopeView } from './cost-budget.js';
-import { readCostBudgetView } from './cost-budget-store.js';
+import { type CostBudgetScopeView } from './cost-budget.js';
+import { loadResolvedCostBudgets, readCostBudgetView } from './cost-budget-store.js';
 import { costMicros } from './model-price.js';
 import { loadPinnedModelPrice } from './model-price-service.js';
 
@@ -240,10 +240,10 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
   const costBudgets = await readCostBudgetView(
     connection,
     budgetTarget,
-    resolveCostBudgets({
-      workspace: layers.workspace,
-      group: layers.group,
-      task: parseExecutionPolicy(row.execution_policy),
+    await loadResolvedCostBudgets(connection, {
+      taskId: row.id,
+      workspaceId: row.workspace_id,
+      groupId: row.group_id,
     }),
   );
   return {

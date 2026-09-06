@@ -8,8 +8,10 @@ import {
   costBudgetWarningCrossings,
   evaluateCostReservation,
   evaluateScopedCostReservation,
+  overlayCostGrant,
   projectCostBudgetScope,
   resolveCostBudgets,
+  tightestCostLimit,
 } from '../../src/tasks/cost-budget.js';
 
 describe('COL-18 cost reservation math', () => {
@@ -127,5 +129,19 @@ describe('COL-18 cost reservation math', () => {
         hard: false,
       },
     ]);
+  });
+
+  it('raises every scoped cost cap when an authorized grant resumes the Task', () => {
+    const budgets = resolveCostBudgets({
+      workspace: { maxCostMicros: 1 },
+      task: { maxCostMicros: 40 },
+    });
+    expect(tightestCostLimit(budgets)).toBe(1);
+    expect(overlayCostGrant(budgets, 1_000_000)).toEqual({
+      workspace: { maxCostMicros: 1_000_000 },
+      task: { maxCostMicros: 1_000_000 },
+    });
+    expect(tightestCostLimit(overlayCostGrant(budgets, 1_000_000))).toBe(1_000_000);
+    expect(overlayCostGrant(budgets)).toEqual(budgets);
   });
 });

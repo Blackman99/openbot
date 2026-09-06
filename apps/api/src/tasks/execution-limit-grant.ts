@@ -5,6 +5,8 @@ import { conversationUuid, type ConversationAccess } from '../conversations/serv
 import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import { admitTaskTarget } from './admission.js';
 import { TaskAccessError, TaskConflictError, TaskInputError } from './errors.js';
+import { tightestCostLimit } from './cost-budget.js';
+import { loadResolvedCostBudgets } from './cost-budget-store.js';
 import {
   EXECUTION_LIMIT_DIMENSIONS,
   loadEffectiveTaskLimits,
@@ -17,15 +19,18 @@ import { effectiveRetryPolicy, type NextAttemptPlan } from './retry-schedule.js'
 import type { TaskStatus } from './service.js';
 import { lockTaskAncestry } from './tree.js';
 
+export const EXECUTION_LIMIT_GRANT_DIMENSIONS = [...EXECUTION_LIMIT_DIMENSIONS, 'cost'] as const;
+export type ExecutionLimitGrantDimension = (typeof EXECUTION_LIMIT_GRANT_DIMENSIONS)[number];
+
 export interface LimitGrantCommand {
   idempotencyKey: string;
-  dimension: ExecutionLimitDimension;
+  dimension: ExecutionLimitGrantDimension;
   limit: number;
 }
 export interface LimitGrantReceipt {
   grantId: string;
   taskId: string;
-  dimension: ExecutionLimitDimension;
+  dimension: ExecutionLimitGrantDimension;
   previousLimit: number;
   grantedLimit: number;
   runId: string | null;
@@ -64,12 +69,12 @@ export function limitGrantCommand(input: unknown): LimitGrantCommand {
     typeof value.idempotencyKey !== 'string' ||
     !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey) ||
     typeof value.dimension !== 'string' ||
-    !EXECUTION_LIMIT_DIMENSIONS.includes(value.dimension as ExecutionLimitDimension) ||
+    !EXECUTION_LIMIT_GRANT_DIMENSIONS.includes(value.dimension as ExecutionLimitGrantDimension) ||
     typeof value.limit !== 'number' ||
     !Number.isInteger(value.limit)
   )
     throw new TaskInputError();
-  const dimension = value.dimension as ExecutionLimitDimension;
+  const dimension = value.dimension as ExecutionLimitGrantDimension;
   const max =
     dimension === 'duration'
       ? 3_600_000
@@ -77,8 +82,10 @@ export function limitGrantCommand(input: unknown): LimitGrantCommand {
         ? 100
         : dimension === 'handoffs'
           ? 32
-          : 8;
-  const min = dimension === 'duration' ? 1 : 0;
+          : dimension === 'cost'
+            ? 9_007_199_254_740_991
+            : 8;
+  const min = dimension === 'duration' || dimension === 'cost' ? 1 : 0;
   if (value.limit < min || value.limit > max) throw new TaskInputError();
   return { idempotencyKey: value.idempotencyKey, dimension, limit: value.limit };
 }
@@ -190,7 +197,22 @@ export async function grantTaskLimit(
     throw new TaskConflictError('task_limit_snapshot_missing');
   const effective = await loadEffectiveTaskLimits(connection, taskId);
   if (!effective) throw new TaskConflictError('task_limit_snapshot_missing');
-  const previous = previousLimit(effective, command.dimension);
+  const previous =
+    command.dimension === 'cost'
+      ? tightestCostLimit(
+          await loadResolvedCostBudgets(connection, {
+            taskId,
+            workspaceId: access.workspaceId,
+            groupId:
+              (
+                await connection.query<{ group_id: string | null }>(
+                  'SELECT group_id FROM conversations WHERE id=$1',
+                  [access.conversationId],
+                )
+              ).rows[0]?.group_id ?? null,
+          }),
+        )
+      : previousLimit(effective, command.dimension);
   if (previous === undefined || command.limit <= previous)
     throw new TaskConflictError('task_limit_grant_not_increased');
   const occurredAt = now();

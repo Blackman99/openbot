@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import { FALLBACK_DELAY_MS } from '../../src/tasks/retry-schedule.js';
+import { applyRunCostReservation } from '../../src/tasks/cost-budget-store.js';
+import { TaskAccessError } from '../../src/tasks/errors.js';
 import { costMicros } from '../../src/tasks/model-price.js';
 import { ModelPriceService } from '../../src/tasks/model-price-service.js';
 import { taskFixture } from '../helpers/task-fixture.js';
@@ -191,5 +193,99 @@ describe('COL-18 cost budget enforcement', () => {
         )
       ).rows[0].n,
     ).toBe(1);
+    const member = await f.addUser('member');
+    await expect(
+      f.tasks.grantLimit(member.id, f.owner.workspace.id, f.conversation.id, held.id, {
+        idempotencyKey: 'raise-cost',
+        dimension: 'cost',
+        limit: 1_000_000,
+      }),
+    ).rejects.toBeInstanceOf(TaskAccessError);
+    const granted = await f.tasks.grantLimit(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      f.conversation.id,
+      held.id,
+      {
+        idempotencyKey: 'raise-cost',
+        dimension: 'cost',
+        limit: 1_000_000,
+      },
+    );
+    expect(granted).toMatchObject({
+      task: { id: held.id, status: 'queued' },
+      grant: { dimension: 'cost', previousLimit: 1, grantedLimit: 1_000_000 },
+    });
+    expect(
+      await f
+        .worker(async () => ({
+          events: [
+            { type: 'text', text: 'Resumed after the cost grant.' },
+            { type: 'usage', ...usage },
+            { type: 'complete', stopReason: 'stop' },
+          ],
+          raw: '',
+        }))
+        .runOnce(),
+    ).toBe(true);
+    expect(
+      await f.tasks.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, held.id),
+    ).toMatchObject({ status: 'completed' });
+  });
+
+  it('locks cost ledgers so a second Run cannot reserve past the hard cap', async () => {
+    const f = await taskFixture(cleanup, undefined, { submitInitialTask: false });
+    const prices = new ModelPriceService(f.pool);
+    const price = await prices.supersede(f.owner.user.id, f.owner.workspace.id, {
+      connectionId: f.model.id,
+      modelId: f.model.modelId,
+      inputMicrosPerMillion: 1_000_000,
+      outputMicrosPerMillion: 1_000_000,
+    });
+    await f.pool.query('UPDATE workspaces SET execution_policy=$2::jsonb WHERE id=$1', [
+      f.owner.workspace.id,
+      JSON.stringify({ maxCostMicros: 100 }),
+    ]);
+    const first = await f.tasks.submit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, {
+      idempotencyKey: 'cost-race-a',
+      body: 'Reserve first.',
+    });
+    const second = await f.tasks.submit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, {
+      idempotencyKey: 'cost-race-b',
+      body: 'Reserve second.',
+    });
+    const connection = await f.pool.connect();
+    try {
+      await connection.query('BEGIN');
+      const allowed = await applyRunCostReservation(
+        connection,
+        {
+          runId: first.runs[0]!.id,
+          taskId: first.id,
+          workspaceId: f.owner.workspace.id,
+          groupId: null,
+        },
+        { workspace: { maxCostMicros: 100 } },
+        { micros: 60, priceVersionId: price.id },
+        new Date('2026-09-06T12:00:00.000Z'),
+      );
+      const blocked = await applyRunCostReservation(
+        connection,
+        {
+          runId: second.runs[0]!.id,
+          taskId: second.id,
+          workspaceId: f.owner.workspace.id,
+          groupId: null,
+        },
+        { workspace: { maxCostMicros: 100 } },
+        { micros: 50, priceVersionId: price.id },
+        new Date('2026-09-06T12:00:00.000Z'),
+      );
+      await connection.query('COMMIT');
+      expect(allowed).toMatchObject({ allowed: true, hard: false });
+      expect(blocked).toMatchObject({ allowed: false, hard: true });
+    } finally {
+      connection.release();
+    }
   });
 });

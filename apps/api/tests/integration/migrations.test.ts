@@ -81,6 +81,7 @@ describe('database migrations', () => {
       '0045_model_price_versions',
       '0046_task_cost_budgets',
       '0047_task_human_requests',
+      '0048_task_cost_grants',
     ]);
 
     const database: DatabaseClient = {
@@ -208,7 +209,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0047_task_human_requests' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0048_task_cost_grants' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

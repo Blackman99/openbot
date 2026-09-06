@@ -12,7 +12,7 @@ describe('COL-14 delegation schema slice', () => {
   it('is the next ordered ledger after imported routines and admits waiting_child', () => {
     expect(COL14_DELEGATION_REQUIRES_VERSION).toBe('0040_task_delegation');
     expect(MIGRATION_VERSIONS).toContain('0040_task_delegation');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0047_task_human_requests');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0048_task_cost_grants');
     expect(sql).toContain('waiting_child');
     expect(sql).toContain('CREATE TABLE task_delegations');
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS tasks_constraint_1');

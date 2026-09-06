@@ -19,7 +19,7 @@ describe('COL-08 pause schema first slice', () => {
     expect(COL08_PAUSE_REQUIRES_VERSION).toBe('0033_task_pause_checkpoints');
     expect(COL08_RESUME_REQUIRES_VERSION).toBe('0034_task_resume_commands');
     expect(MIGRATION_VERSIONS).toContain('0037_task_execution_limit_enforcement');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0047_task_human_requests');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0048_task_cost_grants');
     expect(TASK_RESUME_SCHEMA_STATEMENTS.join('\n')).toContain('CREATE TABLE task_resume_commands');
     expect(sql).toContain('DROP CONSTRAINT tasks_cancellation_status');
     expect(sql).toContain("'paused'");

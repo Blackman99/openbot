@@ -1,11 +1,14 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import {
   evaluateScopedCostReservation,
+  overlayCostGrant,
   projectCostBudgetScope,
+  resolveCostBudgets,
   type CostBudget,
   type CostBudgetLayer,
   type CostBudgetScopeView,
 } from './cost-budget.js';
+import { loadExecutionLimitPolicies, parseExecutionPolicy } from './execution-limits.js';
 
 export type CostBudgetTarget = {
   runId: string;
@@ -52,6 +55,42 @@ export function costBudgetScopes(target: CostBudgetTarget): Array<{
 
 function amounts(row: { used_micros: string | number; reserved_micros: string | number }) {
   return { usedMicros: Number(row.used_micros), reservedMicros: Number(row.reserved_micros) };
+}
+
+export async function loadGrantedCostLimit(
+  connection: SqlConnection,
+  taskId: string,
+): Promise<number | undefined> {
+  const row = (
+    await connection.query<{ granted_limit: string | number }>(
+      `SELECT granted_limit FROM task_execution_limit_grants
+       WHERE task_id=$1 AND dimension='cost'
+       ORDER BY created_at DESC,id DESC LIMIT 1`,
+      [taskId],
+    )
+  ).rows[0];
+  return row ? Number(row.granted_limit) : undefined;
+}
+
+export async function loadResolvedCostBudgets(
+  connection: SqlConnection,
+  target: { taskId: string; workspaceId: string; groupId: string | null },
+): Promise<Partial<Record<CostBudgetLayer, CostBudget>>> {
+  const layers = await loadExecutionLimitPolicies(connection, target.workspaceId, target.groupId);
+  const taskPolicy = (
+    await connection.query<{ execution_policy: unknown }>(
+      'SELECT execution_policy FROM tasks WHERE id=$1',
+      [target.taskId],
+    )
+  ).rows[0];
+  return overlayCostGrant(
+    resolveCostBudgets({
+      workspace: layers.workspace,
+      group: layers.group,
+      task: parseExecutionPolicy(taskPolicy?.execution_policy),
+    }),
+    await loadGrantedCostLimit(connection, target.taskId),
+  );
 }
 
 export async function readCostBudgetView(
