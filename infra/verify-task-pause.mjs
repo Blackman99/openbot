@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0043_task_parallel_delegations');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0044_task_lead_handoffs');
   assert.deepEqual(
     (
       await pool.query(

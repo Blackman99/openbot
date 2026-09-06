@@ -79,6 +79,7 @@ import { TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS } from '../tasks/execution-concu
 import { TEAM_TEMPLATE_SCHEMA_STATEMENTS } from '../groups/team-template-schema.js';
 import { TASK_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/delegate-schema.js';
 import { TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/parallel-delegation-schema.js';
+import { TASK_HANDOFF_SCHEMA_STATEMENTS } from '../tasks/handoff-schema.js';
 import { TASK_TOKEN_USAGE_SCHEMA_STATEMENTS } from '../tasks/token-usage-schema.js';
 import { TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS } from '../tasks/token-budget-schema.js';
 import {
@@ -91,6 +92,10 @@ import {
   COL14_DELEGATION_POSTGRES_GUARDS,
   COL14_DELEGATION_REQUIRES_VERSION,
 } from '../tasks/col14-postgres-guards.js';
+import {
+  COL16_HANDOFF_POSTGRES_GUARDS,
+  COL16_HANDOFF_REQUIRES_VERSION,
+} from '../tasks/col16-postgres-guards.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -457,6 +462,11 @@ const MIGRATIONS = [
     statements: TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0044_task_lead_handoffs',
+    statements: TASK_HANDOFF_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -579,6 +589,14 @@ export async function migrateDatabase(
       targetMigrations.some(({ version }) => version === COL14_DELEGATION_REQUIRES_VERSION)
     ) {
       for (const statement of COL14_DELEGATION_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL16_HANDOFF_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL16_HANDOFF_POSTGRES_GUARDS) {
         await connection.query(statement);
       }
     }

@@ -77,6 +77,7 @@ describe('database migrations', () => {
       '0041_task_token_usage',
       '0042_task_token_budgets',
       '0043_task_parallel_delegations',
+      '0044_task_lead_handoffs',
     ]);
 
     const database: DatabaseClient = {
@@ -164,6 +165,7 @@ describe('database migrations', () => {
       'task_execution_limit_grants',
       'task_execution_limit_snapshots',
       'task_execution_limit_warnings',
+      'task_handoffs',
       'task_pause_commands',
       'task_resume_commands',
       'task_retry_commands',
@@ -198,7 +200,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0043_task_parallel_delegations' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0044_task_lead_handoffs' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

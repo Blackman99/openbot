@@ -83,6 +83,12 @@ interface StreamEventPayloads {
   'task.run.updated': { execution: ExecutionState };
   'assistant.delta': StreamDelta;
   'task.limit.warning': ExecutionLimitWarning;
+  'task.handoff': {
+    taskId: string;
+    reason: string;
+    source: { grantId: string; botId: string; botName: string };
+    target: { grantId: string; botId: string; botName: string };
+  };
   'conversation.invalidated': { reason: 'membership' };
 }
 export interface ExecutionLimitWarning {
@@ -537,7 +543,36 @@ export function parseConversationStreamEvent(
         body: data.body,
       },
     };
+  if (
+    value.type === 'task.handoff' &&
+    keys(data, 'reason,source,target,taskId') &&
+    uuid(data.taskId) &&
+    text(data.reason, 8000) &&
+    actorRef(data.source) &&
+    actorRef(data.target)
+  )
+    return {
+      ...header,
+      type: 'task.handoff',
+      data: {
+        taskId: data.taskId,
+        reason: data.reason,
+        source: data.source,
+        target: data.target,
+      },
+    };
   return undefined;
+}
+
+function actorRef(value: unknown): value is { grantId: string; botId: string; botName: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    keys(value, 'botId,botName,grantId') &&
+    uuid(value.grantId) &&
+    uuid(value.botId) &&
+    text(value.botName, 200)
+  );
 }
 export function parseConversationStreamBootstrap(
   input: string | Uint8Array,

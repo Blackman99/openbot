@@ -2,7 +2,7 @@
 sequence: 33
 id: COL-16
 title: "Transfer Task leadership through handoff"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-12
   - COL-14
@@ -39,3 +39,7 @@ A validated handoff atomically transfers the same Task to an eligible group Bot,
 - Parallel child creation
 - Silent Lead replacement
 - Handoff outside the group
+
+## Implementation note
+
+Only a schema-valid `handoff` model action with `grantId` and `reason` can change the Lead. Migration `0044_task_lead_handoffs` records one transfer per source Run. The current Run ends as `handed_off` without a final answer, a public `task.handoff` event names source, target, and reason, and exactly one successor Run starts for the new Lead. The successor assembles context from its own history grant. Invalid or same-Lead targets fail without a transfer. A handoff or turn hard cap holds `waiting_budget` instead of starting another Run. Original acceptance texts stay unchecked.

@@ -90,11 +90,18 @@ export interface ExecutionLimitWarning {
   hard: boolean;
   body: string;
 }
+export interface TaskHandoffNotice {
+  taskId: string;
+  reason: string;
+  source: { grantId: string; botId: string; botName: string };
+  target: { grantId: string; botId: string; botName: string };
+}
 export type ConversationStreamPayload =
   | { type: 'message.changed'; data: { message: MessageReference } }
   | { type: 'task.run.updated'; data: { execution: ExecutionState } }
   | { type: 'assistant.delta'; data: AssistantDelta }
   | { type: 'task.limit.warning'; data: ExecutionLimitWarning }
+  | { type: 'task.handoff'; data: TaskHandoffNotice }
   | { type: 'conversation.invalidated'; data: { reason: 'membership' } };
 export type ConversationStreamEvent = ConversationStreamPayload & {
   schemaVersion: 1;
@@ -278,6 +285,27 @@ function projectPayload(payload: ConversationStreamPayload): ConversationStreamP
       };
     case 'conversation.invalidated':
       return { type: payload.type, data: { reason: 'membership' } };
+    case 'task.handoff': {
+      const { taskId, reason, source, target } = payload.data;
+      if (
+        !uuidPattern.test(taskId) ||
+        !reason ||
+        Buffer.byteLength(reason) > 8000 ||
+        !uuidPattern.test(source.grantId) ||
+        !uuidPattern.test(source.botId) ||
+        !source.botName ||
+        Buffer.byteLength(source.botName) > 200 ||
+        !uuidPattern.test(target.grantId) ||
+        !uuidPattern.test(target.botId) ||
+        !target.botName ||
+        Buffer.byteLength(target.botName) > 200
+      )
+        throw new ConversationStreamError('conversation_stream_unavailable');
+      return {
+        type: payload.type,
+        data: { taskId, reason, source, target },
+      };
+    }
     case 'task.limit.warning': {
       const { taskId, dimension, used, limit, source, soft, hard, body } = payload.data;
       if (

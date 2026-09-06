@@ -18,6 +18,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'manual_resume',
   'budget_grant',
   'child_result',
+  'handoff',
 ]);
 
 export interface AttemptChain {
@@ -125,7 +126,8 @@ export async function writeNextAttempt(
   const resume =
     input.plan.origin === 'manual_resume' ||
     input.plan.origin === 'budget_grant' ||
-    input.plan.origin === 'child_result';
+    input.plan.origin === 'child_result' ||
+    input.plan.origin === 'handoff';
   if (
     !(await lockTaskAncestry(connection, input.taskId, {
       allowPausedTarget: resume,
@@ -153,14 +155,20 @@ export async function writeNextAttempt(
         ? 'paused'
         : input.plan.origin === 'child_result'
           ? 'waiting_child'
-          : input.plan.origin === 'budget_grant'
-            ? latest.status === 'paused' || latest.status === 'failed'
-              ? latest.status
-              : 'failed'
-            : 'failed')
+          : input.plan.origin === 'handoff'
+            ? 'failed'
+            : input.plan.origin === 'budget_grant'
+              ? latest.status === 'paused' || latest.status === 'failed'
+                ? latest.status
+                : 'failed'
+              : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
-  if (input.plan.origin !== 'budget_grant' && input.plan.origin !== 'child_result') {
+  if (
+    input.plan.origin !== 'budget_grant' &&
+    input.plan.origin !== 'child_result' &&
+    input.plan.origin !== 'handoff'
+  ) {
     const held = await applyTaskExecutionLimits(
       connection,
       {

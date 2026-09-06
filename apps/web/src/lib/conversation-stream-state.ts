@@ -125,7 +125,11 @@ export function applyConversationStreamEvent(
       },
     };
   }
-  if (event.type === 'conversation.invalidated' || event.type === 'task.limit.warning')
+  if (
+    event.type === 'conversation.invalidated' ||
+    event.type === 'task.limit.warning' ||
+    event.type === 'task.handoff'
+  )
     return applied(state, event);
   if (event.type === 'task.run.updated') {
     const execution = event.data.execution,

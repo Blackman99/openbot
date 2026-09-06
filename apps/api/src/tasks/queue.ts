@@ -61,6 +61,9 @@ import {
 } from './delegate-child.js';
 import { DELEGATE_TOOL } from './delegate.js';
 import type { DelegateAction } from './delegate-action.js';
+import { HANDOFF_TOOL } from './handoff.js';
+import type { HandoffAction } from './handoff-action.js';
+import { transferTaskLead } from './handoff-lead.js';
 import { persistTokenUsage } from './token-usage.js';
 import { readQueuedAuditMetadata } from './queued-audit.js';
 import {
@@ -638,7 +641,7 @@ export class TaskQueue {
               ? [...messages, { role: 'user' as const, content: attributed }]
               : messages,
             maxTotalTokens: target.configuration.limits.maxTotalTokens,
-            ...(task.group_grant_id ? { tools: [DELEGATE_TOOL] } : {}),
+            ...(task.group_grant_id ? { tools: [DELEGATE_TOOL, HANDOFF_TOOL] } : {}),
           },
         };
       }
@@ -838,6 +841,16 @@ export class TaskQueue {
       }
       return parkParentForChild(connection, claim, this.now());
     });
+  }
+  async handoff(claim: TaskClaim, action: HandoffAction): Promise<boolean> {
+    return this.transaction(async (connection) =>
+      transferTaskLead(
+        connection,
+        { runId: claim.runId, taskId: claim.taskId, claimToken: claim.claimToken },
+        action,
+        this.now(),
+      ),
+    );
   }
   async renewClaimLease(claim: TaskClaim): Promise<boolean> {
     return this.transaction(async (connection) => {

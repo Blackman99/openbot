@@ -256,6 +256,11 @@ describe('repository contract', () => {
     );
     expect(grants).toContain("to_regclass('task_delegations')");
     expect(grants).toContain('GRANT SELECT, INSERT ON task_delegations TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_handoffs')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_handoffs TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
     expect(grants).toContain("to_regclass('task_token_ledgers')");
     expect(grants).toContain(
       'GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime',
@@ -421,6 +426,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0041_task_token_usage');
     expect(workflow).toContain('0042_task_token_budgets');
     expect(workflow).toContain('0043_task_parallel_delegations');
+    expect(workflow).toContain('0044_task_lead_handoffs');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );
@@ -430,6 +436,7 @@ describe('repository contract', () => {
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'task_delegations', 'SELECT')",
     );
+    expect(workflow).toContain("has_table_privilege('openbot_runtime', 'task_handoffs', 'SELECT')");
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'task_token_ledgers', 'SELECT')",
     );

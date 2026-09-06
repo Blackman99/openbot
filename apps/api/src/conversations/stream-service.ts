@@ -187,7 +187,7 @@ export class ConversationStreamService implements ConversationStreams {
               body: string | null;
               event_data: {
                 taskId: string;
-                dimension:
+                dimension?:
                   | 'duration'
                   | 'turns'
                   | 'delegationDepth'
@@ -195,21 +195,29 @@ export class ConversationStreamService implements ConversationStreams {
                   | 'inputTokens'
                   | 'outputTokens'
                   | 'totalTokens';
-                used: number;
-                limit: number;
-                source: 'workspace' | 'group' | 'task' | 'run';
-                soft: boolean;
-                hard: boolean;
+                used?: number;
+                limit?: number;
+                source?:
+                  | 'workspace'
+                  | 'group'
+                  | 'task'
+                  | 'run'
+                  | { grantId: string; botId: string; botName: string };
+                target?: { grantId: string; botId: string; botName: string };
+                reason?: string;
+                soft?: boolean;
+                hard?: boolean;
               } | null;
             }>(
               'SELECT event_type,body,event_data FROM conversation_events WHERE conversation_id=$1 AND id=$2',
               [current.conversationId, row.ledger_event_id],
             )
           ).rows[0];
-          payload =
-            ledger?.event_type === 'task.limit.warning' && ledger.body && ledger.event_data
-              ? { type: 'task.limit.warning', data: { ...ledger.event_data, body: ledger.body } }
-              : { type: 'conversation.invalidated', data: { reason: 'membership' } };
+          payload = warningPayload(ledger) ??
+            handoffPayload(ledger) ?? {
+              type: 'conversation.invalidated',
+              data: { reason: 'membership' },
+            };
         }
         return {
           cursor: encodeConversationStreamCursor(current, Number(row.sequence)),
@@ -342,4 +350,79 @@ export class ConversationStreamService implements ConversationStreams {
       bytes += endByte;
     }
   }
+}
+
+type LedgerNotice = {
+  event_type: string;
+  body: string | null;
+  event_data: {
+    taskId: string;
+    dimension?:
+      | 'duration'
+      | 'turns'
+      | 'delegationDepth'
+      | 'handoffs'
+      | 'inputTokens'
+      | 'outputTokens'
+      | 'totalTokens';
+    used?: number;
+    limit?: number;
+    source?:
+      'workspace' | 'group' | 'task' | 'run' | { grantId: string; botId: string; botName: string };
+    target?: { grantId: string; botId: string; botName: string };
+    reason?: string;
+    soft?: boolean;
+    hard?: boolean;
+  } | null;
+};
+
+function warningPayload(ledger?: LedgerNotice): ConversationStreamPayload | undefined {
+  const data = ledger?.event_data;
+  if (
+    ledger?.event_type !== 'task.limit.warning' ||
+    !ledger.body ||
+    !data ||
+    data.dimension === undefined ||
+    data.used === undefined ||
+    data.limit === undefined ||
+    data.soft === undefined ||
+    data.hard === undefined ||
+    data.source === undefined ||
+    typeof data.source === 'object'
+  )
+    return undefined;
+  return {
+    type: 'task.limit.warning',
+    data: {
+      taskId: data.taskId,
+      dimension: data.dimension,
+      used: data.used,
+      limit: data.limit,
+      source: data.source,
+      soft: data.soft,
+      hard: data.hard,
+      body: ledger.body,
+    },
+  };
+}
+
+function handoffPayload(ledger?: LedgerNotice): ConversationStreamPayload | undefined {
+  const data = ledger?.event_data;
+  if (
+    ledger?.event_type !== 'task.handoff' ||
+    !ledger.body ||
+    !data ||
+    typeof data.source !== 'object' ||
+    !data.target
+  )
+    return undefined;
+  return {
+    type: 'task.handoff',
+    data: {
+      taskId: data.taskId,
+      reason: typeof data.reason === 'string' ? data.reason : ledger.body,
+      source: data.source,
+      target: data.target,
+    },
+  };
 }

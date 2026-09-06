@@ -9,6 +9,7 @@ import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
 import { ExtractionWorker } from '../memories/extraction-worker.js';
 import { parseDelegateAction } from './delegate-action.js';
+import { parseHandoffAction } from './handoff-action.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -155,17 +156,33 @@ export class TaskWorker {
         usage = null;
         const actions = response.events.filter((event) => event.type === 'action');
         if (actions.length) {
-          const parsed = [];
+          const delegates = [];
+          const handoffs = [];
           for (const event of actions) {
-            const action = parseDelegateAction(event);
             const actionId = typeof event.id === 'string' ? event.id : '';
-            if (!action || !actionId) {
-              parsed.length = 0;
+            const delegate = parseDelegateAction(event);
+            const handoff = parseHandoffAction(event);
+            if (delegate && actionId) delegates.push({ action: delegate, actionId });
+            else if (handoff && actionId) handoffs.push(handoff);
+            else {
+              delegates.length = 0;
+              handoffs.length = 0;
               break;
             }
-            parsed.push({ action, actionId });
           }
-          if (parsed.length && (await this.queue.delegate(claim, parsed))) {
+          if (
+            handoffs.length === 1 &&
+            !delegates.length &&
+            (await this.queue.handoff(claim, handoffs[0]!))
+          ) {
+            await publication.discard();
+            return true;
+          }
+          if (
+            delegates.length &&
+            !handoffs.length &&
+            (await this.queue.delegate(claim, delegates))
+          ) {
             await publication.discard();
             return true;
           }

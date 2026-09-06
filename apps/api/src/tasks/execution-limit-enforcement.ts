@@ -215,7 +215,14 @@ export async function measureTaskLimitUsage(
     durationMs,
     turns,
     delegationDepth: task?.depth ?? 0,
-    handoffs: 0,
+    handoffs: Number(
+      (
+        await connection.query<{ n: string | number }>(
+          'SELECT count(*)::int AS n FROM task_handoffs WHERE task_id=$1',
+          [taskId],
+        )
+      ).rows[0]?.n ?? 0,
+    ),
   };
 }
 
