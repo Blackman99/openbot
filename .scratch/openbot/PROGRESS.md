@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-06 AC4–AC6 land on `feat/openbot-collaboration-system` / draft PR #1 at `38b84ad`. Live permission-scoped SSE admission filters unauthorized groups and closes streams on token revocation; domain producers emit task terminal/cancel/approval/budget-exhaustion events with data-free heartbeats; slow consumers receive an explicit `slow_consumer` control and can resume from Last-Event-ID. AC1–AC3 remain intact. Ticket checkboxes remain unchecked. Verify queued: [34030421453](https://github.com/Blackman99/openbot/actions/runs/34030421453). Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-06 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `f728df0`, green [Verify 34030455850](https://github.com/Blackman99/openbot/actions/runs/34030455850), and Tester 6/6 PASS. ROUT-01 is in progress with the first TDD slice: persist one-time collaboration routines (owner, group, prompt, lead or routing policy, IANA time zone, execution time, budget, expiration) through `POST /v1/routines` with `groups:write`. Scheduling, restart recovery, occurrence uniqueness, and bot-deny ACs remain open. NOTIF-01 is unlocked. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Fifty-two of 67 tickets are implemented and independently reviewed, and all 52 are fully complete. All 401 original acceptance texts are preserved.
+Fifty-three of 67 tickets are implemented and independently reviewed, and all 53 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

@@ -2,7 +2,7 @@
 sequence: 56
 id: NOTIF-01
 title: "Persistent task notification inbox"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - API-06
   - COL-19
