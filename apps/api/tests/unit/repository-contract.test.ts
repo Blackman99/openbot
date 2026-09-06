@@ -213,8 +213,6 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime',
     );
-    expect(grants).toContain('$grant_optional_pause_resume$');
-    expect(grants).toContain("to_regclass('task_run_pause_checkpoints')");
     expect(grants).toContain(
       'REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime',
     );

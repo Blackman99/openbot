@@ -35,6 +35,7 @@ describe('COL-08 pause/resume PostgreSQL overlay', () => {
     expect(sql).toContain("origin'='manual_resume'");
     expect(sql).toContain('task_has_automatic_continuation_receipt');
     expect(sql).toContain('task_has_manual_resume_receipt');
+    expect(sql).toContain('task_queued_audit_metadata(latest.id)');
     expect(sql).toContain('SECURITY DEFINER');
     expect(sql).toContain(
       'REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC',

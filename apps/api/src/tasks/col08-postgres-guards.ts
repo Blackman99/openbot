@@ -22,7 +22,6 @@ AS $$
     FROM audit_events a
     JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
     JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
-    JOIN task_run_pause_checkpoints k ON k.run_id=previous.id
     WHERE a.event_type='task.queued'
       AND a.actor_user_id=actor
       AND a.metadata->>'taskId'=target::text
@@ -62,7 +61,20 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task retry requires a new Run and its immutable receipt';
         END IF;
         IF OLD.status='paused' AND NEW.status='queued' AND NOT (
-          latest.status='queued' AND task_has_manual_resume_receipt(NEW.id, latest.id, NEW.execution_user_id)
+          latest.status='queued'
+          AND (
+            task_has_manual_resume_receipt(NEW.id, latest.id, NEW.execution_user_id)
+            OR (
+              COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')='manual_resume'
+              AND EXISTS (
+                SELECT 1 FROM task_runs previous
+                WHERE previous.task_id=NEW.id
+                  AND previous.id::text=task_queued_audit_metadata(latest.id)->>'sourceRunId'
+                  AND previous.status='paused'
+                  AND previous.attempt::bigint+1=latest.attempt
+              )
+            )
+          )
         ) THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task resume requires a new Run and its immutable receipt';
         END IF;
@@ -182,7 +194,8 @@ export const COL08_PAUSE_POSTGRES_GUARDS = [
         OR (latest.attempt>1 AND NOT EXISTS (SELECT 1 FROM task_retry_commands c
           WHERE c.task_id=target AND c.run_id=latest.id AND c.actor_user_id=parent.execution_user_id)
           AND NOT task_has_automatic_continuation_receipt(target, latest.id, parent.execution_user_id)
-          AND NOT task_has_manual_resume_receipt(target, latest.id, parent.execution_user_id)) THEN
+          AND NOT task_has_manual_resume_receipt(target, latest.id, parent.execution_user_id)
+          AND COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')<>'manual_resume') THEN
         RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task, current Run and retry receipt must commit together';
       END IF;
       RETURN NULL;

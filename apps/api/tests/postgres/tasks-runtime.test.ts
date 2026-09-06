@@ -2227,11 +2227,18 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           ])
         ).rows[0].allowed,
       ).toBe(false);
-      await expect(
-        runtime.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
-          queued.id,
-        ]),
-      ).rejects.toThrow(/command marker|immutable/u);
+      const forged = await runtime.connect();
+      try {
+        await forged.query('BEGIN');
+        await expect(
+          forged.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
+            queued.id,
+          ]),
+        ).rejects.toThrow(/command marker|immutable/u);
+        await forged.query('ROLLBACK');
+      } finally {
+        forged.release();
+      }
       const now = new Date();
       const connection = await runtime.connect();
       let first: Awaited<ReturnType<typeof writeNextAttempt>>;
@@ -2259,6 +2266,9 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           now,
         });
         await connection.query('COMMIT');
+      } catch (error) {
+        await connection.query('ROLLBACK');
+        throw error;
       } finally {
         connection.release();
       }
@@ -2337,11 +2347,18 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           [task.id],
         )
       ).rows[0]!;
-      await expect(
-        runtime.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
-          queued.id,
-        ]),
-      ).rejects.toThrow(/command marker|immutable/u);
+      const forged = await runtime.connect();
+      try {
+        await forged.query('BEGIN');
+        await expect(
+          forged.query("UPDATE task_runs SET status='paused',finished_at=NOW() WHERE id=$1", [
+            queued.id,
+          ]),
+        ).rejects.toThrow(/command marker|immutable/u);
+        await forged.query('ROLLBACK');
+      } finally {
+        forged.release();
+      }
       expect(
         (await runtime.query('SELECT status FROM tasks WHERE id=$1', [task.id])).rows[0],
       ).toEqual({ status: 'queued' });
