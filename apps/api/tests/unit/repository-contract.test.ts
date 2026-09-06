@@ -281,6 +281,12 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('task_human_requests')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_human_requests TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_human_decisions')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_human_decisions TO openbot_runtime');
     expect(grants).toContain('price_version_id');
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime',
@@ -442,6 +448,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0044_task_lead_handoffs');
     expect(workflow).toContain('0045_model_price_versions');
     expect(workflow).toContain('0046_task_cost_budgets');
+    expect(workflow).toContain('0047_task_human_requests');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );
@@ -466,6 +473,12 @@ describe('repository contract', () => {
     );
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'task_cost_reservations', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_human_requests', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_human_decisions', 'SELECT')",
     );
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",

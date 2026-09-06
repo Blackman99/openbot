@@ -84,6 +84,7 @@ import { TASK_TOKEN_USAGE_SCHEMA_STATEMENTS } from '../tasks/token-usage-schema.
 import { TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS } from '../tasks/token-budget-schema.js';
 import { MODEL_PRICE_SCHEMA_STATEMENTS } from '../tasks/model-price-schema.js';
 import { TASK_COST_BUDGET_SCHEMA_STATEMENTS } from '../tasks/cost-budget-schema.js';
+import { TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS } from '../tasks/human-request-schema.js';
 import {
   COL12_ENFORCEMENT_POSTGRES_GUARDS,
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -477,6 +478,11 @@ const MIGRATIONS = [
   {
     version: '0046_task_cost_budgets',
     statements: TASK_COST_BUDGET_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0047_task_human_requests',
+    statements: TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

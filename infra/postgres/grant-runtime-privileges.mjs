@@ -308,6 +308,12 @@ try {
       IF to_regclass('task_cost_reservations') IS NOT NULL THEN
         GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime;
       END IF;
+      IF to_regclass('task_human_requests') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_human_requests TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_human_decisions') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_human_decisions TO openbot_runtime;
+      END IF;
       IF to_regprocedure('task_has_child_result_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
         REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
         GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime;

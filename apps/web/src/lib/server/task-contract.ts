@@ -24,7 +24,9 @@ export type TaskStatus =
   | 'cancelled'
   | 'paused'
   | 'waiting_budget'
-  | 'waiting_child';
+  | 'waiting_child'
+  | 'waiting_input'
+  | 'waiting_approval';
 export const taskErrorCodes = [
   'execution_forbidden',
   'model_unavailable',
@@ -129,7 +131,9 @@ function status(value: unknown): value is TaskStatus {
     value === 'cancelled' ||
     value === 'paused' ||
     value === 'waiting_budget' ||
-    value === 'waiting_child'
+    value === 'waiting_child' ||
+    value === 'waiting_input' ||
+    value === 'waiting_approval'
   );
 }
 function errorCode(value: unknown): value is TaskErrorCode {
@@ -355,7 +359,10 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
   )
     return undefined;
   if (
-    (value.status === 'cancelled' || value.status === 'paused') &&
+    (value.status === 'cancelled' ||
+      value.status === 'paused' ||
+      value.status === 'waiting_input' ||
+      value.status === 'waiting_approval') &&
     (value.finishedAt === null ||
       value.error !== null ||
       output !== null ||

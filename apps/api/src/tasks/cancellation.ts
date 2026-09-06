@@ -149,7 +149,16 @@ export async function cancelTask(
     return receipt(prior);
   }
   if (current.id !== command.expectedRunId) throw new TaskConflictError('task_cancel_run_conflict');
-  if (!['queued', 'running', 'waiting_child', 'cancelled'].includes(selected.status))
+  if (
+    ![
+      'queued',
+      'running',
+      'waiting_child',
+      'waiting_input',
+      'waiting_approval',
+      'cancelled',
+    ].includes(selected.status)
+  )
     throw new TaskConflictError('task_cancel_state_conflict');
   const affected =
     selected.status === 'cancelled'
@@ -158,7 +167,9 @@ export async function cancelTask(
           (task) =>
             task.status === 'queued' ||
             task.status === 'running' ||
-            task.status === 'waiting_child',
+            task.status === 'waiting_child' ||
+            task.status === 'waiting_input' ||
+            task.status === 'waiting_approval',
         );
   const occurredAt = now();
   const row: CommandRow = {

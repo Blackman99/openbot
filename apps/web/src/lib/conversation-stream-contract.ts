@@ -26,7 +26,9 @@ export type StreamTaskStatus =
   | 'cancelled'
   | 'paused'
   | 'waiting_budget'
-  | 'waiting_child';
+  | 'waiting_child'
+  | 'waiting_input'
+  | 'waiting_approval';
 export type StreamTaskFailure =
   | 'execution_forbidden'
   | 'model_unavailable'
@@ -192,7 +194,9 @@ function status(value: unknown): value is StreamTaskStatus {
     value === 'cancelled' ||
     value === 'paused' ||
     value === 'waiting_budget' ||
-    value === 'waiting_child'
+    value === 'waiting_child' ||
+    value === 'waiting_input' ||
+    value === 'waiting_approval'
   );
 }
 function failure(value: unknown): value is StreamTaskFailure {

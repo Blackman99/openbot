@@ -590,7 +590,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
             'SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 2',
           )
         ).rows.map((r) => r.version),
-      ).toEqual(['0046_task_cost_budgets', '0045_model_price_versions']);
+      ).toEqual(['0047_task_human_requests', '0046_task_cost_budgets']);
       expect(
         (
           await admin.query(

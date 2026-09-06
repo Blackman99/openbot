@@ -54,7 +54,9 @@ export type TaskStatus =
   | 'cancelled'
   | 'paused'
   | 'waiting_budget'
-  | 'waiting_child';
+  | 'waiting_child'
+  | 'waiting_input'
+  | 'waiting_approval';
 export interface TaskView {
   id: string;
   conversationId: string;
