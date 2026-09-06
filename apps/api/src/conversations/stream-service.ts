@@ -187,7 +187,14 @@ export class ConversationStreamService implements ConversationStreams {
               body: string | null;
               event_data: {
                 taskId: string;
-                dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+                dimension:
+                  | 'duration'
+                  | 'turns'
+                  | 'delegationDepth'
+                  | 'handoffs'
+                  | 'inputTokens'
+                  | 'outputTokens'
+                  | 'totalTokens';
                 used: number;
                 limit: number;
                 source: 'workspace' | 'group' | 'task' | 'run';

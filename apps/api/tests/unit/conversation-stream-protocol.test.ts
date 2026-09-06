@@ -135,6 +135,21 @@ describe('private conversation stream protocol', () => {
     expect(frame).toContain('event: task.limit.warning');
     expect(frame).toContain('"dimension":"turns"');
     expect(frame).toContain('Turn usage reached the 1 turns workspace limit.');
+    const tokenFrame = encodeConversationStreamEvent(scope, 5, time, {
+      type: 'task.limit.warning',
+      data: {
+        taskId,
+        dimension: 'totalTokens',
+        used: 32,
+        limit: 40,
+        source: 'workspace',
+        soft: true,
+        hard: false,
+        body: 'Token usage reached 80% of the 40 total workspace limit.',
+      },
+    });
+    expect(tokenFrame).toContain('"dimension":"totalTokens"');
+    expect(tokenFrame).toContain('Token usage reached 80% of the 40 total workspace limit.');
   });
 
   it('keeps transient controls content-free and without a durable acknowledgement', () => {

@@ -87,7 +87,14 @@ interface StreamEventPayloads {
 }
 export interface ExecutionLimitWarning {
   taskId: string;
-  dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+  dimension:
+    | 'duration'
+    | 'turns'
+    | 'delegationDepth'
+    | 'handoffs'
+    | 'inputTokens'
+    | 'outputTokens'
+    | 'totalTokens';
   used: number;
   limit: number;
   source: 'workspace' | 'group' | 'task' | 'run';
@@ -502,7 +509,10 @@ export function parseConversationStreamEvent(
     (data.dimension === 'duration' ||
       data.dimension === 'turns' ||
       data.dimension === 'delegationDepth' ||
-      data.dimension === 'handoffs') &&
+      data.dimension === 'handoffs' ||
+      data.dimension === 'inputTokens' ||
+      data.dimension === 'outputTokens' ||
+      data.dimension === 'totalTokens') &&
     integer(data.used) &&
     integer(data.limit) &&
     (data.source === 'workspace' ||

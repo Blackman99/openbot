@@ -129,6 +129,42 @@ export function tokenBudgetFromPolicy(policy: ExecutionLimitPolicy): TokenBudget
   };
 }
 
+export const TOKEN_BUDGET_WARNING_DIMENSIONS = [
+  'inputTokens',
+  'outputTokens',
+  'totalTokens',
+] as const;
+export type TokenBudgetWarningDimension = (typeof TOKEN_BUDGET_WARNING_DIMENSIONS)[number];
+
+export type TokenBudgetWarningCrossing = {
+  dimension: TokenBudgetWarningDimension;
+  used: number;
+  limit: number;
+  source: Exclude<TokenBudgetLayer, 'run'>;
+  soft: true;
+  hard: boolean;
+};
+
+export function tokenBudgetWarningCrossings(
+  warnings: Array<{ kind: TokenBudgetLayer } & TokenReservationDecision>,
+): TokenBudgetWarningCrossing[] {
+  const crossings: TokenBudgetWarningCrossing[] = [];
+  for (const warning of warnings) {
+    if (warning.kind === 'run') continue;
+    const source = warning.kind;
+    const add = (dimension: TokenBudgetWarningDimension, used: number, remainingTokens: number) => {
+      if (!Number.isFinite(remainingTokens)) return;
+      const limit = used + remainingTokens;
+      if (!crossedSoft(limit, used)) return;
+      crossings.push({ dimension, used, limit, source, soft: true, hard: warning.hard });
+    };
+    add('inputTokens', warning.occupied.inputTokens, warning.remaining.inputTokens);
+    add('outputTokens', warning.occupied.outputTokens, warning.remaining.outputTokens);
+    add('totalTokens', warning.occupied.totalTokens, warning.remaining.totalTokens);
+  }
+  return crossings;
+}
+
 export type TokenReservationDecision = ReturnType<typeof evaluateTokenReservation>;
 
 export function evaluateScopedTokenReservation(input: {

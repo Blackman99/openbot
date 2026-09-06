@@ -53,6 +53,7 @@ import {
   type TokenBudgetTarget,
 } from './token-budget-store.js';
 import { estimateTokens } from './token-usage.js';
+import { appendTokenBudgetWarnings } from './token-budget-warning.js';
 import {
   createDelegatedChild,
   parkParentForChild,
@@ -563,6 +564,8 @@ export class TaskQueue {
           await holdTaskForBudget(connection, this.limitAccess(task));
           return { handled: true };
         }
+        if (reservation.soft)
+          await appendTokenBudgetWarnings(connection, this.limitAccess(task), reservation.warnings);
         const claimToken = randomUUID(),
           startedAt = this.now(),
           remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),

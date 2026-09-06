@@ -10,6 +10,7 @@ import {
   reconcileTokenReservation,
   resolveTokenBudgets,
   tokenBudgetFromPolicy,
+  tokenBudgetWarningCrossings,
 } from '../../src/tasks/token-budget.js';
 
 const budget = { maxInputTokens: 100, maxOutputTokens: 50, maxTotalTokens: 120 };
@@ -70,6 +71,47 @@ describe('COL-17 token reservation math', () => {
       reserved: { inputTokens: 0, outputTokens: 0 },
       used: { inputTokens: 22, outputTokens: 9 },
     });
+  });
+
+  it('warns at four fifths on lifetime pools and ignores the per-Run Bot cap', () => {
+    const occupied = { inputTokens: 32, outputTokens: 0, totalTokens: 32 };
+    expect(
+      tokenBudgetWarningCrossings([
+        {
+          kind: 'workspace',
+          allowed: true,
+          hard: false,
+          soft: true,
+          occupied,
+          remaining: {
+            inputTokens: Number.POSITIVE_INFINITY,
+            outputTokens: Number.POSITIVE_INFINITY,
+            totalTokens: 8,
+          },
+        },
+        {
+          kind: 'run',
+          allowed: true,
+          hard: false,
+          soft: true,
+          occupied,
+          remaining: {
+            inputTokens: Number.POSITIVE_INFINITY,
+            outputTokens: Number.POSITIVE_INFINITY,
+            totalTokens: 0,
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        dimension: 'totalTokens',
+        used: 32,
+        limit: 40,
+        source: 'workspace',
+        soft: true,
+        hard: false,
+      },
+    ]);
   });
 
   it('projects used, reserved, and remaining only for dimensions that have a cap', () => {

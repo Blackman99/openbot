@@ -75,7 +75,14 @@ export interface AssistantDelta {
 }
 export interface ExecutionLimitWarning {
   taskId: string;
-  dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+  dimension:
+    | 'duration'
+    | 'turns'
+    | 'delegationDepth'
+    | 'handoffs'
+    | 'inputTokens'
+    | 'outputTokens'
+    | 'totalTokens';
   used: number;
   limit: number;
   source: 'workspace' | 'group' | 'task' | 'run';
@@ -275,7 +282,15 @@ function projectPayload(payload: ConversationStreamPayload): ConversationStreamP
       const { taskId, dimension, used, limit, source, soft, hard, body } = payload.data;
       if (
         !uuidPattern.test(taskId) ||
-        !['duration', 'turns', 'delegationDepth', 'handoffs'].includes(dimension) ||
+        ![
+          'duration',
+          'turns',
+          'delegationDepth',
+          'handoffs',
+          'inputTokens',
+          'outputTokens',
+          'totalTokens',
+        ].includes(dimension) ||
         !Number.isSafeInteger(used) ||
         used < 0 ||
         !Number.isSafeInteger(limit) ||
