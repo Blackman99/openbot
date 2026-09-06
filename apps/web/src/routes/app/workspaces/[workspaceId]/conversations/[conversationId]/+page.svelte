@@ -18,8 +18,16 @@
   let liveCommands = $state<Record<string, { edit: string; tombstone: string; saveMemory: string }>>({});
   let messages = $derived(liveMessages ?? data.messages);
   let nextMessageCursor = $derived(liveNextMessageCursor === undefined ? data.nextCursor : liveNextMessageCursor);
-  let visibleExecutions = $derived(Object.values(liveState?.executions ?? {}).filter((run) => run.runStatus === 'queued' || run.runStatus === 'running' || run.runStatus === 'cancelled'));
+  let visibleExecutions = $derived(Object.values(liveState?.executions ?? {}).filter((run) => run.runStatus === 'queued' || run.runStatus === 'running' || run.runStatus === 'cancelled' || run.runStatus === 'waiting_input' || run.runStatus === 'waiting_approval'));
   let hasCancelledExecutions = $derived(visibleExecutions.some((run) => run.runStatus === 'cancelled'));
+  function liveRunLabel(status: string) {
+    if (status === 'queued') return 'Queued';
+    if (status === 'running') return 'Running';
+    if (status === 'cancelled') return 'Cancelled';
+    if (status === 'waiting_input') return 'Waiting for input';
+    if (status === 'waiting_approval') return 'Waiting for approval';
+    return status;
+  }
   let previews = $derived(Object.values(liveState?.previews ?? {}));
   let denied = $derived(liveStatus === 'forbidden' || liveStatus === 'authentication-required');
   let base = $derived(`/app/workspaces/${data.workspace.id}/conversations/${data.conversation.id}`);
@@ -190,7 +198,7 @@
   {#if visibleExecutions.length || previews.length}
     <section aria-label="Live task progress">
       <h2>Task progress</h2>
-      {#each visibleExecutions as run (run.runId)}<p><a href={`${base}/tasks/${run.taskId}`}>{run.bot.displayName}</a> · {run.runStatus === 'queued' ? 'Queued' : run.runStatus === 'cancelled' ? 'Cancelled' : 'Running'}</p>{/each}
+      {#each visibleExecutions as run (run.runId)}<p><a href={`${base}/tasks/${run.taskId}`}>{run.bot.displayName}</a> · {liveRunLabel(run.runStatus)}</p>{/each}
       {#each previews as preview (preview.runId)}
         {@const execution = liveState?.executions[preview.runId]}
         <div aria-label={execution?.runStatus === 'cancelled' ? 'Interrupted output' : 'Draft answer'}>

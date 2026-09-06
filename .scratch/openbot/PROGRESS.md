@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-05 approvals cut is on `feat/openbot-collaboration-system` / draft PR #1 after the public retry tip `d015912`. This cut adds `GET/POST /v1/approvals` resolve under `tasks:approve` (ACs 3–4 + AC6 approve audit), reusing COL-19 human-decision internals; AC5 live UI without refresh is deferred to a follow-up cut because the task pages still rely on explicit refresh rather than SSE-driven task reload. Leave Tester checkboxes unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-05 AC5 live UI cut is on `feat/openbot-collaboration-system` / draft PR #1 after approvals tip `776eb44`. Task list/detail pages subscribe to the existing COL-05 conversation SSE and invalidate page data on `task.human.decided`, human-request, and `task.run.updated` events so API-driven approvals and retries re-render without a full refresh; conversation live progress also surfaces waiting_input/waiting_approval. With prior AC1-4 and AC6 approve work, all six API-05 acceptance criteria are implemented for Tester stamp (leave ticket checkboxes unchecked). Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-one of 67 tickets are implemented and independently reviewed, and all 51 are fully complete. All 401 original acceptance texts are preserved.
 

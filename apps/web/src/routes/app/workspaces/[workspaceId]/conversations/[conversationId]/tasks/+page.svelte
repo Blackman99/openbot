@@ -1,18 +1,40 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { invalidate } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import TaskSummary from '$lib/components/TaskSummary.svelte';
+  import { watchTaskLiveRefresh } from '$lib/task-live-refresh-client';
+  import type { ConversationLiveStatus } from '$lib/conversation-stream-client';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
   let submitting = $state(false);
   let transportError = $state('');
   let unconfirmed = $state<Record<string, string> | null>(null);
+  let liveStatus = $state<ConversationLiveStatus>('stopped');
   let values = $derived(unconfirmed ?? form?.values ?? {});
   let prompt = $derived(values.body ?? '');
   let grantId = $derived(values.groupGrantId ?? '');
   let uncertain = $derived(Boolean(unconfirmed) || Boolean(form?.uncertain));
   let locked = $derived(uncertain || submitting || Boolean(form?.conflict));
   let base = $derived(`/app/workspaces/${data.workspace.id}/conversations/${data.conversation.id}`);
+  $effect(() => {
+    const scope = { workspaceId: data.workspace.id, conversationId: data.conversation.id };
+    const conversationId = data.conversation.id;
+    liveStatus = 'stopped';
+    const controller = new AbortController();
+    void watchTaskLiveRefresh({
+      scope,
+      request: fetch,
+      signal: controller.signal,
+      onStatus(status) {
+        liveStatus = status;
+      },
+      refresh() {
+        return invalidate(`openbot:tasks:${conversationId}`);
+      },
+    });
+    return () => controller.abort();
+  });
   const submit: SubmitFunction = ({ formData, cancel }) => {
     if (submitting) { cancel(); return; }
     const captured: Record<string, string> = {};
@@ -44,6 +66,9 @@
     <a href={`${base}/tasks?limit=${data.limit}`} data-sveltekit-reload>Refresh tasks</a>
     {#if data.nextCursor}<a href={`${base}/tasks?cursor=${encodeURIComponent(data.nextCursor)}&limit=${data.limit}`}>Next tasks</a>{/if}
   </nav>
+  {#if liveStatus === 'live'}<p role="status">Live updates connected</p>
+  {:else if liveStatus === 'connecting' || liveStatus === 'reconnecting'}<p role="status">Connecting live updates…</p>
+  {:else if liveStatus === 'unavailable'}<p role="status">Live updates are unavailable. Refresh tasks to try again.</p>{/if}
   {#if transportError || form?.error}<p role="alert">{transportError || form?.error}</p>{/if}
   {#if data.canSubmit}
     <section class="compose" aria-labelledby="run-heading">

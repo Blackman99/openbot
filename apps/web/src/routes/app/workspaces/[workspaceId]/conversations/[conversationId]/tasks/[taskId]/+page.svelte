@@ -1,17 +1,21 @@
 <script lang="ts">
   import RoutingDecision from '$lib/components/RoutingDecision.svelte';
   import { enhance } from '$app/forms';
+  import { invalidate } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import TaskCancellation from '$lib/components/TaskCancellation.svelte';
   import TaskPause from '$lib/components/TaskPause.svelte';
   import TaskResume from '$lib/components/TaskResume.svelte';
   import TaskHumanDecision from '$lib/components/TaskHumanDecision.svelte';
   import TaskSummary from '$lib/components/TaskSummary.svelte';
+  import { watchTaskLiveRefresh } from '$lib/task-live-refresh-client';
+  import type { ConversationLiveStatus } from '$lib/conversation-stream-client';
   import type { PageProps } from './$types';
   let { data, form }: PageProps = $props();
   let submitting = $state(false);
   let transportError = $state('');
   let unconfirmed = $state<Record<string, string> | null>(null);
+  let liveStatus = $state<ConversationLiveStatus>('stopped');
   let retryForm = $derived(form && 'values' in form ? form : null);
   let cancellationForm = $derived(form && 'cancellation' in form ? form.cancellation : undefined);
   let pauseForm = $derived(form && 'pause' in form ? form.pause : undefined);
@@ -21,6 +25,25 @@
   let uncertain = $derived(Boolean(unconfirmed) || Boolean(retryForm?.uncertain));
   let canConfirm = $derived(uncertain && data.user.id === data.task.executionUser.id && Boolean(values.idempotencyKey && values.expectedRunId));
   let base = $derived(`/app/workspaces/${data.workspace.id}/conversations/${data.conversation.id}`);
+  $effect(() => {
+    const scope = { workspaceId: data.workspace.id, conversationId: data.conversation.id };
+    const taskId = data.task.id;
+    liveStatus = 'stopped';
+    const controller = new AbortController();
+    void watchTaskLiveRefresh({
+      scope,
+      taskId,
+      request: fetch,
+      signal: controller.signal,
+      onStatus(status) {
+        liveStatus = status;
+      },
+      refresh() {
+        return invalidate(`openbot:task:${taskId}`);
+      },
+    });
+    return () => controller.abort();
+  });
   const retry: SubmitFunction = ({ formData, cancel }) => {
     if (submitting) { cancel(); return; }
     const captured: Record<string, string> = {};
@@ -49,6 +72,9 @@
   <a href={`${base}/tasks`}>Back to tasks</a>
   <h1>Saved task</h1>
   <nav aria-label="Task navigation"><a href={`${base}/tasks/${data.task.id}`} data-sveltekit-reload>Refresh task</a><a href={base}>Open conversation</a></nav>
+  {#if liveStatus === 'live'}<p role="status">Live updates connected</p>
+  {:else if liveStatus === 'connecting' || liveStatus === 'reconnecting'}<p role="status">Connecting live updates…</p>
+  {:else if liveStatus === 'unavailable'}<p role="status">Live updates are unavailable. Refresh this task to try again.</p>{/if}
   <TaskSummary task={data.task} conversationBase={base} showLink={false} />
   {#if data.routingDecision}<RoutingDecision decision={data.routingDecision} />{/if}
   {#if data.task.status === 'cancelled' || data.task.status === 'paused' || data.partialOutput}

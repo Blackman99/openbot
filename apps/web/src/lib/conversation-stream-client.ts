@@ -6,6 +6,7 @@ import {
   parseConversationStreamBootstrap,
   type ConversationStreamScope,
   type ConversationStreamBootstrap,
+  type ConversationStreamEvent,
   type MessageReference,
 } from './conversation-stream-contract.js';
 import { parseConversationMessage, type MessageProjection } from './conversation-message.js';
@@ -36,6 +37,8 @@ interface StreamClientOptions {
   onState(state: ConversationStreamState | null): void;
   onMessage(message: MessageProjection): void;
   onClearMessage(messageId: string): void;
+  /** Fired after a stream event is applied (or its message reference is resolved). */
+  onEvent?(event: ConversationStreamEvent): void;
 }
 class StreamResponseError extends Error {
   constructor(
@@ -318,6 +321,8 @@ export async function consumeConversationStream(options: StreamClientOptions): P
             state = resolved.state;
           }
           options.onState(state);
+          if (transition.status === 'applied' || transition.status === 'resolve-message')
+            options.onEvent?.(frame.event);
           if (
             frame.event.type === 'task.run.updated' &&
             frame.event.data.execution.runStatus === 'cancelled'
