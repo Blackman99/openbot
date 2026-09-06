@@ -2,7 +2,7 @@
 sequence: 25
 id: COL-08
 title: "Pause and resume Tasks from checkpoints"
-status: blocked
+status: in-progress
 blocked_by:
   - COL-07
   - COL-10

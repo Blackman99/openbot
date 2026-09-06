@@ -2,7 +2,7 @@
 sequence: 28
 id: COL-11
 title: "Recover Runs after worker failure"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-05
   - COL-09
