@@ -121,6 +121,27 @@ describe('conversation stream convergence', () => {
     expect(late.state.previews).toEqual(stopped.state.previews);
     expect(late.state.messages).toEqual({});
   });
+
+  it('acknowledges a limit warning without mutating executions or previews', () => {
+    const initial = createConversationStreamState(bootstrap({ executions: [execution()] }));
+    const warned = applyConversationStreamEvent(
+      initial,
+      event(1, 'task.limit.warning', {
+        taskId: id(100),
+        dimension: 'turns',
+        used: 1,
+        limit: 1,
+        source: 'workspace',
+        soft: true,
+        hard: true,
+        body: 'Turn usage reached the 1 turns workspace limit.',
+      }),
+    );
+    expect(warned.status).toBe('applied');
+    expect(warned.state.acknowledgedCursor).toBe(cursor(1));
+    expect(warned.state.executions).toEqual(initial.executions);
+    expect(warned.state.previews).toEqual(initial.previews);
+  });
   it('restores the complete private cancelled prefix after bootstrap without inventing a final message', () => {
     const cancelled = {
       ...execution(),

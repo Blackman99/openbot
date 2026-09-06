@@ -74,7 +74,10 @@ import {
   COL11_RECOVERY_REQUIRES_VERSION,
 } from '../tasks/col11-postgres-guards.js';
 import { TASK_EXECUTION_LIMIT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-schema.js';
+import { TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-enforcement-schema.js';
 import {
+  COL12_ENFORCEMENT_POSTGRES_GUARDS,
+  COL12_ENFORCEMENT_REQUIRES_VERSION,
   COL12_LIMITS_POSTGRES_GUARDS,
   COL12_LIMITS_REQUIRES_VERSION,
 } from '../tasks/col12-postgres-guards.js';
@@ -409,6 +412,11 @@ const MIGRATIONS = [
     statements: TASK_EXECUTION_LIMIT_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0037_task_execution_limit_enforcement',
+    statements: TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -515,6 +523,14 @@ export async function migrateDatabase(
       targetMigrations.some(({ version }) => version === COL12_LIMITS_REQUIRES_VERSION)
     ) {
       for (const statement of COL12_LIMITS_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL12_ENFORCEMENT_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL12_ENFORCEMENT_POSTGRES_GUARDS) {
         await connection.query(statement);
       }
     }

@@ -50,7 +50,7 @@ async function setup(trustedOrigin, inGroup = false, silent = false) {
   // pg-mem names unnamed legacy CHECKs differently. Replace only the old
   // status checks; this fixture proves real HTTP/UI/worker behavior, not PG locks.
   for (const sql of [
-    'ALTER TABLE tasks DROP CONSTRAINT tasks_constraint_1',
+    'ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_constraint_1',
     'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_2',
     'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_8',
     'ALTER TABLE conversation_delivery_events DROP CONSTRAINT conversation_delivery_events_constraint_3',

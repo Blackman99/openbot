@@ -242,6 +242,10 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'REVOKE ALL ON FUNCTION protect_task_execution_limit_snapshot() FROM PUBLIC, openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('task_execution_limit_warnings')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_execution_limit_warnings TO openbot_runtime',
+    );
     expect(grants).toContain(
       'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
     );

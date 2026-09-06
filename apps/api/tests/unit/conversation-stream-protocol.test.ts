@@ -118,6 +118,25 @@ describe('private conversation stream protocol', () => {
     expect(frame).toContain('"deleted":true');
   });
 
+  it('encodes a visible execution-limit warning without incidental fields', () => {
+    const frame = encodeConversationStreamEvent(scope, 4, time, {
+      type: 'task.limit.warning',
+      data: {
+        taskId,
+        dimension: 'turns',
+        used: 1,
+        limit: 1,
+        source: 'workspace',
+        soft: true,
+        hard: true,
+        body: 'Turn usage reached the 1 turns workspace limit.',
+      },
+    });
+    expect(frame).toContain('event: task.limit.warning');
+    expect(frame).toContain('"dimension":"turns"');
+    expect(frame).toContain('Turn usage reached the 1 turns workspace limit.');
+  });
+
   it('keeps transient controls content-free and without a durable acknowledgement', () => {
     expect(encodeConversationStreamControl('conversation_forbidden')).toBe(
       'event: stream.control\ndata: {"schemaVersion":1,"code":"conversation_forbidden"}\n\n',

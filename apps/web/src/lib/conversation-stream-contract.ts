@@ -19,7 +19,7 @@ export interface MessageReference {
   runId: string | null;
 }
 export type StreamTaskStatus =
-  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
+  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
 export type StreamTaskFailure =
   | 'execution_forbidden'
   | 'model_unavailable'
@@ -75,7 +75,18 @@ interface StreamEventPayloads {
   'message.changed': { message: MessageReference };
   'task.run.updated': { execution: ExecutionState };
   'assistant.delta': StreamDelta;
+  'task.limit.warning': ExecutionLimitWarning;
   'conversation.invalidated': { reason: 'membership' };
+}
+export interface ExecutionLimitWarning {
+  taskId: string;
+  dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+  used: number;
+  limit: number;
+  source: 'workspace' | 'group' | 'task' | 'run';
+  soft: boolean;
+  hard: boolean;
+  body: string;
 }
 export type ConversationStreamEvent = {
   [K in keyof StreamEventPayloads]: {
@@ -146,7 +157,8 @@ function status(value: unknown): value is StreamTaskStatus {
     value === 'completed' ||
     value === 'failed' ||
     value === 'cancelled' ||
-    value === 'paused'
+    value === 'paused' ||
+    value === 'waiting_budget'
   );
 }
 function failure(value: unknown): value is StreamTaskFailure {
@@ -465,6 +477,38 @@ export function parseConversationStreamEvent(
         startByte: data.startByte,
         endByte: data.endByte,
         text: data.text,
+      },
+    };
+  if (
+    value.type === 'task.limit.warning' &&
+    keys(data, 'body,dimension,hard,limit,soft,source,taskId,used') &&
+    uuid(data.taskId) &&
+    (data.dimension === 'duration' ||
+      data.dimension === 'turns' ||
+      data.dimension === 'delegationDepth' ||
+      data.dimension === 'handoffs') &&
+    integer(data.used) &&
+    integer(data.limit) &&
+    (data.source === 'workspace' ||
+      data.source === 'group' ||
+      data.source === 'task' ||
+      data.source === 'run') &&
+    data.soft === true &&
+    typeof data.hard === 'boolean' &&
+    text(data.body, 512)
+  )
+    return {
+      ...header,
+      type: 'task.limit.warning',
+      data: {
+        taskId: data.taskId,
+        dimension: data.dimension,
+        used: data.used,
+        limit: data.limit,
+        source: data.source,
+        soft: data.soft,
+        hard: data.hard,
+        body: data.body,
       },
     };
   return undefined;

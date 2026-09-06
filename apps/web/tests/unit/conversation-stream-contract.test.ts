@@ -222,6 +222,19 @@ describe('conversation stream wire contract', () => {
         scope,
       ),
     ).toBeDefined();
+    const warning = {
+      taskId,
+      dimension: 'turns',
+      used: 1,
+      limit: 1,
+      source: 'workspace',
+      soft: true,
+      hard: true,
+      body: 'Turn usage reached the 1 turns workspace limit.',
+    };
+    expect(parseConversationStreamEvent(envelope(warning, 'task.limit.warning'), scope)).toEqual(
+      envelope(warning, 'task.limit.warning'),
+    );
   });
 
   it('accepts positive safe persisted attempts without adding run history', () => {

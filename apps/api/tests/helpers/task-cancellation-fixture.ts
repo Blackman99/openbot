@@ -14,7 +14,7 @@ export async function installTaskCancellationFixture(pool: SqlPool) {
   const connection = await pool.connect();
   try {
     for (const statement of [
-      'ALTER TABLE tasks DROP CONSTRAINT tasks_constraint_1',
+      'ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_constraint_1',
       'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_2',
       'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_8',
       'ALTER TABLE conversation_delivery_events DROP CONSTRAINT conversation_delivery_events_constraint_3',

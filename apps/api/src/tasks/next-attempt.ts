@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { BotBinding } from '../bots/service.js';
 import { appendQueuedRunState } from '../conversations/append-event.js';
+import { applyTaskExecutionLimits } from './execution-limit-enforcement.js';
 import type { ProviderProtocol } from '../providers/model-events.js';
 import { lockTaskAncestry } from './tree.js';
 import { readSafeModelSnapshot, safeModelSnapshot } from './continuation.js';
@@ -24,7 +25,8 @@ export interface AttemptChain {
 }
 
 export type NextAttemptWrite =
-  { scheduled: true; runId: string } | { scheduled: false; reason: 'cancelled' | 'duplicate' };
+  | { scheduled: true; runId: string }
+  | { scheduled: false; reason: 'cancelled' | 'duplicate' | 'budget' };
 
 export async function loadAttemptChain(
   connection: SqlConnection,
@@ -142,6 +144,18 @@ export async function writeNextAttempt(
     latest.status !== (resume ? 'paused' : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
+  const held = await applyTaskExecutionLimits(
+    connection,
+    {
+      taskId: input.taskId,
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      executionUserId: input.executionUserId,
+      now: input.now,
+    },
+    { holdIfHard: true },
+  );
+  if (held.hard) return { scheduled: false, reason: 'budget' };
   const parent = (
     await connection.query<{ created_at: Date }>('SELECT created_at FROM tasks WHERE id=$1', [
       input.taskId,

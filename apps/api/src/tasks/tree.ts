@@ -42,7 +42,8 @@ export async function taskAncestryIsActive(
   taskId: string,
 ): Promise<boolean> {
   return (await ancestry(connection, taskId)).every(
-    (node) => node.status !== 'cancelled' && node.status !== 'paused',
+    (node) =>
+      node.status !== 'cancelled' && node.status !== 'paused' && node.status !== 'waiting_budget',
   );
 }
 // Scope/conversation locks come first. Root then ordered ancestors precede every
@@ -66,6 +67,7 @@ export async function lockTaskAncestry(
   return path.every((node) => {
     if (node.status === 'cancelled') return false;
     if (node.status === 'paused') return Boolean(options.allowPausedTarget && node.id === taskId);
+    if (node.status === 'waiting_budget') return false;
     return true;
   });
 }

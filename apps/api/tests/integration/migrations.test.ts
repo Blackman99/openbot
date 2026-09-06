@@ -70,6 +70,7 @@ describe('database migrations', () => {
       '0034_task_resume_commands',
       '0035_task_run_recovery',
       '0036_task_execution_limit_snapshots',
+      '0037_task_execution_limit_enforcement',
     ]);
 
     const database: DatabaseClient = {
@@ -153,6 +154,7 @@ describe('database migrations', () => {
       'sessions',
       'task_cancel_commands',
       'task_execution_limit_snapshots',
+      'task_execution_limit_warnings',
       'task_pause_commands',
       'task_resume_commands',
       'task_retry_commands',
@@ -184,7 +186,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0036_task_execution_limit_snapshots' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0037_task_execution_limit_enforcement' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -278,7 +280,7 @@ describe('database migrations', () => {
     await migrateDatabase({ connect: async () => connection });
 
     const pauseOverlay = statements.findLastIndex((statement) =>
-      statement.includes('task_has_manual_resume_receipt'),
+      statement.includes('CREATE OR REPLACE FUNCTION task_has_manual_resume_receipt'),
     );
     const automaticOverlay = statements.findIndex((statement) =>
       statement.includes("origin' IN ('provider_retry','model_fallback')"),
@@ -286,9 +288,13 @@ describe('database migrations', () => {
     const recoveryOverlay = statements.findLastIndex((statement) =>
       statement.includes("origin' IN ('provider_retry','model_fallback','worker_recovery')"),
     );
+    const limitOverlay = statements.findLastIndex((statement) =>
+      statement.includes("NEW.status<>'waiting_budget'"),
+    );
     expect(automaticOverlay).toBeGreaterThanOrEqual(0);
     expect(pauseOverlay).toBeGreaterThan(automaticOverlay);
     expect(recoveryOverlay).toBeGreaterThan(pauseOverlay);
+    expect(limitOverlay).toBeGreaterThan(recoveryOverlay);
     expect(statements.some((statement) => statement.includes("origin'='manual_resume'"))).toBe(
       true,
     );

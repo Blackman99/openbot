@@ -73,10 +73,21 @@ export interface AssistantDelta {
   endByte: number;
   text: string;
 }
+export interface ExecutionLimitWarning {
+  taskId: string;
+  dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+  used: number;
+  limit: number;
+  source: 'workspace' | 'group' | 'task' | 'run';
+  soft: boolean;
+  hard: boolean;
+  body: string;
+}
 export type ConversationStreamPayload =
   | { type: 'message.changed'; data: { message: MessageReference } }
   | { type: 'task.run.updated'; data: { execution: ExecutionState } }
   | { type: 'assistant.delta'; data: AssistantDelta }
+  | { type: 'task.limit.warning'; data: ExecutionLimitWarning }
   | { type: 'conversation.invalidated'; data: { reason: 'membership' } };
 export type ConversationStreamEvent = ConversationStreamPayload & {
   schemaVersion: 1;
@@ -256,6 +267,27 @@ function projectPayload(payload: ConversationStreamPayload): ConversationStreamP
       };
     case 'conversation.invalidated':
       return { type: payload.type, data: { reason: 'membership' } };
+    case 'task.limit.warning': {
+      const { taskId, dimension, used, limit, source, soft, hard, body } = payload.data;
+      if (
+        !uuidPattern.test(taskId) ||
+        !['duration', 'turns', 'delegationDepth', 'handoffs'].includes(dimension) ||
+        !Number.isSafeInteger(used) ||
+        used < 0 ||
+        !Number.isSafeInteger(limit) ||
+        limit < 0 ||
+        !['workspace', 'group', 'task', 'run'].includes(source) ||
+        typeof soft !== 'boolean' ||
+        typeof hard !== 'boolean' ||
+        !body ||
+        Buffer.byteLength(body) > 512
+      )
+        throw new ConversationStreamError('conversation_stream_unavailable');
+      return {
+        type: payload.type,
+        data: { taskId, dimension, used, limit, source, soft, hard, body },
+      };
+    }
     case 'assistant.delta': {
       const { taskId, runId, attempt, startByte, endByte, text } = payload.data;
       if (

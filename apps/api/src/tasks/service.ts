@@ -36,7 +36,8 @@ import {
 } from './execution-limits.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
+export type TaskStatus =
+  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
 export interface TaskView {
   id: string;
   conversationId: string;

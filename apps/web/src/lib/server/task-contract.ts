@@ -16,7 +16,8 @@ export {
   parseRunContinuation,
   parseSafeModelSnapshot,
 } from '../task-continuation-contract.js';
-export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
+export type TaskStatus =
+  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
 export const taskErrorCodes = [
   'execution_forbidden',
   'model_unavailable',
@@ -84,7 +85,8 @@ function status(value: unknown): value is TaskStatus {
     value === 'completed' ||
     value === 'failed' ||
     value === 'cancelled' ||
-    value === 'paused'
+    value === 'paused' ||
+    value === 'waiting_budget'
   );
 }
 function errorCode(value: unknown): value is TaskErrorCode {
@@ -262,7 +264,9 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
   if (
     !trigger ||
     !attempt ||
-    attempt.status !== value.status ||
+    (value.status === 'waiting_budget'
+      ? !['queued', 'failed', 'paused'].includes(attempt.status)
+      : attempt.status !== value.status) ||
     attempt.attempt !== value.runCount ||
     (attempt.output !== null &&
       (attempt.output.sequence <= trigger.sequence ||

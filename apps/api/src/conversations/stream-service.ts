@@ -180,7 +180,30 @@ export class ConversationStreamService implements ConversationStreams {
               text: row.delta_text!,
             },
           };
-        } else payload = { type: 'conversation.invalidated', data: { reason: 'membership' } };
+        } else {
+          const ledger = (
+            await connection.query<{
+              event_type: string;
+              body: string | null;
+              event_data: {
+                taskId: string;
+                dimension: 'duration' | 'turns' | 'delegationDepth' | 'handoffs';
+                used: number;
+                limit: number;
+                source: 'workspace' | 'group' | 'task' | 'run';
+                soft: boolean;
+                hard: boolean;
+              } | null;
+            }>(
+              'SELECT event_type,body,event_data FROM conversation_events WHERE conversation_id=$1 AND id=$2',
+              [current.conversationId, row.ledger_event_id],
+            )
+          ).rows[0];
+          payload =
+            ledger?.event_type === 'task.limit.warning' && ledger.body && ledger.event_data
+              ? { type: 'task.limit.warning', data: { ...ledger.event_data, body: ledger.body } }
+              : { type: 'conversation.invalidated', data: { reason: 'membership' } };
+        }
         return {
           cursor: encodeConversationStreamCursor(current, Number(row.sequence)),
           delivered: true,

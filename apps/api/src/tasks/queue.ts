@@ -39,6 +39,7 @@ import {
 import { admitTaskTarget } from './admission.js';
 import { TaskPartialOutputLimitError } from './partial-output.js';
 import { lockTaskAncestry, taskAncestryIsActive } from './tree.js';
+import { applyTaskExecutionLimits } from './execution-limit-enforcement.js';
 import {
   selectRunMemoryContribution,
   persistRunMemoryReferences,
@@ -158,7 +159,7 @@ export class TaskQueue {
     const rows = (
       await connection.query<Candidate>(
         `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,c.group_id,e.sequence AS trigger_sequence,e.message_id AS trigger_message_id FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN conversation_events e ON e.id=t.trigger_event_id
-       WHERE ${runId ? 'r.id=$1' : "r.status='queued'"} ORDER BY r.created_at,r.id`,
+       WHERE ${runId ? 'r.id=$1' : "r.status='queued' AND t.status='queued'"} ORDER BY r.created_at,r.id`,
         runId ? [runId] : [],
       )
     ).rows;
@@ -204,6 +205,15 @@ export class TaskQueue {
       [task.workspace_id, task.conversation_id],
     );
   }
+  private limitAccess(task: Candidate) {
+    return {
+      taskId: task.task_id,
+      workspaceId: task.workspace_id,
+      conversationId: task.conversation_id,
+      executionUserId: task.execution_user_id,
+      now: this.now(),
+    };
+  }
   private access(task: Candidate) {
     return {
       actorUserId: task.execution_user_id,
@@ -243,6 +253,7 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
   }
   private async failIfRunning(
     connection: SqlConnection,
@@ -261,6 +272,7 @@ export class TaskQueue {
     ]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
     return true;
   }
   async isClaimActive(claim: TaskClaim): Promise<boolean> {
@@ -308,6 +320,11 @@ export class TaskQueue {
       }
       const run = await this.lockRun(connection, task);
       if (run?.status !== 'queued') return { handled: false };
+      if (
+        (await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true }))
+          .hard
+      )
+        return { handled: true };
       let provider: TaskClaim['provider'];
       let memory: RunMemoryContribution;
       let knowledge: RunKnowledgeContribution;
@@ -664,6 +681,7 @@ export class TaskQueue {
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
       await appendCompletedRunState(connection, task.id, this.now);
+      await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: false });
       const digest = (
         await connection.query<{ digest: string }>(
           'SELECT digest FROM run_source_manifests WHERE run_id=$1',
@@ -877,7 +895,12 @@ export class TaskQueue {
           taskId: task.task_id,
           chainRootRunId: chain.rootRunId,
           decision: 'stopped',
-          stopReason: written.reason === 'cancelled' ? 'cancelled' : 'duplicate',
+          stopReason:
+            written.reason === 'cancelled'
+              ? 'cancelled'
+              : written.reason === 'budget'
+                ? 'budget'
+                : 'duplicate',
           now,
         });
         return true;

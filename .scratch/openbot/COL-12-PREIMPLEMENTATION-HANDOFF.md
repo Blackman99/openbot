@@ -35,12 +35,19 @@ Policy resolution and the immutable starting snapshot only:
 - Runtime may SELECT/INSERT snapshots only. Workspace/Group `execution_policy` stays off the existing metadata UPDATE grants.
 - Duration is snapshotted as milliseconds. Handoff is omitted until a layer sets it.
 
+## Second landed slice
+
+Soft-threshold warnings and the hard-limit gate:
+
+- Soft threshold is four fifths of each snapshotted hard cap. Crossing it appends one `task.limit.warning` conversation event, delivery frame, and `task_execution_limit_warnings` row per dimension.
+- Duration is measured as active-Run milliseconds after lock wait. Turns count completed Runs. Depth is the retained Task depth. Handoffs stay at zero until COL-16.
+- Reaching a hard limit starts no further Run. `writeNextAttempt` and claim refuse the successor; the Task moves to `waiting_budget` while the current Run keeps its queued/failed/paused state.
+- Migration `0037_task_execution_limit_enforcement` admits `waiting_budget` and the warning ledger/delivery shape. Runtime may SELECT/INSERT warning rows only.
+
 ## Leftover before the original ACs can be stamped
 
-- Soft-threshold warning events.
-- Hard-limit gate: no further Run and Task `waiting_budget`.
 - Authorized idempotent grant of one selected limit without rewriting usage.
 - Run timeout abort of the provider stream with retained partial output and audit.
-- Native PostgreSQL and Compose evidence for the snapshot/guards.
+- Native PostgreSQL and Compose evidence for the snapshot/guards and this enforcement slice.
 
 Do not check the six AC boxes until Tester stamps those leftovers.

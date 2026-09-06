@@ -11,7 +11,8 @@ describe('COL-12 execution limit schema first slice', () => {
 
   it('is the next ordered ledger after recovery and stores immutable starting snapshots', () => {
     expect(COL12_LIMITS_REQUIRES_VERSION).toBe('0036_task_execution_limit_snapshots');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0036_task_execution_limit_snapshots');
+    expect(MIGRATION_VERSIONS).toContain('0036_task_execution_limit_snapshots');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0037_task_execution_limit_enforcement');
     expect(sql).toContain('ALTER TABLE workspaces ADD COLUMN execution_policy');
     expect(sql).toContain('ALTER TABLE groups ADD COLUMN execution_policy');
     expect(sql).not.toContain('GRANT UPDATE');
