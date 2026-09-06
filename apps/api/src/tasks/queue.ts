@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import { ConversationAccessError } from '../conversations/service.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
 import { BotAccessError, type BotBinding, type BotConfiguration } from '../bots/service.js';
@@ -235,7 +236,8 @@ export class TaskQueue {
       )
     ).rows[0];
     if (!subject) throw new Error('Retained Task conversation missing');
-    await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [task.workspace_id]);
+    if (!(await lockWorkspaceAuthority(connection, task.workspace_id)))
+      throw new Error('Retained Task workspace missing');
     if (subject.group_id)
       await connection.query('SELECT id FROM groups WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [
         task.workspace_id,

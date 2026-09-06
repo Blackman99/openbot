@@ -10,6 +10,7 @@ import { BotService } from '../../src/bots/service.js';
 import { PostgresConversationRepository } from '../../src/conversations/postgres-repository.js';
 import { ConversationAccessError, ConversationService } from '../../src/conversations/service.js';
 import { migrateDatabase } from '../../src/database/migrations.js';
+import { lockWorkspaceAuthority } from '../../src/database/workspace-lock.js';
 import { closeGroupBotGrant } from '../../src/group-bots/postgres-closures.js';
 import { PostgresGroupBotRepository } from '../../src/group-bots/postgres-repository.js';
 import { GroupBotService, type GroupBotGrant } from '../../src/group-bots/service.js';
@@ -337,8 +338,8 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       try {
         await holder.query('BEGIN');
         if (atModel) await authorizeProviderScope(holder, personalAccess(f.ownerId), 'manage');
-        else
-          await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+        else if (!(await lockWorkspaceAuthority(holder, f.workspaceId)))
+          throw new Error('workspace missing');
         const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
         pending = Promise.allSettled([action(observed.pool)]);
         await blocked(observed.name, pid);
@@ -387,7 +388,8 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       const actions: Promise<T>[] = [];
       try {
         await holder.query('BEGIN');
-        await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+        if (!(await lockWorkspaceAuthority(holder, f.workspaceId)))
+          throw new Error('workspace missing');
         const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
         actions.push(...observers.map(({ pool }) => action(pool)));
         const settled = Promise.allSettled(actions);
@@ -891,7 +893,8 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           }),
         ]);
         await holder.query('BEGIN');
-        await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+        if (!(await lockWorkspaceAuthority(holder, f.workspaceId)))
+          throw new Error('workspace missing');
         const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
         actions.push(submit(f, a.pool), submit(f, b.pool));
         const settled = Promise.allSettled(actions);

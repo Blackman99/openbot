@@ -1,6 +1,7 @@
 import { revokeMembershipApiTokens } from '../api-tokens/postgres-repository.js';
 import { GroupBotRevocations } from '../group-bots/postgres-closures.js';
 import type { SqlPool } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import type { WorkspaceRole } from '../workspaces/service.js';
 import {
   WorkspaceMemberAccessError,
@@ -59,11 +60,8 @@ export class PostgresWorkspaceMemberRepository implements WorkspaceMemberReposit
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
-      const workspace = await connection.query(
-        'SELECT id FROM workspaces WHERE id = $1 FOR UPDATE',
-        [record.workspaceId],
-      );
-      if (!workspace.rows[0]) throw new WorkspaceMemberAccessError();
+      if (!(await lockWorkspaceAuthority(connection, record.workspaceId)))
+        throw new WorkspaceMemberAccessError();
       const actor = (
         await connection.query<{ role: WorkspaceRole }>(
           'SELECT role FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',

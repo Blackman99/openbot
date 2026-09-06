@@ -1,4 +1,5 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import {
   GroupAccessError,
   GroupArchivedError,
@@ -29,10 +30,7 @@ export async function lockAuthorizedGroup(
   access: { actorId: string; workspaceId: string; groupId: string },
   permission: 'content' | 'manage' | 'archive',
 ): Promise<GroupContentAccess> {
-  const workspace = await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
-    access.workspaceId,
-  ]);
-  if (!workspace.rows[0]) throw new GroupAccessError();
+  if (!(await lockWorkspaceAuthority(connection, access.workspaceId))) throw new GroupAccessError();
   const membership = await connection.query(
     'SELECT user_id FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2',
     [access.workspaceId, access.actorId],
