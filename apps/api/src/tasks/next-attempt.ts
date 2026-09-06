@@ -3,6 +3,7 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { BotBinding } from '../bots/service.js';
 import { appendQueuedRunState } from '../conversations/append-event.js';
 import type { ProviderProtocol } from '../providers/model-events.js';
+import { holdTaskForBudget, shouldHoldNextRun } from './limit-enforcement.js';
 import { lockTaskAncestry } from './tree.js';
 import { readSafeModelSnapshot, safeModelSnapshot } from './continuation.js';
 import { readQueuedAuditMetadata, readQueuedAuditMetadataForTask } from './queued-audit.js';
@@ -15,6 +16,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'model_fallback',
   'worker_recovery',
   'manual_resume',
+  'budget_grant',
 ]);
 
 export interface AttemptChain {
@@ -24,7 +26,8 @@ export interface AttemptChain {
 }
 
 export type NextAttemptWrite =
-  { scheduled: true; runId: string } | { scheduled: false; reason: 'cancelled' | 'duplicate' };
+  | { scheduled: true; runId: string }
+  | { scheduled: false; reason: 'cancelled' | 'duplicate' | 'waiting_budget' };
 
 export async function loadAttemptChain(
   connection: SqlConnection,
@@ -116,7 +119,7 @@ export async function writeNextAttempt(
     now: Date;
   },
 ): Promise<NextAttemptWrite> {
-  const resume = input.plan.origin === 'manual_resume';
+  const resume = input.plan.origin === 'manual_resume' || input.plan.origin === 'budget_grant';
   if (
     !(await lockTaskAncestry(connection, input.taskId, {
       allowPausedTarget: resume,
@@ -139,9 +142,33 @@ export async function writeNextAttempt(
     !latest ||
     latest.id !== input.sourceRunId ||
     source.some((run) => run.attempt > input.sourceAttempt) ||
-    latest.status !== (resume ? 'paused' : 'failed')
+    latest.status !==
+      (input.plan.origin === 'manual_resume'
+        ? 'paused'
+        : input.plan.origin === 'budget_grant'
+          ? latest.status === 'waiting_budget' ||
+            latest.status === 'failed' ||
+            latest.status === 'paused'
+            ? latest.status
+            : 'waiting_budget'
+          : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
+  if (input.plan.origin !== 'budget_grant') {
+    const dimension = await shouldHoldNextRun(connection, input.taskId, input.now);
+    if (dimension) {
+      await holdTaskForBudget(connection, {
+        taskId: input.taskId,
+        runId: input.sourceRunId,
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        actorUserId: input.executionUserId,
+        dimension,
+        now: input.now,
+      });
+      return { scheduled: false, reason: 'waiting_budget' };
+    }
+  }
   const parent = (
     await connection.query<{ created_at: Date }>('SELECT created_at FROM tasks WHERE id=$1', [
       input.taskId,

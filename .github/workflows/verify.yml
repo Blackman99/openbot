@@ -693,7 +693,7 @@ jobs:
           group_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'groups', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'groups'")"
-          test "$group_update_privileges" = 'created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false'
+          test "$group_update_privileges" = 'created_at:false,created_by_user_id:false,description:true,execution_policy:true,id:false,name:true,updated_at:true,visibility:true,workspace_id:false'
           group_membership_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'group_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_memberships'")"
@@ -760,7 +760,7 @@ jobs:
           workspace_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE'))")"
-          test "$workspace_update_privileges" = 't,t,f,f'
+          test "$workspace_update_privileges" = 't,t,f,t'
 
           invitation_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -1607,6 +1607,59 @@ jobs:
           done
           test "$ready" = true
           docker compose exec -T -e OPENBOT_RECOVERY_SMOKE_STAGE=recovered api node --input-type=module < infra/verify-task-recovery.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-limits:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-limits.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Snapshot workspace and Task limits before enabling the worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T limit-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_LIMIT_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Hold the zero-turn Task without a provider call
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_LIMIT_SMOKE_STAGE=held api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Grant one dimension and complete the resumed Run
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose exec -T -e OPENBOT_LIMIT_SMOKE_STAGE=granted api node --input-type=module < infra/verify-task-limits.mjs
       - if: always()
         run: |
           docker compose logs

@@ -152,7 +152,6 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
-      'task_execution_limit_snapshots',
       'task_pause_commands',
       'task_resume_commands',
       'task_retry_commands',

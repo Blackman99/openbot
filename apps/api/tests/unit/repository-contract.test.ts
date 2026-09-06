@@ -219,6 +219,16 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) TO openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('task_limit_events')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_limit_events, task_limit_grants TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT UPDATE (execution_policy) ON workspaces, groups TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
     expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid)')");
     expect(grants).toContain("to_regclass('task_cancel_commands')");
     expect(grants).toContain(
@@ -369,7 +379,7 @@ describe('repository contract', () => {
       "has_column_privilege('openbot_runtime', 'sessions', 'token_digest', 'UPDATE')",
     );
     expect(workflow).toContain(
-      'created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false',
+      'created_at:false,created_by_user_id:false,description:true,execution_policy:true,id:false,name:true,updated_at:true,visibility:true,workspace_id:false',
     );
     expect(workflow).toContain("UPDATE audit_events SET metadata = '{}'::jsonb");
     expect(workflow).toContain('DELETE FROM audit_events');
@@ -380,6 +390,7 @@ describe('repository contract', () => {
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE')",
     );
+    expect(workflow).toContain('test "$workspace_update_privileges" = \'t,t,f,t\'');
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",
     );
@@ -392,6 +403,10 @@ describe('repository contract', () => {
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-seed');
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-waiting');
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-due');
+    expect(workflow).toContain('OPENBOT_LIMIT_SMOKE_STAGE=seed');
+    expect(workflow).toContain('OPENBOT_LIMIT_SMOKE_STAGE=held');
+    expect(workflow).toContain('OPENBOT_LIMIT_SMOKE_STAGE=granted');
+    expect(workflow).toContain('compose-task-limits:');
     expect(readFileSync(`${repositoryRoot}/infra/compose-tasks.yaml`, 'utf8')).toContain(
       "OPENBOT_COL10_RETRY_DELAY_MS: '60000'",
     );

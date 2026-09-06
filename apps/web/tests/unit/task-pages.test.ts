@@ -397,6 +397,49 @@ describe('Task pages', () => {
     expect(html).not.toContain('connectionId');
     expect(html).not.toContain('baseUrl');
   });
+  it('renders execution limits and waiting_budget without a matching current Run', () => {
+    const held: TaskView = {
+      ...task,
+      status: 'waiting_budget',
+      limits: {
+        durationMs: 60_000,
+        durationSource: 'workspace',
+        turns: 0,
+        turnsSource: 'task',
+        depth: 2,
+        depthSource: 'run',
+        handoffs: 8,
+        handoffsSource: 'run',
+        usage: { durationMs: 0, turns: 0, depth: 0, handoffs: 0 },
+        warnings: [
+          {
+            kind: 'hard_limit',
+            dimension: 'turns',
+            usage: 0,
+            threshold: 0,
+            createdAt: '2026-09-06T00:00:00.000Z',
+          },
+        ],
+      },
+      runs: [
+        { ...task.runs[0]!, status: 'waiting_budget', finishedAt: '2026-09-06T00:00:01.000Z' },
+      ],
+    };
+    const html = render(DetailPage, {
+      props: {
+        data: { ...base, task: held, canRetry: false, idempotencyKey: 'unused' },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Execution limits');
+    expect(html).toContain('Duration 60000 ms from workspace');
+    expect(html).toContain('Turns 0 from task');
+    expect(html).toContain('Reached the turns');
+    expect(html).toContain('Waiting for budget');
+    expect(html).toContain('No output was saved before the task reached an execution limit.');
+  });
+
   it('preserves the complete uncertain request and permits only unchanged replay', () => {
     const html = render(ListPage, {
       props: {

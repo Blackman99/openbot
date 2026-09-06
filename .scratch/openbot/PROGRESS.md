@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-12 is in progress on `feat/openbot-collaboration-system` / draft PR #1. COL-11 is closed against product HEAD `9a1385a` with Tester PASS on [Verify 34004247688](https://github.com/Blackman99/openbot/actions/runs/34004247688). Hierarchical limits resolve the strictest Workspace, Group, Task, and Run policy per duration/turn/depth/handoff dimension and snapshot those starting limits on each Task. Original COL-12 acceptance texts stay unchecked until Tester stamps native and Compose evidence. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-12 enforcement is being rebased onto the landed first-slice (`0036_task_execution_limit_snapshots`, JSONB `execution_policy`, immutable `task_execution_limit_snapshots`). Soft warnings, `waiting_budget` holds, and idempotent grants extend that slice; original COL-12 acceptance texts stay unchecked until Tester stamps native and Compose evidence. COL-11 remains closed against product HEAD `9a1385a` with Tester PASS on [Verify 34004247688](https://github.com/Blackman99/openbot/actions/runs/34004247688). Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty of 67 tickets are implemented and independently reviewed, and all 40 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12.
 

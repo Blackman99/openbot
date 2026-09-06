@@ -48,16 +48,33 @@
   <h1>Saved task</h1>
   <nav aria-label="Task navigation"><a href={`${base}/tasks/${data.task.id}`} data-sveltekit-reload>Refresh task</a><a href={base}>Open conversation</a></nav>
   <TaskSummary task={data.task} conversationBase={base} showLink={false} />
+  {#if data.task.limits}
+    <section aria-labelledby="limit-heading">
+      <h2 id="limit-heading">Execution limits</h2>
+      <p>
+        Duration {data.task.limits.durationMs} ms from {data.task.limits.durationSource}.
+        Turns {data.task.limits.turns} from {data.task.limits.turnsSource}.
+        Depth {data.task.limits.depth} from {data.task.limits.depthSource}.
+        Handoffs {data.task.limits.handoffs} from {data.task.limits.handoffsSource}.
+      </p>
+      {#each data.task.limits.warnings as warning}
+        <p role="status">
+          {warning.kind === 'soft_warning' ? 'Approaching' : 'Reached'} the {warning.dimension}
+          limit ({warning.usage} of {warning.threshold}).
+        </p>
+      {/each}
+    </section>
+  {/if}
   {#if data.routingDecision}<RoutingDecision decision={data.routingDecision} />{/if}
-  {#if data.task.status === 'cancelled' || data.task.status === 'paused' || data.partialOutput}
+  {#if data.task.status === 'cancelled' || data.task.status === 'paused' || data.task.status === 'waiting_budget' || data.partialOutput}
     <section aria-labelledby="partial-heading">
       <h2 id="partial-heading">Interrupted output</h2>
       {#if data.partialUnavailable}<p role="alert">Saved partial output is unavailable. Refresh this task to try again.</p>
       {:else if data.partialOutput?.partial}
-        <p>{data.task.status === 'cancelled' ? 'This task was cancelled. The saved output is incomplete.' : data.task.status === 'paused' ? 'This task was paused. Resume starts a new attempt from the original task input. The saved output is incomplete.' : 'This task was interrupted. Recovery starts a new attempt from the original task input. The saved output is incomplete.'}</p>
+        <p>{data.task.status === 'cancelled' ? 'This task was cancelled. The saved output is incomplete.' : data.task.status === 'paused' ? 'This task was paused. Resume starts a new attempt from the original task input. The saved output is incomplete.' : data.task.status === 'waiting_budget' ? 'This task reached an execution limit. An authorized grant starts a new attempt from the original task input. The saved output is incomplete.' : 'This task was interrupted. Recovery starts a new attempt from the original task input. The saved output is incomplete.'}</p>
         <p>Checkpoint: restart from the original task input.</p>
         <pre>{data.partialOutput.partial.text}</pre>
-      {:else}<p>{data.task.status === 'cancelled' ? 'No output was saved before cancellation.' : data.task.status === 'paused' ? 'No output was saved before the pause.' : 'No output was saved before the interruption.'}</p>{/if}
+      {:else}<p>{data.task.status === 'cancelled' ? 'No output was saved before cancellation.' : data.task.status === 'paused' ? 'No output was saved before the pause.' : data.task.status === 'waiting_budget' ? 'No output was saved before the task reached an execution limit.' : 'No output was saved before the interruption.'}</p>{/if}
     </section>
   {/if}
   <TaskCancellation canCancel={data.canCancel} canConfirm={data.canConfirmCancellation} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/cancel`} action={cancellationForm} />

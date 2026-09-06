@@ -10,6 +10,8 @@ import type { AttachmentService } from './attachments/service.js';
 import type { KnowledgeService } from './knowledge/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
+import { registerExecutionLimitRoutes } from './tasks/limit-routes.js';
+import type { ExecutionLimitService } from './tasks/limit-policy.js';
 import type { TaskService } from './tasks/service.js';
 import type { GroupRoutingService } from './routing/service.js';
 import { registerGroupRoutingRoutes } from './routing/routes.js';
@@ -65,6 +67,7 @@ export interface BuildAppOptions {
   memories?: MemoryService;
   conversationStreams?: ConversationStreams;
   tasks?: TaskService;
+  executionLimits?: ExecutionLimitService;
   groupRouting?: GroupRoutingService;
   oidc?: OidcService;
   auth?: AuthService;
@@ -194,6 +197,7 @@ export function buildApp({
   botCopies,
   botTemplates,
   tasks,
+  executionLimits,
   groupRouting,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
@@ -243,6 +247,7 @@ export function buildApp({
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
     if (botTemplates) registerBotTemplateRoutes(app, auth, botTemplates, webOrigin);
     if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);
+    if (executionLimits) registerExecutionLimitRoutes(app, auth, executionLimits, webOrigin);
     if (groupRouting) registerGroupRoutingRoutes(app, auth, groupRouting, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);
