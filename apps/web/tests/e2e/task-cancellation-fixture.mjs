@@ -51,10 +51,10 @@ async function setup(trustedOrigin, inGroup = false, silent = false) {
   // status checks; this fixture proves real HTTP/UI/worker behavior, not PG locks.
   for (const sql of [
     'ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_constraint_1',
-    'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_2',
-    'ALTER TABLE task_runs DROP CONSTRAINT task_runs_constraint_8',
-    'ALTER TABLE conversation_delivery_events DROP CONSTRAINT conversation_delivery_events_constraint_3',
-    'ALTER TABLE task_run_delivery_receipts DROP CONSTRAINT task_run_delivery_receipts_constraint_1',
+    'ALTER TABLE task_runs DROP CONSTRAINT IF EXISTS task_runs_constraint_2',
+    'ALTER TABLE task_runs DROP CONSTRAINT IF EXISTS task_runs_constraint_8',
+    'ALTER TABLE conversation_delivery_events DROP CONSTRAINT IF EXISTS conversation_delivery_events_constraint_3',
+    'ALTER TABLE task_run_delivery_receipts DROP CONSTRAINT IF EXISTS task_run_delivery_receipts_constraint_1',
   ])
     await pool.query(sql);
   const ownerToken = randomBytes(32).toString('base64url');
