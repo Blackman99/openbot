@@ -396,6 +396,24 @@ export class RoutineService {
     });
   }
 
+  list(actorUserId: string, workspaceId: string, groupId: string): Promise<RoutineView[]> {
+    const actorId = uuid(actorUserId);
+    const workspace = uuid(workspaceId);
+    const group = uuid(groupId);
+    return this.transaction(async (connection) => {
+      await this.lockGroup(connection, actorId, workspace, group);
+      const rows = (
+        await connection.query<RoutineRow>(
+          `SELECT * FROM routines
+           WHERE workspace_id=$1 AND group_id=$2
+           ORDER BY execute_at ASC, id ASC`,
+          [workspace, group],
+        )
+      ).rows;
+      return rows.map((row) => toView(row));
+    });
+  }
+
   get(actorUserId: string, workspaceId: string, routineId: string): Promise<RoutineView> {
     const actorId = uuid(actorUserId);
     const workspace = uuid(workspaceId);

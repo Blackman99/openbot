@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** ROUT-01 continues on `feat/openbot-collaboration-system` / draft PR #1 after tip `8435b09` (AC1 + AC2 API). This cut adds scheduled one-time routine execution (AC3), occurrence uniqueness (AC5), and restart recovery of due unexpired routines (AC4) via `0052_routine_occurrences` + `RoutineExecutor` on the task worker poll. Leftover: AC2 UI, AC6 bot-deny. NOTIF-01 remains unlocked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** ROUT-01 AC2 UI + AC6 bot-deny land on `feat/openbot-collaboration-system` / draft PR #1. Session `/api/v1/workspaces/:workspaceId/groups/:groupId/routines` powers create/edit/pause/resume/cancel UI under groups; worker denies bot `create_routine` and budget/frequency `edit_routine` collaboration actions. AC1–AC5 remain from tip `ccbd966`. Ticket checkboxes remain unchecked for Tester. Verify queued after push. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-three of 67 tickets are implemented and independently reviewed, and all 53 are fully complete. All 401 original acceptance texts are preserved.
 

@@ -23,6 +23,7 @@
   {#if manager}<p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/template`}>Export team template</a></p>{/if}
   <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/routing`}>Routing settings</a></p>
   <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/memories`}>Group memories</a></p>
+  <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/routines`}>One-time routines</a></p>
   {#if manager}
    <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Group settings</h2>

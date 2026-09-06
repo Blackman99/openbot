@@ -12,6 +12,7 @@ import { RoutineExecutor } from '../routines/executor.js';
 import { parseDelegateAction } from './delegate-action.js';
 import { parseHandoffAction } from './handoff-action.js';
 import { parseRequestApprovalAction, parseRequestInputAction } from './human-request-action.js';
+import { botRoutineCollaborationDenial } from '../routines/bot-actions.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -170,6 +171,14 @@ export class TaskWorker {
           const approvals = [];
           for (const event of actions) {
             const actionId = typeof event.id === 'string' ? event.id : '';
+            // ROUT-01 AC6: bots cannot create routines or escalate frequency/budget.
+            if (botRoutineCollaborationDenial(event)) {
+              delegates.length = 0;
+              handoffs.length = 0;
+              inputs.length = 0;
+              approvals.length = 0;
+              break;
+            }
             const delegate = parseDelegateAction(event);
             const handoff = parseHandoffAction(event);
             const input = parseRequestInputAction(event);

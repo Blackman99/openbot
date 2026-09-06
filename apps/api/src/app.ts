@@ -15,6 +15,7 @@ import { registerTaskRoutes } from './tasks/routes.js';
 import { registerPublicTaskRoutes } from './tasks/public-routes.js';
 import { registerPublicEventRoutes } from './events/public-routes.js';
 import { registerPublicRoutineRoutes } from './routines/public-routes.js';
+import { registerRoutineRoutes } from './routines/routes.js';
 import type { RoutineService } from './routines/service.js';
 import type { WorkspaceEventService } from './events/service.js';
 import type { TaskService } from './tasks/service.js';
@@ -262,6 +263,7 @@ export function buildApp({
     registerPublicTaskRoutes(app, apiTokens, tasks, conversations);
   if (auth && apiTokens) registerPublicEventRoutes(app, auth, apiTokens, workspaceEvents);
   if (apiTokens && routines) registerPublicRoutineRoutes(app, apiTokens, routines);
+  if (auth && routines) registerRoutineRoutes(app, auth, routines, webOrigin);
   if (auth) {
     if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
