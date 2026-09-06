@@ -15,6 +15,7 @@ export interface ExecutionLimitPolicy {
   maxTurns?: number;
   maxDelegationDepth?: number;
   maxHandoffs?: number;
+  maxConcurrentRuns?: number;
 }
 
 export interface ResolvedExecutionLimits {
@@ -29,6 +30,7 @@ const POLICY_KEYS = [
   'maxTurns',
   'maxDelegationDepth',
   'maxHandoffs',
+  'maxConcurrentRuns',
 ] as const;
 
 const SPECIFICITY: readonly ExecutionLimitLayer[] = ['run', 'task', 'group', 'workspace'];
@@ -64,6 +66,10 @@ export function parseExecutionPolicy(value: unknown): ExecutionLimitPolicy {
   if ('maxHandoffs' in value) {
     if (!integer(value.maxHandoffs, 0)) throw new TaskInputError();
     policy.maxHandoffs = value.maxHandoffs;
+  }
+  if ('maxConcurrentRuns' in value) {
+    if (!integer(value.maxConcurrentRuns, 1)) throw new TaskInputError();
+    policy.maxConcurrentRuns = value.maxConcurrentRuns;
   }
   return policy;
 }

@@ -2,7 +2,7 @@
 sequence: 30
 id: COL-13
 title: "Enforce atomic Run concurrency limits"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-11
   - COL-12
@@ -38,3 +38,7 @@ Workers safely enforce Workspace, Group, and Task concurrency limits, including 
 - Scheduling without PostgreSQL
 - Priority tiers
 - Unbounded fan-out
+
+## Implementation note
+
+See [COL-13-PREIMPLEMENTATION-HANDOFF.md](../COL-13-PREIMPLEMENTATION-HANDOFF.md). A Run occupies a slot only while `running` with a live COL-11 lease. A default group cap is four. Excess work stays queued and must report the blocking layer. These notes do not change the original acceptance texts.

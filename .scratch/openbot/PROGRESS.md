@@ -4,7 +4,7 @@
 
 **Frontier (2026-09-06):** COL-12 is complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on [Verify 34008091724](https://github.com/Blackman99/openbot/actions/runs/34008091724), HEAD `dacc663`, all 19 jobs green, including `postgres-tasks` and `compose-task-limits`. COL-13 and TPL-02 are ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-one of 67 tickets are implemented and independently reviewed, and all 41 are fully complete. All 401 original acceptance texts are preserved. Next collaboration ticket is COL-13.
+Forty-one of 67 tickets are implemented and independently reviewed, and all 41 are fully complete. All 401 original acceptance texts are preserved. COL-13 is in progress; original COL-13 acceptance texts stay unchecked.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
