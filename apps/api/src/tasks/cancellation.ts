@@ -3,6 +3,7 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { appendCancelledRunState } from '../conversations/append-event.js';
 import { ConversationTransaction } from '../conversations/postgres-repository.js';
 import { conversationUuid, type ConversationAccess } from '../conversations/service.js';
+import { resumeParentAfterChild } from './delegate-child.js';
 import { TaskAccessError, TaskConflictError, TaskInputError } from './errors.js';
 import type { TaskStatus } from './service.js';
 
@@ -146,12 +147,17 @@ export async function cancelTask(
     return receipt(prior);
   }
   if (current.id !== command.expectedRunId) throw new TaskConflictError('task_cancel_run_conflict');
-  if (!['queued', 'running', 'cancelled'].includes(selected.status))
+  if (!['queued', 'running', 'waiting_child', 'cancelled'].includes(selected.status))
     throw new TaskConflictError('task_cancel_state_conflict');
   const affected =
     selected.status === 'cancelled'
       ? []
-      : subtree.filter((task) => task.status === 'queued' || task.status === 'running');
+      : subtree.filter(
+          (task) =>
+            task.status === 'queued' ||
+            task.status === 'running' ||
+            task.status === 'waiting_child',
+        );
   const occurredAt = now();
   const row: CommandRow = {
     id: randomUUID(),
@@ -213,5 +219,6 @@ export async function cancelTask(
     );
     await appendCancelledRunState(connection, run.id, now);
   }
+  for (const task of affected) await resumeParentAfterChild(connection, task.id, occurredAt);
   return receipt(row);
 }

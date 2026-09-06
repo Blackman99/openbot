@@ -108,6 +108,11 @@ export const appendCancelledRunState = (
 ) => appendRunState(connection, runId, 'cancelled', now);
 export const appendPausedRunState = (connection: SqlConnection, runId: string, now: () => Date) =>
   appendRunState(connection, runId, 'paused', now);
+export const appendWaitingChildRunState = (
+  connection: SqlConnection,
+  runId: string,
+  now: () => Date,
+) => appendRunState(connection, runId, 'waiting_child', now);
 
 export async function appendAssistantDelta(
   connection: SqlConnection,

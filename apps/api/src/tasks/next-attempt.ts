@@ -17,6 +17,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'worker_recovery',
   'manual_resume',
   'budget_grant',
+  'child_result',
 ]);
 
 export interface AttemptChain {
@@ -117,9 +118,14 @@ export async function writeNextAttempt(
     sourceAttempt: number;
     plan: NextAttemptPlan;
     now: Date;
+    attributedResult?: string;
+    childTaskId?: string;
   },
 ): Promise<NextAttemptWrite> {
-  const resume = input.plan.origin === 'manual_resume' || input.plan.origin === 'budget_grant';
+  const resume =
+    input.plan.origin === 'manual_resume' ||
+    input.plan.origin === 'budget_grant' ||
+    input.plan.origin === 'child_result';
   if (
     !(await lockTaskAncestry(connection, input.taskId, {
       allowPausedTarget: resume,
@@ -145,14 +151,16 @@ export async function writeNextAttempt(
     latest.status !==
       (input.plan.origin === 'manual_resume'
         ? 'paused'
-        : input.plan.origin === 'budget_grant'
-          ? latest.status === 'paused' || latest.status === 'failed'
-            ? latest.status
-            : 'failed'
-          : 'failed')
+        : input.plan.origin === 'child_result'
+          ? 'waiting_child'
+          : input.plan.origin === 'budget_grant'
+            ? latest.status === 'paused' || latest.status === 'failed'
+              ? latest.status
+              : 'failed'
+            : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
-  if (input.plan.origin !== 'budget_grant') {
+  if (input.plan.origin !== 'budget_grant' && input.plan.origin !== 'child_result') {
     const held = await applyTaskExecutionLimits(
       connection,
       {
@@ -213,6 +221,8 @@ export async function writeNextAttempt(
         chainAttemptOrdinal: input.plan.chainAttemptOrdinal,
         chainLimitSnapshot: input.plan.chainLimitSnapshot,
         modelAttemptOrdinal: input.plan.modelAttemptOrdinal,
+        ...(input.attributedResult ? { attributedResult: input.attributedResult } : {}),
+        ...(input.childTaskId ? { childTaskId: input.childTaskId } : {}),
       }),
     ],
   );

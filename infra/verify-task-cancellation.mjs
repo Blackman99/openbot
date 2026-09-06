@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0039_group_imported_routines');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0040_task_delegation');
   assert.deepEqual(
     (
       await pool.query(

@@ -45,6 +45,14 @@ import {
 } from './execution-limit-enforcement.js';
 import { applyRunConcurrency, clearRunConcurrencyHold } from './execution-concurrency.js';
 import {
+  createDelegatedChild,
+  parkParentForChild,
+  resumeParentAfterChild,
+} from './delegate-child.js';
+import { DELEGATE_TOOL } from './delegate.js';
+import type { DelegateAction } from './delegate-action.js';
+import { readQueuedAuditMetadata } from './queued-audit.js';
+import {
   selectRunMemoryContribution,
   persistRunMemoryReferences,
   assertRunMemoryReferencesCurrent,
@@ -112,6 +120,7 @@ export interface TaskClaim {
   provider: Awaited<ReturnType<typeof admitExecutionModel>>;
   messages: ModelInput['messages'];
   maxTotalTokens: number;
+  tools?: ModelInput['tools'];
 }
 class ContextLimitError extends Error {}
 class PublicationDeadlineElapsed extends Error {}
@@ -550,6 +559,11 @@ export class TaskQueue {
           ...(scheduled ? { continuation: wireContinuation(scheduled) } : {}),
         });
         await appendRunningRunState(connection, task.id, this.now);
+        const queued = await readQueuedAuditMetadata(connection, task.id);
+        const attributed =
+          typeof queued?.attributedResult === 'string' && queued.attributedResult.trim()
+            ? queued.attributedResult
+            : undefined;
         return {
           handled: true,
           claim: {
@@ -558,8 +572,11 @@ export class TaskQueue {
             claimToken,
             deadlineAt,
             provider,
-            messages,
+            messages: attributed
+              ? [...messages, { role: 'user' as const, content: attributed }]
+              : messages,
             maxTotalTokens: target.configuration.limits.maxTotalTokens,
+            ...(task.group_grant_id ? { tools: [DELEGATE_TOOL] } : {}),
           },
         };
       }
@@ -691,6 +708,7 @@ export class TaskQueue {
             outcome.modelFailure,
             claim,
           );
+        await resumeParentAfterChild(connection, task.task_id, this.now());
         return true;
       }
       if (!('body' in outcome)) return false;
@@ -701,6 +719,7 @@ export class TaskQueue {
       );
       if (!output) {
         await this.fail(connection, task, 'execution_timeout', outcome.usage);
+        await resumeParentAfterChild(connection, task.task_id, this.now());
         return true;
       }
       await connection.query(
@@ -731,9 +750,24 @@ export class TaskQueue {
         digest,
         now: this.now(),
       });
+      await resumeParentAfterChild(connection, task.task_id, this.now());
       if (!run.deadline_at || run.deadline_at.getTime() <= this.now().getTime())
         throw new PublicationDeadlineElapsed();
       return true;
+    });
+  }
+  async delegate(claim: TaskClaim, action: DelegateAction, actionId: string): Promise<boolean> {
+    return this.transaction(async (connection) => {
+      const run = (
+        await connection.query<{ status: string; claim_token: string | null }>(
+          'SELECT status,claim_token FROM task_runs WHERE id=$1',
+          [claim.runId],
+        )
+      ).rows[0];
+      if (run?.status !== 'running' || run.claim_token !== claim.claimToken) return false;
+      const created = await createDelegatedChild(connection, claim, action, actionId, this.now());
+      if ('denied' in created) return false;
+      return parkParentForChild(connection, claim, this.now());
     });
   }
   async renewClaimLease(claim: TaskClaim): Promise<boolean> {

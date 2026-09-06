@@ -8,6 +8,7 @@ import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from '.
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
 import { ExtractionWorker } from '../memories/extraction-worker.js';
+import { parseDelegateAction } from './delegate-action.js';
 
 export interface TaskWorkerOptions {
   secrets: ProviderSecretBox;
@@ -128,6 +129,7 @@ export class TaskWorker {
               : {}),
             messages: claim.messages,
             stream: true,
+            ...(claim.tools ? { tools: claim.tools } : {}),
             maxOutputTokens: Math.min(32000, claim.maxTotalTokens),
             maxResponseBytes: 8 * 1024 * 1024,
           },
@@ -151,13 +153,22 @@ export class TaskWorker {
         body = '';
         bytes = 0;
         usage = null;
-        for (const event of response.events) {
-          if (event.type === 'action') throw new Error('Unexpected model action');
-          observe(event);
-        }
-        if (!body.trim() || !response.events.some((event) => event.type === 'complete'))
+        const actions = response.events.filter((event) => event.type === 'action');
+        if (actions.length) {
+          const parsed = actions.length === 1 ? parseDelegateAction(actions[0]) : undefined;
+          const actionId = actions[0] && typeof actions[0].id === 'string' ? actions[0].id : '';
+          if (parsed && actionId && (await this.queue.delegate(claim, parsed, actionId))) {
+            await publication.discard();
+            return true;
+          }
           failure = 'provider_failed';
-        if (!failure) await publication.flush();
+        }
+        if (!failure) {
+          for (const event of response.events) observe(event);
+          if (!body.trim() || !response.events.some((event) => event.type === 'complete'))
+            failure = 'provider_failed';
+          if (!failure) await publication.flush();
+        }
       }
     } catch (error) {
       failure = error instanceof TaskPublicationError ? error.code : 'provider_failed';

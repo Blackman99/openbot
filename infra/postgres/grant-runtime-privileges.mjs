@@ -279,6 +279,13 @@ try {
       IF to_regclass('group_imported_routines') IS NOT NULL THEN
         GRANT SELECT, INSERT ON group_imported_routines TO openbot_runtime;
       END IF;
+      IF to_regclass('task_delegations') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_delegations TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('task_has_child_result_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
       IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
       END IF;

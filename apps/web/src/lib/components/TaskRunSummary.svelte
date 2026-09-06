@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { TaskRun, TaskErrorCode, ContinuationReason } from '$lib/server/task-api.js';
   let { run, conversationBase }: { run: TaskRun; conversationBase: string } = $props();
-  const labels = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', paused: 'Paused', waiting_budget: 'Waiting for budget' };
+  const labels = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', paused: 'Paused', waiting_budget: 'Waiting for budget', waiting_child: 'Waiting for child' };
   const errors: Record<TaskErrorCode, string> = {
     execution_forbidden: 'Access changed before this task could finish.',
     model_unavailable: 'The selected model is unavailable to the person who submitted this task.',

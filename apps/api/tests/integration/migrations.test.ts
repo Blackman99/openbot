@@ -73,6 +73,7 @@ describe('database migrations', () => {
       '0037_task_execution_limit_enforcement',
       '0038_task_run_concurrency_holds',
       '0039_group_imported_routines',
+      '0040_task_delegation',
     ]);
 
     const database: DatabaseClient = {
@@ -156,6 +157,7 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
+      'task_delegations',
       'task_execution_limit_grants',
       'task_execution_limit_snapshots',
       'task_execution_limit_warnings',
@@ -191,7 +193,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0039_group_imported_routines' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0040_task_delegation' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -297,13 +299,17 @@ describe('database migrations', () => {
       statement.includes("NEW.status<>'waiting_budget'"),
     );
     const grantOverlay = statements.findLastIndex((statement) =>
-      statement.includes('task_has_budget_grant_receipt'),
+      statement.includes('CREATE OR REPLACE FUNCTION task_has_budget_grant_receipt'),
+    );
+    const delegateOverlay = statements.findLastIndex((statement) =>
+      statement.includes('CREATE OR REPLACE FUNCTION task_has_child_result_receipt'),
     );
     expect(automaticOverlay).toBeGreaterThanOrEqual(0);
     expect(pauseOverlay).toBeGreaterThan(automaticOverlay);
     expect(recoveryOverlay).toBeGreaterThan(pauseOverlay);
     expect(limitOverlay).toBeGreaterThan(recoveryOverlay);
     expect(grantOverlay).toBeGreaterThan(recoveryOverlay);
+    expect(delegateOverlay).toBeGreaterThan(grantOverlay);
     expect(
       statements.some((statement) =>
         statement.includes(

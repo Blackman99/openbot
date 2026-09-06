@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-14 is in progress on `feat/openbot-collaboration-system` / draft PR #1. TPL-02 is complete after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1`. The first COL-14 TDD slice admits only a schema-valid `delegate` action. Original COL-14 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-14 is in progress on `feat/openbot-collaboration-system` / draft PR #1. TPL-02 is complete after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1`. A schema-valid `delegate` action now creates one bounded child Task and resumes the Lead once. Original COL-14 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty-three of 67 tickets are implemented and independently reviewed, and all 43 are fully complete. All 401 original acceptance texts are preserved. COL-14 original acceptance texts stay unchecked.
 

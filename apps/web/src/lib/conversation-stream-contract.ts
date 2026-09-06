@@ -19,7 +19,14 @@ export interface MessageReference {
   runId: string | null;
 }
 export type StreamTaskStatus =
-  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'paused'
+  | 'waiting_budget'
+  | 'waiting_child';
 export type StreamTaskFailure =
   | 'execution_forbidden'
   | 'model_unavailable'
@@ -158,7 +165,8 @@ function status(value: unknown): value is StreamTaskStatus {
     value === 'failed' ||
     value === 'cancelled' ||
     value === 'paused' ||
-    value === 'waiting_budget'
+    value === 'waiting_budget' ||
+    value === 'waiting_child'
   );
 }
 function failure(value: unknown): value is StreamTaskFailure {

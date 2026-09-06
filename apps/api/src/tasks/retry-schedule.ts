@@ -27,7 +27,8 @@ export type AttemptOrigin =
   | 'model_fallback'
   | 'worker_recovery'
   | 'manual_resume'
-  | 'budget_grant';
+  | 'budget_grant'
+  | 'child_result';
 
 export interface EffectiveRetryPolicy {
   maxAttemptsPerModel: number;
@@ -43,7 +44,12 @@ export interface ChainAttempt {
 
 export interface NextAttemptPlan {
   origin:
-    'provider_retry' | 'model_fallback' | 'manual_resume' | 'worker_recovery' | 'budget_grant';
+    | 'provider_retry'
+    | 'model_fallback'
+    | 'manual_resume'
+    | 'worker_recovery'
+    | 'budget_grant'
+    | 'child_result';
   reason: string;
   binding: BotBinding;
   previousBinding: BotBinding;

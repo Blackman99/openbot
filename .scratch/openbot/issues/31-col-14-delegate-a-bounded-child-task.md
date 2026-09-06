@@ -44,4 +44,4 @@ A Lead can invoke a validated delegate action that creates one bounded child Tas
 
 ## Implementation note
 
-First TDD slice admits only a schema-valid `delegate` model action with `grantId` and `body`. Plain text, @mentions, and JSON-looking prose return no action. Original acceptance texts stay unchecked.
+First TDD slice admits only a schema-valid `delegate` model action with `grantId` and `body`. The worker now creates one bounded child Task from that action, parks the Lead as `waiting_child`, and resumes it once with the attributed child result. Plain text, @mentions, and JSON-looking prose return no action. Original acceptance texts stay unchecked.
