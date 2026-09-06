@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-11 is in progress on `feat/openbot-collaboration-system` / draft PR #1. Migration 0035 adds leases, recovery receipts, and `worker_interrupted`. Recovery consumes the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. Runtime grants now keep `worker_recovery` in the automatic-continuation helper. `publishDelta` still maps an elapsed deadline to `execution_timeout`, `protect_task` admits native `worker_recovery` metadata, and expired-claim cleanup may use `worker_stopped`. Original COL-11 acceptance texts stay unchecked until Tester stamps native and Compose evidence. COL-12 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-12 is in progress on `feat/openbot-collaboration-system` / draft PR #1. COL-11 is closed against product HEAD `9a1385a` with Tester PASS on [Verify 34004247688](https://github.com/Blackman99/openbot/actions/runs/34004247688). Hierarchical limits resolve the strictest Workspace, Group, Task, and Run policy per duration/turn/depth/handoff dimension and snapshot those starting limits on each Task. Original COL-12 acceptance texts stay unchecked until Tester stamps native and Compose evidence. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Thirty-nine of 67 tickets are implemented and independently reviewed, and all 39 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12.
+Forty of 67 tickets are implemented and independently reviewed, and all 40 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

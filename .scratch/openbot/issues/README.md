@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **38**
-- Fully complete: **38**
+- Implemented and independently reviewed: **40**
+- Fully complete: **40**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -49,8 +49,8 @@ This directory contains the approved implementation backlog for the open-source 
 | 25 | [COL-08 — Pause and resume Tasks from checkpoints](25-col-08-pause-and-resume-tasks-from-checkpoints.md) | complete | [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
 | 26 | [COL-09 — Retry failed Tasks with immutable attempts](26-col-09-retry-failed-tasks-with-immutable-attempts.md) | complete | [COL-04](21-col-04-execute-a-single-bot-task-end-to-end.md) |
 | 27 | [COL-10 — Add bounded retries and explicit model fallback](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) | complete | [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
-| 28 | [COL-11 — Recover Runs after worker failure](28-col-11-recover-runs-after-worker-failure.md) | in-progress | [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
-| 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | ready-for-agent | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
+| 28 | [COL-11 — Recover Runs after worker failure](28-col-11-recover-runs-after-worker-failure.md) | complete | [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
+| 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | in-progress | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
 | 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | blocked | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
 | 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | blocked | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | blocked | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |

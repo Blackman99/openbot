@@ -2,7 +2,7 @@
 sequence: 28
 id: COL-11
 title: "Recover Runs after worker failure"
-status: in-progress
+status: complete
 blocked_by:
   - COL-05
   - COL-09
@@ -31,11 +31,11 @@ Leases, heartbeats, startup reconciliation, and guarded commits recover interrup
 
 ## Acceptance criteria
 
-- [ ] Restarting after a worker dies during a model call moves the Task to an explicit terminal or resumable state.
-- [ ] A stale running Run is marked interrupted and recovery uses a new attempt.
-- [ ] When two workers contend for an expired lease, only one can commit the result.
-- [ ] Completed Tasks are not sent to a provider again after restart.
-- [ ] Resumed SSE history records the interruption and recovery and contains one final assistant message.
+- [x] Restarting after a worker dies during a model call moves the Task to an explicit terminal or resumable state.
+- [x] A stale running Run is marked interrupted and recovery uses a new attempt.
+- [x] When two workers contend for an expired lease, only one can commit the result.
+- [x] Completed Tasks are not sent to a provider again after restart.
+- [x] Resumed SSE history records the interruption and recovery and contains one final assistant message.
 
 ## Non-goals
 
@@ -49,4 +49,8 @@ Recovery reuses COL-07 durable partial-output and cancellation fences, plus COL-
 
 ## Implementation note
 
-COL-11 is in progress on `feat/openbot-collaboration-system`. Recovery consumes the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. Migration 0035 adds `task_run_leases`, `task_run_recovery_receipts`, and the `worker_interrupted` failure code. Public tests cover lease fencing, two-recovery contention, completed-Task no-replay, and resumed SSE history with one final assistant message. Native tests race two PostgreSQL workers for recovery, successor claim, and final publication. The five original acceptance texts stay unchecked until Tester stamps native and Compose evidence.
+Recovery consumes the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. Migration 0035 adds `task_run_leases`, `task_run_recovery_receipts`, and the `worker_interrupted` failure code. A 15 s claim lease and 1 s heartbeat fence late success after expiry. `execution_timeout` remains allowed when the hard deadline has elapsed. Runtime grants keep `worker_recovery` in the automatic-continuation helper.
+
+## Completion evidence
+
+Closed on 2026-09-06 against product HEAD `9a1385a` with Tester PASS on [Verify 34004247688](https://github.com/Blackman99/openbot/actions/runs/34004247688) (all 18 jobs green). `postgres-tasks` recovered an expired native claim once, raced two workers for one successor/claim/final output, and still failed a deadline-elapsed claim as `execution_timeout`. `postgres-conversation-streams` mapped an elapsed deadline through an expired lease. `compose-task-recovery` seed/killed/recovered stages passed: SIGKILL during a held model call, lease expiry, one `worker_interrupted` attempt, one completed successor, one recovery receipt, and no replay of the already-completed follow-up Task. Public tests cover lease fencing, two-recovery contention, completed-Task no-replay, and resumed SSE history with one final assistant message. No local PostgreSQL or Docker execution is claimed. This does not implement COL-12 hierarchical limits.
