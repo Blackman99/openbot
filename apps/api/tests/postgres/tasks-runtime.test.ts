@@ -30,6 +30,7 @@ import { ProviderSecretBox } from '../../src/providers/secrets.js';
 import { ProviderError, ProviderUrlPolicy } from '../../src/providers/url-policy.js';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import { TaskQueue, type TaskClaim } from '../../src/tasks/queue.js';
+import { CLAIM_LEASE_MS } from '../../src/tasks/lease.js';
 import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
 import { planNextAttempt } from '../../src/tasks/retry-schedule.js';
 import { planManualResume } from '../../src/tasks/resume.js';
@@ -228,7 +229,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       if (inGroup) {
         const groups = new GroupService(new PostgresGroupRepository(runtime));
         const group = await groups.create(ownerId, workspaceId, { name: 'Execution group' });
-        await runtime.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+        await admin.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
           group.id,
           JSON.stringify({ maxConcurrentRuns: 16 }),
         ]);
@@ -2881,6 +2882,128 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         { id: claim!.runId, status: 'failed', error_code: 'execution_timeout' },
         { id: granted.grant.runId, status: 'completed', error_code: null },
       ]);
+    }, 15000);
+
+    it('holds a fifth default-group Run queued under openbot_runtime and skips to another group', async () => {
+      const f = await fixture('workspace', true);
+      const groupId = (
+        await runtime.query<{ group_id: string }>(
+          'SELECT group_id FROM conversations WHERE id=$1',
+          [f.conversationId],
+        )
+      ).rows[0]!.group_id;
+      await admin.query("UPDATE groups SET execution_policy='{}'::jsonb WHERE id=$1", [groupId]);
+      const tasks = [];
+      for (let index = 0; index < 5; index++)
+        tasks.push(await submit(f, runtime, `group-cap-${index}`, `Group cap ${index}`));
+      const queue = new TaskQueue(runtime);
+      const claimed = [];
+      for (let index = 0; index < 4; index++) {
+        const next = await queue.claimNext();
+        expect(next.claim?.taskId).toBe(tasks[index]!.id);
+        claimed.push(next.claim!);
+      }
+      expect(await queue.claimNext()).toEqual({ handled: false });
+      expect(await read(f, tasks[4]!.id)).toMatchObject({
+        status: 'queued',
+        runs: [
+          {
+            status: 'queued',
+            queueHold: { reason: 'concurrency', layer: 'group', limit: 4, used: 4 },
+          },
+        ],
+      });
+      expect(
+        (
+          await runtime.query('SELECT layer FROM task_run_concurrency_holds WHERE run_id=$1', [
+            tasks[4]!.runs[0]!.id,
+          ])
+        ).rows,
+      ).toEqual([{ layer: 'group' }]);
+      expect(await queue.finish(claimed[0]!, { body: 'Released slot.', usage: null })).toBe(true);
+      expect((await queue.claimNext()).claim?.taskId).toBe(tasks[4]!.id);
+      for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'])
+        expect(
+          (
+            await admin.query('SELECT has_table_privilege($1,$2,$3) AS allowed', [
+              'openbot_runtime',
+              'task_run_concurrency_holds',
+              privilege,
+            ])
+          ).rows[0].allowed,
+        ).toBe(['SELECT', 'INSERT', 'DELETE'].includes(privilege));
+      expect(
+        (
+          await admin.query(
+            "SELECT has_column_privilege('openbot_runtime','tasks','execution_policy','UPDATE') AS allowed",
+          )
+        ).rows[0].allowed,
+      ).toBe(false);
+    }, 15000);
+
+    it('skips a blocked native group so a later due Run in another group can claim', async () => {
+      const f = await fixture('workspace', true);
+      const groupId = (
+        await runtime.query<{ group_id: string }>(
+          'SELECT group_id FROM conversations WHERE id=$1',
+          [f.conversationId],
+        )
+      ).rows[0]!.group_id;
+      await admin.query("UPDATE groups SET execution_policy='{}'::jsonb WHERE id=$1", [groupId]);
+      const blocked = [];
+      for (let index = 0; index < 5; index++)
+        blocked.push(await submit(f, runtime, `full-group-${index}`, `Full group ${index}`));
+      const other = await new GroupService(new PostgresGroupRepository(runtime)).create(
+        f.ownerId,
+        f.workspaceId,
+        { name: 'Other native group' },
+      );
+      const otherGrant = await grants().invite(f.ownerId, f.workspaceId, other.id, {
+        botId: f.bot.id,
+        idempotencyKey: 'other-native-invite',
+      });
+      const later = await new TaskService(runtime).submit(
+        f.actorId,
+        f.workspaceId,
+        otherGrant.conversationId,
+        {
+          idempotencyKey: 'other-native',
+          body: 'Later group work',
+          groupGrantId: otherGrant.id,
+        },
+      );
+      const queue = new TaskQueue(runtime);
+      for (let index = 0; index < 4; index++)
+        expect((await queue.claimNext()).claim?.taskId).toBe(blocked[index]!.id);
+      expect((await queue.claimNext()).claim?.taskId).toBe(later.id);
+      expect(await read(f, blocked[4]!.id)).toMatchObject({
+        status: 'queued',
+        runs: [{ queueHold: { reason: 'concurrency', layer: 'group', limit: 4, used: 4 } }],
+      });
+    }, 15000);
+
+    it('releases a native group slot when the worker lease expires', async () => {
+      let now = new Date('2026-09-06T07:00:00.000Z');
+      const f = await fixture('workspace', true);
+      const groupId = (
+        await runtime.query<{ group_id: string }>(
+          'SELECT group_id FROM conversations WHERE id=$1',
+          [f.conversationId],
+        )
+      ).rows[0]!.group_id;
+      await admin.query("UPDATE groups SET execution_policy='{}'::jsonb WHERE id=$1", [groupId]);
+      const tasks = [];
+      for (let index = 0; index < 5; index++) {
+        now = new Date(now.getTime() + 1);
+        tasks.push(await submit(f, runtime, `expired-${index}`, `Expired ${index}`));
+      }
+      const queue = new TaskQueue(runtime, () => now);
+      for (let index = 0; index < 4; index++)
+        expect((await queue.claimNext()).claim?.taskId).toBe(tasks[index]!.id);
+      expect(await queue.claimNext()).toEqual({ handled: false });
+      now = new Date(now.getTime() + CLAIM_LEASE_MS + 1);
+      expect((await queue.claimNext()).claim?.taskId).toBe(tasks[4]!.id);
+      expect(await read(f, tasks[0]!.id)).toMatchObject({ status: 'running' });
     }, 15000);
   },
 );

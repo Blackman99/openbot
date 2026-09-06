@@ -39,7 +39,7 @@ Pure policy and occupancy landed first. Claim wiring and hold persistence are no
 
 ## Leftover before the original ACs can be stamped
 
-- Native multi-worker claim, skip-blocked, and expired-lease slot release under `openbot_runtime`.
+- Native `postgres-tasks` cases for default-group hold, skip-blocked, and expired-lease release are written and wait for Verify.
 - Compose evidence that a default group never runs a fifth concurrent Bot.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

@@ -182,7 +182,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
       if (inGroup) {
         const groups = new GroupService(new PostgresGroupRepository(runtime));
         const group = await groups.create(ownerId, workspaceId, { name: 'Execution group' });
-        await runtime.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+        await admin.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
           group.id,
           JSON.stringify({ maxConcurrentRuns: 16 }),
         ]);
