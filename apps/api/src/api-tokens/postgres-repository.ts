@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SqlConnection, SqlPool } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import type { WorkspaceRole } from '../workspaces/service.js';
 import {
   type ApiToken,
@@ -68,9 +69,7 @@ export class PostgresApiTokenRepository implements ApiTokenRepository {
   async assertCurrent(connection: SqlConnection, record: RecheckApiTokenRecord, clock: () => Date) {
     // The domain operation already holds this same workspace lock. Never route
     // the final check to a workspace or creator supplied by a public request.
-    await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
-      record.workspaceId,
-    ]);
+    await lockWorkspaceAuthority(connection, record.workspaceId);
     const row = await readAuthorizedToken(connection, record.tokenDigest, clock());
     if (
       !row ||
@@ -104,9 +103,7 @@ export class PostgresApiTokenRepository implements ApiTokenRepository {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
-      await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
-        record.workspaceId,
-      ]);
+      await lockWorkspaceAuthority(connection, record.workspaceId);
       const access = await connection.query(
         'SELECT user_id FROM workspace_memberships WHERE workspace_id = $1 AND user_id = $2',
         [record.workspaceId, record.actorUserId],
@@ -163,9 +160,7 @@ export class PostgresApiTokenRepository implements ApiTokenRepository {
         await connection.query('COMMIT');
         return undefined;
       }
-      await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
-        candidate.workspace_id,
-      ]);
+      await lockWorkspaceAuthority(connection, candidate.workspace_id);
       const occurredAt = clock();
       const row = await readAuthorizedToken(connection, record.tokenDigest, occurredAt);
       if (!row) {
@@ -214,9 +209,7 @@ export class PostgresApiTokenRepository implements ApiTokenRepository {
     const connection = await this.pool.connect();
     try {
       await connection.query('BEGIN');
-      await connection.query('SELECT id FROM workspaces WHERE id = $1 FOR UPDATE', [
-        pendingToken.workspaceId,
-      ]);
+      await lockWorkspaceAuthority(connection, pendingToken.workspaceId);
       const token = { ...pendingToken, createdAt: clock() };
       if (token.expiresAt <= token.createdAt) throw new ApiTokenInputError();
       const membership = await connection.query(

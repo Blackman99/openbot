@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import { appendBotRemoved } from '../conversations/append-event.js';
 import { groupBotUuid, GroupBotAccessError, type GroupBotClosureReason } from './service.js';
 
@@ -92,9 +93,7 @@ export class GroupBotRevocations {
       workspaceId: groupBotUuid(supplied.workspaceId),
       targetUserId: groupBotUuid(supplied.targetUserId),
     });
-    await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
-      access.workspaceId,
-    ]);
+    await lockWorkspaceAuthority(connection, access.workspaceId);
     const rows = (
       await connection.query<{
         id: string;

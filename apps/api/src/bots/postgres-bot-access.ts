@@ -1,4 +1,5 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import { botConfigurationView } from './configuration-view.js';
 import {
   BotAccessError,
@@ -65,10 +66,7 @@ export async function lockBotWorkspace(
   actorUserId: string,
   workspaceId: string,
 ) {
-  const workspace = await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [
-    workspaceId,
-  ]);
-  if (!workspace.rows[0]) throw new BotAccessError();
+  if (!(await lockWorkspaceAuthority(connection, workspaceId))) throw new BotAccessError();
   const user = (
     await connection.query<{ id: string; display_name: string }>(
       'SELECT u.id,u.display_name FROM workspace_memberships m INNER JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2',
