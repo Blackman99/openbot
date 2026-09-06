@@ -18,7 +18,7 @@ export async function readQueuedAuditMetadata(
     connection,
     () =>
       connection.query<{ metadata: unknown }>(
-        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1 ORDER BY occurred_at DESC LIMIT 1",
+        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1::text ORDER BY occurred_at DESC LIMIT 1",
         [runId],
       ),
     'audit_events',
@@ -46,7 +46,7 @@ export async function readQueuedAuditMetadataForTask(
     connection,
     () =>
       connection.query<{ metadata: unknown }>(
-        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'taskId'=$1",
+        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'taskId'=$1::text",
         [taskId],
       ),
     'audit_events',

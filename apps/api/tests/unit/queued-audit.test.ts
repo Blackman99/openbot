@@ -79,9 +79,31 @@ describe('queued audit metadata readers', () => {
       'SELECT task_queued_audit_metadata($1::uuid) AS metadata',
       'ROLLBACK TO SAVEPOINT col10_queued_audit',
       'SAVEPOINT col10_queued_audit',
-      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1 ORDER BY occurred_at DESC LIMIT 1",
+      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1::text ORDER BY occurred_at DESC LIMIT 1",
       'RELEASE SAVEPOINT col10_queued_audit',
     ]);
+  });
+
+  it('casts JSON text keys before comparing UUID parameters on the table fallback', async () => {
+    const db = connection(async (query) => {
+      if (
+        query.statement.startsWith('SAVEPOINT') ||
+        query.statement.startsWith('ROLLBACK') ||
+        query.statement.startsWith('RELEASE')
+      )
+        return emptyResult();
+      if (query.statement.includes('task_queued_audit_metadata_for_task('))
+        throw sqlError(
+          '42883',
+          'function task_queued_audit_metadata_for_task(uuid) does not exist',
+        );
+      if (query.statement.includes('FROM audit_events')) return emptyResult();
+      throw new Error(`unexpected ${query.statement}`);
+    });
+    await expect(readQueuedAuditMetadataForTask(db, 'task-1')).resolves.toEqual([]);
+    expect(db.queries.map((query) => query.statement)).toContain(
+      "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'taskId'=$1::text",
+    );
   });
 
   it('returns no metadata when the helper is absent and audit SELECT is denied', async () => {
