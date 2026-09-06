@@ -12,6 +12,7 @@ import {
   type ExecutionLimitDimension,
 } from './execution-limit-enforcement.js';
 import { loadAttemptChain, writeNextAttempt } from './next-attempt.js';
+import { readQueuedAuditMetadataForTask } from './queued-audit.js';
 import { effectiveRetryPolicy, type NextAttemptPlan } from './retry-schedule.js';
 import type { TaskStatus } from './service.js';
 import { lockTaskAncestry } from './tree.js';
@@ -144,20 +145,21 @@ export async function grantTaskLimit(
   if (prior) {
     if (prior.dimension !== command.dimension || Number(prior.granted_limit) !== command.limit)
       throw new TaskConflictError();
-    const successor = (
-      await connection.query<{ run_id: string; attempt: number }>(
-        `SELECT r.id AS run_id, r.attempt
-         FROM audit_events a
-         JOIN task_runs r ON r.id::text=a.metadata->>'runId' AND r.task_id=$1
-         WHERE a.event_type='task.queued'
-           AND a.metadata->>'taskId'=$1
-           AND a.metadata->>'origin'='budget_grant'
-           AND a.occurred_at>=$2
-         ORDER BY a.occurred_at DESC, r.attempt DESC
-         LIMIT 1`,
-        [taskId, prior.created_at],
+    const grantedRunIds = (await readQueuedAuditMetadataForTask(connection, taskId))
+      .filter(
+        (metadata) => metadata.origin === 'budget_grant' && typeof metadata.runId === 'string',
       )
-    ).rows[0];
+      .map((metadata) => metadata.runId as string);
+    const successor = grantedRunIds.length
+      ? (
+          await connection.query<{ run_id: string; attempt: number }>(
+            `SELECT id AS run_id, attempt FROM task_runs
+             WHERE task_id=$1 AND id=ANY($2::uuid[])
+             ORDER BY attempt DESC LIMIT 1`,
+            [taskId, grantedRunIds],
+          )
+        ).rows[0]
+      : undefined;
     if (successor)
       return {
         grantId: prior.id,

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MIGRATION_VERSIONS } from '../../src/database/migrations.js';
 import { TaskInputError } from '../../src/tasks/errors.js';
@@ -223,5 +225,14 @@ describe('COL-12 authorized limit grant command', () => {
       chainLimitSnapshot: 4,
       modelAttemptOrdinal: 1,
     });
+  });
+
+  it('replays a grant successor without selecting audit_events as runtime', () => {
+    const source = readFileSync(
+      fileURLToPath(new URL('../../src/tasks/execution-limit-grant.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(source).toContain('readQueuedAuditMetadataForTask');
+    expect(source).not.toContain('FROM audit_events');
   });
 });
