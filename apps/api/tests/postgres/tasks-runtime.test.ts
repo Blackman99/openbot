@@ -2707,5 +2707,96 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         runs: [{ id: admitted[0]!.runId, attempt: 2, status: 'completed', error: null }],
       });
     }, 15000);
+
+    it('grants one selected duration cap and resumes waiting_budget without rewriting the snapshot', async () => {
+      let current = new Date('2026-09-06T06:00:00.000Z');
+      const f = await fixture('personal', false, {
+        retryPolicy: { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+      });
+      await admin.query('UPDATE workspaces SET execution_policy=$2::jsonb WHERE id=$1', [
+        f.workspaceId,
+        JSON.stringify({ maxDurationSeconds: 1 }),
+      ]);
+      const task = await submit(f, runtime, 'budget-task', 'Stay inside the snapshotted cap.');
+      const queue = new TaskQueue(runtime, () => current);
+      const { claim } = await queue.claimNext();
+      expect(claim).toBeDefined();
+      expect(claim!.deadlineAt.getTime() - current.getTime()).toBe(1_000);
+      await queue.publishDelta(claim!, 'Partial draft.');
+      current = new Date(claim!.deadlineAt.getTime() + 1);
+      expect(
+        await queue.finish(claim!, {
+          body: 'Too late to complete.',
+          usage: { inputTokens: 2, outputTokens: 1 },
+        }),
+      ).toBe(true);
+      expect(await read(f, task.id)).toMatchObject({
+        status: 'waiting_budget',
+        runCount: 1,
+        runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
+      });
+      expect(
+        (
+          await runtime.query('SELECT body FROM task_run_partial_outputs WHERE run_id=$1', [
+            claim!.runId,
+          ])
+        ).rows[0],
+      ).toEqual({ body: 'Partial draft.' });
+      const snapshot = (
+        await runtime.query<{ max_duration_ms: string }>(
+          'SELECT max_duration_ms FROM task_execution_limit_snapshots WHERE task_id=$1',
+          [task.id],
+        )
+      ).rows[0]!;
+      expect(Number(snapshot.max_duration_ms)).toBe(1_000);
+      await expect(
+        new TaskService(runtime).grantLimit(f.memberId, f.workspaceId, f.conversationId, task.id, {
+          idempotencyKey: 'raise-duration',
+          dimension: 'duration',
+          limit: 5_000,
+        }),
+      ).rejects.toBeInstanceOf(TaskAccessError);
+      const granted = await new TaskService(runtime).grantLimit(
+        f.ownerId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        {
+          idempotencyKey: 'raise-duration',
+          dimension: 'duration',
+          limit: 5_000,
+        },
+      );
+      expect(granted.task.status).toBe('queued');
+      expect(granted.grant).toMatchObject({
+        dimension: 'duration',
+        previousLimit: 1_000,
+        grantedLimit: 5_000,
+        attempt: 2,
+      });
+      expect(
+        Number(
+          (
+            await runtime.query<{ max_duration_ms: string }>(
+              'SELECT max_duration_ms FROM task_execution_limit_snapshots WHERE task_id=$1',
+              [task.id],
+            )
+          ).rows[0]!.max_duration_ms,
+        ),
+      ).toBe(1_000);
+      const replay = await new TaskService(runtime).grantLimit(
+        f.ownerId,
+        f.workspaceId,
+        f.conversationId,
+        task.id,
+        {
+          idempotencyKey: 'raise-duration',
+          dimension: 'duration',
+          limit: 5_000,
+        },
+      );
+      expect(replay.grant.grantId).toBe(granted.grant.grantId);
+      expect(replay.grant.runId).toBe(granted.grant.runId);
+    }, 15000);
   },
 );

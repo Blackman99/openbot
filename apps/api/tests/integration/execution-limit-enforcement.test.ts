@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
+import { TaskAccessError, TaskConflictError } from '../../src/tasks/errors.js';
 import { taskFixture } from '../helpers/task-fixture.js';
 
 describe('COL-12 soft warnings and hard waiting_budget', () => {
@@ -174,5 +175,179 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
         .rows[0],
     ).toEqual({ n: 1 });
     expect(await f.worker(async () => ({ events: [], raw: '' })).runOnce()).toBe(false);
+  });
+
+  it('grants one selected cap idempotently, resumes waiting_budget, and leaves snapshot plus usage unchanged', async () => {
+    let current = new Date('2026-09-06T03:00:00.000Z');
+    const { f, task } = await budgetTask(
+      () => current,
+      { maxDurationSeconds: 1 },
+      { maxAttemptsPerModel: 2, maxRunsPerChain: 4 },
+    );
+    expect(
+      await f
+        .worker(async (_input, _signal, onEvent) => {
+          await onEvent?.({ type: 'text', text: 'Partial draft.' });
+          current = new Date(current.getTime() + 1_000);
+          return {
+            events: [{ type: 'text', text: 'Partial draft.' }],
+            raw: '',
+            error: modelFailure('provider_rate_limited'),
+          };
+        })
+        .runOnce(),
+    ).toBe(true);
+    const held = await f.tasks.get(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      f.conversation.id,
+      task.id,
+    );
+    expect(held.status).toBe('waiting_budget');
+    const snapshot = (
+      await f.pool.query<{
+        max_duration_ms: string | number;
+        max_turns: number;
+      }>('SELECT max_duration_ms,max_turns FROM task_execution_limit_snapshots WHERE task_id=$1', [
+        task.id,
+      ])
+    ).rows[0]!;
+    expect(Number(snapshot.max_duration_ms)).toBe(1_000);
+    const firstRun = (
+      await f.pool.query<{
+        id: string;
+        started_at: Date;
+        finished_at: Date;
+        status: string;
+        error_code: string | null;
+        input_tokens: number | null;
+        output_tokens: number | null;
+      }>(
+        'SELECT id,started_at,finished_at,status,error_code,input_tokens,output_tokens FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+        [task.id],
+      )
+    ).rows[0]!;
+    const member = await f.addUser('member');
+    await expect(
+      f.tasks.grantLimit(member.id, f.owner.workspace.id, f.conversation.id, task.id, {
+        idempotencyKey: 'raise-duration',
+        dimension: 'duration',
+        limit: 5_000,
+      }),
+    ).rejects.toBeInstanceOf(TaskAccessError);
+    await expect(
+      f.tasks.grantLimit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.id, {
+        idempotencyKey: 'raise-duration',
+        dimension: 'duration',
+        limit: 1_000,
+      }),
+    ).rejects.toMatchObject({ code: 'task_limit_grant_not_increased' });
+    const granted = await f.tasks.grantLimit(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      f.conversation.id,
+      task.id,
+      {
+        idempotencyKey: 'raise-duration',
+        dimension: 'duration',
+        limit: 5_000,
+      },
+    );
+    expect(granted.task).toMatchObject({
+      id: task.id,
+      status: 'queued',
+      runCount: 2,
+    });
+    expect(granted.grant).toMatchObject({
+      taskId: task.id,
+      dimension: 'duration',
+      previousLimit: 1_000,
+      grantedLimit: 5_000,
+      runId: expect.any(String),
+      attempt: 2,
+    });
+    expect(granted.grant.runId).not.toBe(firstRun.id);
+    const replay = await f.tasks.grantLimit(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      f.conversation.id,
+      task.id,
+      {
+        idempotencyKey: 'raise-duration',
+        dimension: 'duration',
+        limit: 5_000,
+      },
+    );
+    expect(replay.grant).toEqual(granted.grant);
+    await expect(
+      f.tasks.grantLimit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.id, {
+        idempotencyKey: 'raise-duration',
+        dimension: 'duration',
+        limit: 6_000,
+      }),
+    ).rejects.toBeInstanceOf(TaskConflictError);
+    expect(
+      (
+        await f.pool.query(
+          'SELECT max_duration_ms,max_turns FROM task_execution_limit_snapshots WHERE task_id=$1',
+          [task.id],
+        )
+      ).rows[0],
+    ).toEqual(snapshot);
+    expect(
+      (
+        await f.pool.query<{
+          id: string;
+          started_at: Date;
+          finished_at: Date;
+          status: string;
+          error_code: string | null;
+          input_tokens: number | null;
+          output_tokens: number | null;
+        }>(
+          'SELECT id,started_at,finished_at,status,error_code,input_tokens,output_tokens FROM task_runs WHERE id=$1',
+          [firstRun.id],
+        )
+      ).rows[0],
+    ).toEqual(firstRun);
+    const queuedAudit = (
+      await f.pool.query<{ metadata: Record<string, unknown> }>(
+        "SELECT metadata FROM audit_events WHERE event_type='task.queued' AND metadata->>'runId'=$1",
+        [granted.grant.runId],
+      )
+    ).rows[0]!.metadata;
+    expect(queuedAudit).toMatchObject({
+      origin: 'budget_grant',
+      sourceRunId: firstRun.id,
+    });
+    expect(
+      await f
+        .worker(async () => ({
+          events: [
+            { type: 'text', text: 'Resumed after the grant.' },
+            { type: 'complete', stopReason: 'stop' },
+          ],
+          raw: '',
+        }))
+        .runOnce(),
+    ).toBe(true);
+    expect(
+      await f.tasks.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.id),
+    ).toMatchObject({
+      status: 'completed',
+      runCount: 2,
+      runs: [{ id: granted.grant.runId, status: 'completed', error: null }],
+    });
+    expect(
+      (
+        await f.pool.query<{ id: string; status: string; error_code: string | null }>(
+          'SELECT id,status,error_code FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows,
+    ).toEqual([
+      { id: firstRun.id, status: 'failed', error_code: firstRun.error_code },
+      { id: granted.grant.runId, status: 'completed', error_code: null },
+    ]);
   });
 });

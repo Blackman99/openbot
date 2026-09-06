@@ -270,6 +270,9 @@ try {
       IF to_regclass('task_execution_limit_warnings') IS NOT NULL THEN
         GRANT SELECT, INSERT ON task_execution_limit_warnings TO openbot_runtime;
       END IF;
+      IF to_regclass('task_execution_limit_grants') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_execution_limit_grants TO openbot_runtime;
+      END IF;
       IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
       END IF;
@@ -398,6 +401,22 @@ try {
     $$;
     REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
     GRANT EXECUTE ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) TO openbot_runtime;
+    CREATE OR REPLACE FUNCTION task_has_budget_grant_receipt(target uuid, run_id uuid, actor uuid)
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM audit_events a
+        JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+        JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+        JOIN task_execution_limit_grants g ON g.task_id=target AND g.actor_user_id=actor
+        WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+          AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+          AND a.metadata->>'origin'='budget_grant'
+          AND previous.status IN ('failed','paused')
+          AND previous.attempt::bigint+1=next_run.attempt
+      )
+    $$;
+    REVOKE ALL ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;
     GRANT SELECT, INSERT ON api_tokens TO openbot_runtime;
     GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;

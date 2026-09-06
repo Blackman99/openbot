@@ -246,6 +246,13 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT SELECT, INSERT ON task_execution_limit_warnings TO openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('task_execution_limit_grants')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_execution_limit_grants TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
     expect(grants).toContain(
       'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
     );

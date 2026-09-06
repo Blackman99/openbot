@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MIGRATION_VERSIONS } from '../../src/database/migrations.js';
+import { TaskInputError } from '../../src/tasks/errors.js';
+import { limitGrantCommand, planBudgetGrant } from '../../src/tasks/execution-limit-grant.js';
 import {
   evaluateExecutionLimitUsage,
   EXECUTION_LIMIT_SOFT_DENOMINATOR,
@@ -119,6 +121,8 @@ describe('COL-12 enforcement schema slice', () => {
     expect(sql).toContain('waiting_budget');
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS tasks_constraint_1');
     expect(sql).toContain('CREATE TABLE task_execution_limit_warnings');
+    expect(sql).toContain('CREATE TABLE task_execution_limit_grants');
+    expect(sql).toContain('UNIQUE (task_id,actor_user_id,idempotency_key)');
     expect(sql).toContain("event_type='task.limit.warning'");
     expect(sql).not.toContain('delivery_limit_event_type');
     expect(sql).not.toContain('INSERT INTO openbot_schema_migrations');
@@ -132,6 +136,88 @@ describe('COL-12 enforcement schema slice', () => {
     );
     expect(overlay).toContain("parent.status<>'waiting_budget'");
     expect(overlay).toContain("'task.limit.warning'");
+    expect(overlay).toContain('task_has_budget_grant_receipt');
+    expect(overlay).toContain("OLD.status='waiting_budget' AND NEW.status='queued'");
+    expect(overlay).toContain(
+      "status IN ('paused','waiting_budget') AND NOT (allow_paused AND id=target)",
+    );
+    expect(overlay).toContain(
+      'EXISTS (SELECT 1 FROM task_execution_limit_grants g WHERE g.task_id=NEW.id)',
+    );
     expect(overlay).not.toContain('INSERT INTO openbot_schema_migrations');
+  });
+});
+
+describe('COL-12 authorized limit grant command', () => {
+  const now = new Date('2026-09-06T05:00:00.000Z');
+  const binding = {
+    scope: { kind: 'personal' as const, id: '11111111-1111-4111-8111-111111111111' },
+    connectionId: '22222222-2222-4222-8222-222222222222',
+    modelId: 'task-model',
+  };
+
+  it('accepts an integer raise of one selected dimension', () => {
+    expect(
+      limitGrantCommand({
+        idempotencyKey: 'grant-1',
+        dimension: 'duration',
+        limit: 5000,
+      }),
+    ).toEqual({
+      idempotencyKey: 'grant-1',
+      dimension: 'duration',
+      limit: 5000,
+    });
+  });
+
+  it('rejects unknown keys, non-integers, and out-of-range limits', () => {
+    expect(() =>
+      limitGrantCommand({
+        idempotencyKey: 'grant-1',
+        dimension: 'turns',
+        limit: 2,
+        extra: true,
+      }),
+    ).toThrow(TaskInputError);
+    expect(() =>
+      limitGrantCommand({
+        idempotencyKey: 'grant-1',
+        dimension: 'duration',
+        limit: 1.5,
+      }),
+    ).toThrow(TaskInputError);
+    expect(() =>
+      limitGrantCommand({
+        idempotencyKey: 'grant-1',
+        dimension: 'duration',
+        limit: 0,
+      }),
+    ).toThrow(TaskInputError);
+  });
+
+  it('feeds the shared next-attempt writer without rewriting usage', () => {
+    expect(
+      planBudgetGrant({
+        binding,
+        sourceRunId: '33333333-3333-4333-8333-333333333333',
+        chainRootRunId: '33333333-3333-4333-8333-333333333333',
+        chainAttemptOrdinal: 2,
+        chainLimitSnapshot: 4,
+        now,
+      }),
+    ).toEqual({
+      origin: 'budget_grant',
+      reason: 'budget_grant',
+      binding,
+      previousBinding: binding,
+      notBefore: now,
+      delayMs: 0,
+      jitterMs: 0,
+      chainRootRunId: '33333333-3333-4333-8333-333333333333',
+      previousRunId: '33333333-3333-4333-8333-333333333333',
+      chainAttemptOrdinal: 2,
+      chainLimitSnapshot: 4,
+      modelAttemptOrdinal: 1,
+    });
   });
 });

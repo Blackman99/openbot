@@ -51,9 +51,16 @@ Run timeout uses the remaining snapshotted duration as the claim deadline:
 - `claimNext` persists `deadline_at` from remaining snapshot milliseconds after lock wait, not a later Bot-config rewrite.
 - Crossing that deadline aborts the provider stream, keeps the committed partial prefix, writes `execution_timeout` audit, and holds `waiting_budget` so no further Run starts.
 
+## Fourth landed slice
+
+Authorized idempotent grant of one selected limit:
+
+- `POST .../limit-grants` records one selected dimension onto `task_execution_limit_grants`. The starting snapshot and measured usage stay unchanged. Soft, hard, and remaining-duration checks use snapshot plus later grants.
+- Same actor and idempotency key replay the stored receipt. A different limit on that key conflicts.
+- A Task at `waiting_budget` resumes without rewriting the held Run: a still-queued Run is reopened in place; a failed or paused Run gets one `budget_grant` successor through the shared writer.
+
 ## Leftover before the original ACs can be stamped
 
-- Authorized idempotent grant of one selected limit without rewriting usage.
-- Native PostgreSQL and Compose evidence for the snapshot/guards, enforcement, and timeout slice.
+- Native PostgreSQL and Compose evidence for snapshot, soft/hard hold, snapshot-backed timeout, and grant resume.
 
 Do not check the six AC boxes until Tester stamps those leftovers.

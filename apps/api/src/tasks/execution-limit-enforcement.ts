@@ -105,12 +105,48 @@ export function remainingDurationMs(maxDurationMs: number, usedMs: number) {
   return Math.max(0, maxDurationMs - usedMs);
 }
 
+export async function loadEffectiveTaskLimits(
+  connection: SqlConnection,
+  taskId: string,
+): Promise<ResolvedExecutionLimits | undefined> {
+  const snapshot = await loadTaskLimitSnapshot(connection, taskId);
+  if (!snapshot) return undefined;
+  const grants = (
+    await connection.query<{
+      dimension: ExecutionLimitDimension;
+      granted_limit: string | number;
+    }>(
+      'SELECT dimension,granted_limit FROM task_execution_limit_grants WHERE task_id=$1 ORDER BY created_at,id',
+      [taskId],
+    )
+  ).rows;
+  const effective = { ...snapshot };
+  for (const grant of grants) {
+    const granted = Number(grant.granted_limit);
+    if (grant.dimension === 'duration' && effective.duration)
+      effective.duration = { ...effective.duration, maxDurationMs: granted };
+    if (grant.dimension === 'turns' && effective.turns)
+      effective.turns = { ...effective.turns, maxTurns: granted };
+    if (grant.dimension === 'delegationDepth' && effective.delegationDepth)
+      effective.delegationDepth = {
+        ...effective.delegationDepth,
+        maxDelegationDepth: granted,
+      };
+    if (grant.dimension === 'handoffs')
+      effective.handoffs = {
+        maxHandoffs: granted,
+        source: effective.handoffs?.source ?? 'run',
+      };
+  }
+  return effective;
+}
+
 export async function remainingSnapshotDurationMs(
   connection: SqlConnection,
   taskId: string,
   now: Date,
 ): Promise<number | undefined> {
-  const limits = await loadTaskLimitSnapshot(connection, taskId);
+  const limits = await loadEffectiveTaskLimits(connection, taskId);
   if (!limits?.duration) return undefined;
   return remainingDurationMs(
     limits.duration.maxDurationMs,
@@ -194,7 +230,7 @@ export async function applyTaskExecutionLimits(
   },
   options: { holdIfHard: boolean },
 ): Promise<{ hard: boolean }> {
-  const limits = await loadTaskLimitSnapshot(connection, input.taskId);
+  const limits = await loadEffectiveTaskLimits(connection, input.taskId);
   if (!limits) return { hard: false };
   const crossings = evaluateExecutionLimitUsage(
     limits,

@@ -67,7 +67,8 @@ export async function lockTaskAncestry(
   return path.every((node) => {
     if (node.status === 'cancelled') return false;
     if (node.status === 'paused') return Boolean(options.allowPausedTarget && node.id === taskId);
-    if (node.status === 'waiting_budget') return false;
+    if (node.status === 'waiting_budget')
+      return Boolean(options.allowPausedTarget && node.id === taskId);
     return true;
   });
 }

@@ -153,6 +153,7 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
+      'task_execution_limit_grants',
       'task_execution_limit_snapshots',
       'task_execution_limit_warnings',
       'task_pause_commands',
@@ -291,10 +292,14 @@ describe('database migrations', () => {
     const limitOverlay = statements.findLastIndex((statement) =>
       statement.includes("NEW.status<>'waiting_budget'"),
     );
+    const grantOverlay = statements.findLastIndex((statement) =>
+      statement.includes('task_has_budget_grant_receipt'),
+    );
     expect(automaticOverlay).toBeGreaterThanOrEqual(0);
     expect(pauseOverlay).toBeGreaterThan(automaticOverlay);
     expect(recoveryOverlay).toBeGreaterThan(pauseOverlay);
     expect(limitOverlay).toBeGreaterThan(recoveryOverlay);
+    expect(grantOverlay).toBeGreaterThan(recoveryOverlay);
     expect(statements.some((statement) => statement.includes("origin'='manual_resume'"))).toBe(
       true,
     );

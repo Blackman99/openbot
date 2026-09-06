@@ -28,6 +28,7 @@ import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from 
 import type { TaskPartialOutput } from './partial-output.js';
 import { lockTaskAncestry } from './tree.js';
 import { loadRunContinuations, type RunContinuation } from './continuation.js';
+import { grantTaskLimit, limitGrantCommand } from './execution-limit-grant.js';
 import {
   loadExecutionLimitPolicies,
   persistTaskLimitSnapshot,
@@ -253,6 +254,21 @@ export class TaskService {
     return this.transaction(async (connection) => {
       const pause = await pauseTask(connection, access, id, command, this.now);
       return { task: await readTask(connection, id), pause };
+    });
+  }
+  grantLimit(
+    actorUserId: string,
+    workspaceId: string,
+    conversationId: string,
+    taskId: string,
+    input: unknown,
+  ) {
+    const access = taskAccess(actorUserId, workspaceId, conversationId),
+      id = conversationUuid(taskId),
+      command = limitGrantCommand(input);
+    return this.transaction(async (connection) => {
+      const grant = await grantTaskLimit(connection, access, id, command, this.now);
+      return { task: await readTask(connection, id), grant };
     });
   }
   resume(

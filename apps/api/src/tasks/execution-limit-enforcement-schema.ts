@@ -1,7 +1,7 @@
 // Migration 0037 follows 0036. Published 0017/0019/0022/0023/0033/0034/0035/0036
 // statement lists stay unchanged. waiting_budget is a Task-only hold; the
 // current Run keeps its prior queued/failed/paused state so no further Run
-// starts until an authorized grant (later slice) resumes it.
+// starts until an authorized grant resumes it.
 export const TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS = [
   // pg-mem keeps the unnamed 0017 status CHECK as tasks_constraint_1 after
   // the named pause replacement. Native PostgreSQL only has tasks_pause_status.
@@ -24,6 +24,17 @@ export const TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS = [
     event_id UUID NOT NULL UNIQUE REFERENCES conversation_events(id),
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (task_id, dimension)
+  )`,
+  `CREATE TABLE task_execution_limit_grants (
+    id UUID PRIMARY KEY,
+    task_id UUID NOT NULL REFERENCES tasks(id),
+    actor_user_id UUID NOT NULL REFERENCES users(id),
+    idempotency_key VARCHAR(128) NOT NULL CHECK (idempotency_key<>''),
+    dimension TEXT NOT NULL CHECK(dimension IN ('duration','turns','delegationDepth','handoffs')),
+    previous_limit BIGINT NOT NULL CHECK(previous_limit>=0 AND previous_limit<=9007199254740991),
+    granted_limit BIGINT NOT NULL CHECK(granted_limit>previous_limit AND granted_limit<=9007199254740991),
+    created_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (task_id,actor_user_id,idempotency_key)
   )`,
 ] as const;
 

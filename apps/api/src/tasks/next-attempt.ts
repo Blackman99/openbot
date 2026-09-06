@@ -16,6 +16,7 @@ const ORIGINS = new Set<AttemptOrigin>([
   'model_fallback',
   'worker_recovery',
   'manual_resume',
+  'budget_grant',
 ]);
 
 export interface AttemptChain {
@@ -118,7 +119,7 @@ export async function writeNextAttempt(
     now: Date;
   },
 ): Promise<NextAttemptWrite> {
-  const resume = input.plan.origin === 'manual_resume';
+  const resume = input.plan.origin === 'manual_resume' || input.plan.origin === 'budget_grant';
   if (
     !(await lockTaskAncestry(connection, input.taskId, {
       allowPausedTarget: resume,
@@ -141,21 +142,30 @@ export async function writeNextAttempt(
     !latest ||
     latest.id !== input.sourceRunId ||
     source.some((run) => run.attempt > input.sourceAttempt) ||
-    latest.status !== (resume ? 'paused' : 'failed')
+    latest.status !==
+      (input.plan.origin === 'manual_resume'
+        ? 'paused'
+        : input.plan.origin === 'budget_grant'
+          ? latest.status === 'paused' || latest.status === 'failed'
+            ? latest.status
+            : 'failed'
+          : 'failed')
   )
     return { scheduled: false, reason: 'duplicate' };
-  const held = await applyTaskExecutionLimits(
-    connection,
-    {
-      taskId: input.taskId,
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      executionUserId: input.executionUserId,
-      now: input.now,
-    },
-    { holdIfHard: true },
-  );
-  if (held.hard) return { scheduled: false, reason: 'budget' };
+  if (input.plan.origin !== 'budget_grant') {
+    const held = await applyTaskExecutionLimits(
+      connection,
+      {
+        taskId: input.taskId,
+        workspaceId: input.workspaceId,
+        conversationId: input.conversationId,
+        executionUserId: input.executionUserId,
+        now: input.now,
+      },
+      { holdIfHard: true },
+    );
+    if (held.hard) return { scheduled: false, reason: 'budget' };
+  }
   const parent = (
     await connection.query<{ created_at: Date }>('SELECT created_at FROM tasks WHERE id=$1', [
       input.taskId,

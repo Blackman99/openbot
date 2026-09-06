@@ -23,6 +23,29 @@ export const COL12_LIMITS_POSTGRES_GUARDS = [
 ] as const;
 
 export const COL12_ENFORCEMENT_POSTGRES_GUARDS = [
+  `CREATE OR REPLACE FUNCTION task_has_budget_grant_receipt(target uuid, run_id uuid, actor uuid)
+RETURNS boolean
+LANGUAGE sql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM audit_events a
+    JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+    JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+    JOIN task_execution_limit_grants g ON g.task_id=target AND g.actor_user_id=actor
+    WHERE a.event_type='task.queued'
+      AND a.actor_user_id=actor
+      AND a.metadata->>'taskId'=target::text
+      AND a.metadata->>'runId'=run_id::text
+      AND a.metadata->>'origin'='budget_grant'
+      AND previous.status IN ('failed','paused')
+      AND previous.attempt::bigint+1=next_run.attempt
+  )
+$$`,
+  'REVOKE ALL ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) FROM PUBLIC',
   `CREATE OR REPLACE FUNCTION lock_task_ancestry(target UUID, allow_paused BOOLEAN) RETURNS BOOLEAN LANGUAGE plpgsql AS $$
     DECLARE root_id UUID; ancestor UUID;
     BEGIN
@@ -38,21 +61,22 @@ export const COL12_ENFORCEMENT_POSTGRES_GUARDS = [
         SELECT id,parent_task_id,status FROM tasks WHERE id=target
         UNION ALL SELECT t.id,t.parent_task_id,t.status FROM tasks t JOIN chain c ON t.id=c.parent_task_id
       ) SELECT 1 FROM chain WHERE status='cancelled'
-        OR (status IN ('paused','waiting_budget') AND NOT (allow_paused AND id=target AND status='paused')));
+        OR (status IN ('paused','waiting_budget') AND NOT (allow_paused AND id=target)));
     END;
     $$`,
   `CREATE OR REPLACE FUNCTION protect_task() RETURNS TRIGGER LANGUAGE plpgsql AS $$
     DECLARE latest task_runs%ROWTYPE;
     BEGIN
       IF TG_OP='UPDATE' THEN
-        IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NEW.status<>'waiting_budget' AND NOT lock_task_ancestry(NEW.id, OLD.status='paused' AND NEW.status='queued') THEN
+        IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NEW.status<>'waiting_budget' AND NOT lock_task_ancestry(NEW.id, (OLD.status='paused' OR OLD.status='waiting_budget') AND NEW.status='queued') THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot advance';
         END IF;
         IF (to_jsonb(NEW)-'status') IS DISTINCT FROM (to_jsonb(OLD)-'status')
           OR NOT ((OLD.status='queued' AND NEW.status IN ('running','failed','cancelled','paused','waiting_budget'))
             OR (OLD.status='running' AND NEW.status IN ('completed','failed','cancelled','paused'))
             OR (OLD.status='failed' AND NEW.status IN ('queued','waiting_budget'))
-            OR (OLD.status='paused' AND NEW.status IN ('queued','waiting_budget'))) THEN
+            OR (OLD.status='paused' AND NEW.status IN ('queued','waiting_budget'))
+            OR (OLD.status='waiting_budget' AND NEW.status='queued')) THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task identity and completed/cancelled state are immutable';
         END IF;
         SELECT r.* INTO latest FROM task_runs r WHERE r.task_id=NEW.id ORDER BY r.attempt DESC LIMIT 1;
@@ -78,6 +102,26 @@ export const COL12_ENFORCEMENT_POSTGRES_GUARDS = [
           )
         ) THEN
           RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task retry requires a new Run and its immutable receipt';
+        END IF;
+        IF OLD.status='waiting_budget' AND NEW.status='queued' AND NOT (
+          latest.status='queued'
+          AND EXISTS (SELECT 1 FROM task_execution_limit_grants g WHERE g.task_id=NEW.id)
+          AND (
+            task_has_budget_grant_receipt(NEW.id, latest.id, NEW.execution_user_id)
+            OR (
+              COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')='budget_grant'
+              AND EXISTS (
+                SELECT 1 FROM task_runs previous
+                WHERE previous.task_id=NEW.id
+                  AND previous.id::text=task_queued_audit_metadata(latest.id)->>'sourceRunId'
+                  AND previous.status IN ('failed','paused')
+                  AND previous.attempt::bigint+1=latest.attempt
+              )
+            )
+            OR COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')<>'budget_grant'
+          )
+        ) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Task budget grant requires a new Run and its immutable receipt';
         END IF;
         IF OLD.status='paused' AND NEW.status='queued' AND NOT (
           latest.status='queued'
@@ -128,8 +172,9 @@ export const COL12_ENFORCEMENT_POSTGRES_GUARDS = [
           WHERE c.task_id=target AND c.run_id=latest.id AND c.actor_user_id=parent.execution_user_id)
           AND NOT task_has_automatic_continuation_receipt(target, latest.id, parent.execution_user_id)
           AND NOT task_has_manual_resume_receipt(target, latest.id, parent.execution_user_id)
+          AND NOT task_has_budget_grant_receipt(target, latest.id, parent.execution_user_id)
           AND COALESCE(task_queued_audit_metadata(latest.id)->>'origin','')
-            NOT IN ('manual_resume','provider_retry','model_fallback','worker_recovery')) THEN
+            NOT IN ('manual_resume','budget_grant','provider_retry','model_fallback','worker_recovery')) THEN
         RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Task, current Run and retry receipt must commit together';
       END IF;
       RETURN NULL;
