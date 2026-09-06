@@ -144,6 +144,7 @@ describe('COL-12 enforcement schema slice', () => {
     expect(overlay).toContain(
       'EXISTS (SELECT 1 FROM task_execution_limit_grants g WHERE g.task_id=NEW.id)',
     );
+    expect(overlay).toContain('CREATE OR REPLACE FUNCTION protect_task_run()');
     expect(overlay).toContain(
       "parent.status='waiting_budget' AND latest.status IN ('failed','paused')",
     );

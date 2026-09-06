@@ -39,3 +39,7 @@ Workspace, Group, Task, and Run policies enforce the strictest duration, turn, d
 - Token limits
 - Pricing and cost limits
 - Bot-controlled limit increases
+
+## Evidence in progress
+
+Original acceptance texts stay unchecked. `protect_task_run` now admits one granted successor while the Task is still `waiting_budget`. Authored restricted-role `postgres-tasks` and `compose-task-limits` cover snapshot, timeout-stays-failed, hard hold, grant, and resume. Soft warnings stay on the integration suite. No local PostgreSQL or Docker execution is claimed here.

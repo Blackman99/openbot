@@ -703,6 +703,14 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'TRUNCATE'), has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE'))")"
           test "$snapshot_table_privileges" = 't,t,f,f,f,f'
+          limit_warning_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'TRUNCATE'))")"
+          test "$limit_warning_privileges" = 't,t,f,f,f'
+          limit_grant_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'TRUNCATE'))")"
+          test "$limit_grant_privileges" = 't,t,f,f,f'
 
           bot_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -1607,6 +1615,55 @@ jobs:
           done
           test "$ready" = true
           docker compose exec -T -e OPENBOT_RECOVERY_SMOKE_STAGE=recovered api node --input-type=module < infra/verify-task-recovery.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-limits:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-limits.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Snapshot starting limits before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T limits-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Keep a snapshotted duration timeout failed, then hold waiting_budget
+        run: |
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=timeout api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Grant the selected duration cap and resume with the separate worker
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          before="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+          docker compose up --no-deps --detach worker
+          ready=false
+          for attempt in {1..60}; do
+            after="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+            if [ "${after:-0}" -gt "${before:-0}" ]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=grant api node --input-type=module < infra/verify-task-limits.mjs
       - if: always()
         run: |
           docker compose logs

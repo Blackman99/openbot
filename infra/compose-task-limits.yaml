@@ -1,0 +1,35 @@
+# Disposable CI-only provider and explicit worker configuration; production policy is unchanged.
+services:
+  api:
+    environment:
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: limits-provider
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: http
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  worker:
+    environment:
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: ${OPENBOT_TASK_WORKER_TEST_KEY:-}
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: limits-provider
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: http
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  limits-provider:
+    image: openbot-api:local
+    command: [node, /app/verify-limits-provider.mjs]
+    networks: [frontend]
+    volumes:
+      - ./infra/verify-limits-provider.mjs:/app/verify-limits-provider.mjs:ro
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 1s
+      timeout: 2s
+      retries: 20

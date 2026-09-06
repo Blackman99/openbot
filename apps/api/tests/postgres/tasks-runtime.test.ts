@@ -2739,6 +2739,15 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         runCount: 1,
         runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
       });
+      expect(
+        (
+          await runtime.query(
+            `SELECT event_type FROM audit_events
+             WHERE metadata->>'taskId'=$1 AND event_type IN ('task.waiting_budget','task.limit.warning')`,
+            [task.id],
+          )
+        ).rows,
+      ).toEqual([]);
       const holdConnection = await runtime.connect();
       try {
         await holdConnection.query('BEGIN');
@@ -2843,6 +2852,31 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       );
       expect(replay.grant.grantId).toBe(granted.grant.grantId);
       expect(replay.grant.runId).toBe(granted.grant.runId);
+      expect(
+        await worker(f, async () => ({
+          events: [
+            { type: 'text', text: 'Resumed after the grant.' },
+            { type: 'complete', stopReason: 'stop' },
+          ],
+          raw: '',
+        })).runOnce(),
+      ).toBe(true);
+      expect(await read(f, task.id)).toMatchObject({
+        status: 'completed',
+        runCount: 2,
+        runs: [{ id: granted.grant.runId, status: 'completed', error: null }],
+      });
+      expect(
+        (
+          await runtime.query<{ id: string; status: string; error_code: string | null }>(
+            'SELECT id,status,error_code FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+            [task.id],
+          )
+        ).rows,
+      ).toEqual([
+        { id: claim!.runId, status: 'failed', error_code: 'execution_timeout' },
+        { id: granted.grant.runId, status: 'completed', error_code: null },
+      ]);
     }, 15000);
   },
 );

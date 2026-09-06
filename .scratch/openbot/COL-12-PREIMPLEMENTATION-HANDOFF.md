@@ -62,6 +62,6 @@ Authorized idempotent grant of one selected limit:
 
 ## Leftover before the original ACs can be stamped
 
-- Native PostgreSQL and Compose evidence for snapshot, soft/hard hold, snapshot-backed timeout, and grant resume.
+- Tester must stamp native `postgres-tasks` and `compose-task-limits` on a green Verify. Authored coverage is timeout-stays-failed, hard `waiting_budget` hold, authorized grant, and worker resume without rewriting the snapshot. Soft-threshold warnings remain integration-covered unless that native case is added later.
 
 Do not check the six AC boxes until Tester stamps those leftovers.

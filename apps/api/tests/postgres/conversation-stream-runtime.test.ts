@@ -916,6 +916,7 @@ const databaseUrl = process.env.TEST_CONVERSATION_STREAM_DATABASE_URL;
       const after = await snapshot(f);
       expect(after.ledger).toEqual(before.ledger);
       expect(after.progress).toEqual(before.progress);
+      // Failed delivery allocates one sequence after the completed publication rolls back.
       expect(Number(after.tail)).toBe(Number(before.tail) + 1);
       expect(after.tasks).toEqual([expect.objectContaining({ id: task.id, status: 'failed' })]);
       expect(after.runs).toEqual([

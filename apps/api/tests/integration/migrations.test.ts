@@ -300,6 +300,13 @@ describe('database migrations', () => {
     expect(recoveryOverlay).toBeGreaterThan(pauseOverlay);
     expect(limitOverlay).toBeGreaterThan(recoveryOverlay);
     expect(grantOverlay).toBeGreaterThan(recoveryOverlay);
+    expect(
+      statements.some((statement) =>
+        statement.includes(
+          "parent.status='waiting_budget' AND latest.status IN ('failed','paused')",
+        ),
+      ),
+    ).toBe(true);
     expect(statements.some((statement) => statement.includes("origin'='manual_resume'"))).toBe(
       true,
     );
