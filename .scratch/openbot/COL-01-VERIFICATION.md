@@ -47,7 +47,7 @@ The actual `grant-runtime-privileges.mjs` contains these grants; the integration
 Alphabetically ordered column privilege expectations are:
 
 ```text
-groups: created_at:false,created_by_user_id:false,description:true,id:false,name:true,updated_at:true,visibility:true,workspace_id:false
+groups: created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false
 group_memberships: created_at:false,group_id:false,role:true,user_id:false
 ```
 

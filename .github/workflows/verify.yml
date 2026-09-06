@@ -699,6 +699,11 @@ jobs:
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'group_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_memberships'")"
           test "$group_membership_update_privileges" = 'created_at:false,group_id:false,role:true,user_id:false'
 
+          snapshot_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'TRUNCATE'), has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE'))")"
+          test "$snapshot_table_privileges" = 't,t,f,f,f,f'
+
           bot_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('bots'), ('bot_versions'), ('bot_acl')) AS bot_tables(table_name)")"
@@ -754,8 +759,8 @@ jobs:
 
           workspace_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
-            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'))")"
-          test "$workspace_update_privileges" = 't,t,f'
+            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE'))")"
+          test "$workspace_update_privileges" = 't,t,f,f'
 
           invitation_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \

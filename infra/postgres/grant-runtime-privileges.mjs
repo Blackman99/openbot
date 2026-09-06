@@ -221,6 +221,9 @@ try {
       IF to_regprocedure('fence_cancelled_task_publication()') IS NOT NULL THEN
         REVOKE ALL ON FUNCTION fence_cancelled_task_publication() FROM PUBLIC, openbot_runtime;
       END IF;
+      IF to_regprocedure('protect_task_execution_limit_snapshot()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_execution_limit_snapshot() FROM PUBLIC, openbot_runtime;
+      END IF;
     END
     $revoke_optional_task_tree$;
 

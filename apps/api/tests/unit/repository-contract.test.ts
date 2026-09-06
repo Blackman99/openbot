@@ -238,6 +238,10 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT SELECT, INSERT ON task_execution_limit_snapshots TO openbot_runtime',
     );
+    expect(grants).toContain("to_regprocedure('protect_task_execution_limit_snapshot()')");
+    expect(grants).toContain(
+      'REVOKE ALL ON FUNCTION protect_task_execution_limit_snapshot() FROM PUBLIC, openbot_runtime',
+    );
     expect(grants).toContain(
       'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
     );
@@ -373,6 +377,12 @@ describe('repository contract', () => {
     expect(workflow).toContain("has_table_privilege('openbot_runtime', 'audit_events', 'UPDATE')");
     expect(workflow).toContain("has_database_privilege('openbot_runtime', current_database()");
     expect(workflow).toContain("has_function_privilege('openbot_runtime'");
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE')",
+    );
+    expect(workflow).toContain(
+      "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",
+    );
     expect(workflow).toContain('DROP TRIGGER audit_events_append_only ON audit_events');
     expect(workflow).toContain('docker compose stop postgres');
     expect(workflow).toContain('503');
