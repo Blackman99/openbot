@@ -2953,11 +2953,14 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       const blocked = [];
       for (let index = 0; index < 5; index++)
         blocked.push(await submit(f, runtime, `full-group-${index}`, `Full group ${index}`));
-      const other = await new GroupService(new PostgresGroupRepository(runtime)).create(
-        f.ownerId,
-        f.workspaceId,
-        { name: 'Other native group' },
-      );
+      const groups = new GroupService(new PostgresGroupRepository(runtime));
+      const other = await groups.create(f.ownerId, f.workspaceId, {
+        name: 'Other native group',
+      });
+      await groups.addMember(f.ownerId, f.workspaceId, other.id, {
+        userId: f.actorId,
+        role: 'member',
+      });
       const otherGrant = await grants().invite(f.ownerId, f.workspaceId, other.id, {
         botId: f.bot.id,
         idempotencyKey: 'other-native-invite',
