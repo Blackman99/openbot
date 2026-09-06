@@ -205,7 +205,7 @@ describe('Task API client', () => {
             startedAt: '2026-09-05T00:00:01.000Z',
             finishedAt: '2026-09-05T00:00:02.000Z',
             provider: { protocol: 'anthropic-messages', modelId: 'actual-model' },
-            usage: { inputTokens: 100, outputTokens: 20 },
+            usage: { inputTokens: 100, outputTokens: 20, estimated: false },
             output: {
               messageId: '50000000-0000-4000-8000-000000000005',
               eventId: '60000000-0000-4000-8000-000000000006',
