@@ -119,7 +119,8 @@ describe('COL-12 enforcement schema slice', () => {
 
   it('is the next ordered ledger after snapshots and admits waiting_budget plus warning events', () => {
     expect(COL12_ENFORCEMENT_REQUIRES_VERSION).toBe('0037_task_execution_limit_enforcement');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0037_task_execution_limit_enforcement');
+    expect(MIGRATION_VERSIONS).toContain('0037_task_execution_limit_enforcement');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0038_task_run_concurrency_holds');
     expect(sql).toContain('waiting_budget');
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS tasks_constraint_1');
     expect(sql).toContain('CREATE TABLE task_execution_limit_warnings');

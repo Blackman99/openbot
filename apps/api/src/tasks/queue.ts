@@ -43,6 +43,7 @@ import {
   applyTaskExecutionLimits,
   remainingSnapshotDurationMs,
 } from './execution-limit-enforcement.js';
+import { applyRunConcurrency, clearRunConcurrencyHold } from './execution-concurrency.js';
 import {
   selectRunMemoryContribution,
   persistRunMemoryReferences,
@@ -158,12 +159,18 @@ export class TaskQueue {
       connection.release();
     }
   }
-  private async candidate(connection: SqlConnection, runId?: string) {
+  private async candidate(connection: SqlConnection, runId?: string, exclude: string[] = []) {
     const rows = (
       await connection.query<Candidate>(
         `SELECT r.id,r.attempt,r.task_id,t.workspace_id,t.conversation_id,t.execution_user_id,t.bot_id,t.bot_version_id,t.group_grant_id,c.group_id,e.sequence AS trigger_sequence,e.message_id AS trigger_message_id FROM task_runs r JOIN tasks t ON t.id=r.task_id JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN conversation_events e ON e.id=t.trigger_event_id
-       WHERE ${runId ? 'r.id=$1' : "r.status='queued' AND t.status='queued'"} ORDER BY r.created_at,r.id`,
-        runId ? [runId] : [],
+       WHERE ${
+         runId
+           ? 'r.id=$1'
+           : `r.status='queued' AND t.status='queued'${
+               exclude.length ? ' AND NOT (r.id = ANY($1::uuid[]))' : ''
+             }`
+       } ORDER BY r.created_at,r.id`,
+        runId ? [runId] : exclude.length ? [exclude] : [],
       )
     ).rows;
     if (runId) return rows[0];
@@ -303,239 +310,259 @@ export class TaskQueue {
   }
   async claimNext(): Promise<{ handled: boolean; claim?: TaskClaim }> {
     return this.transaction(async (connection) => {
+      const skipped: string[] = [];
       // Observe the queue before row locking, then acquire scope locks in the
       // shared order. Competing workers recheck this candidate after waiting.
-      const task = await this.candidate(connection);
-      if (!task) return { handled: false };
-      await this.lockStructure(connection, task);
-      let target: Awaited<ReturnType<typeof admitTaskTarget>>;
-      try {
-        target = await admitTaskTarget(
-          connection,
-          this.access(task),
-          task.group_grant_id,
-          this.now,
-          task.bot_version_id,
-        );
-      } catch (error) {
-        const code = admissionFailure(error);
-        if (!code) throw error;
+      // A concurrency-blocked Run stays queued so a later due candidate can run.
+      while (true) {
+        const task = await this.candidate(connection, undefined, skipped);
+        if (!task) return { handled: false };
+        await this.lockStructure(connection, task);
+        let target: Awaited<ReturnType<typeof admitTaskTarget>>;
+        try {
+          target = await admitTaskTarget(
+            connection,
+            this.access(task),
+            task.group_grant_id,
+            this.now,
+            task.bot_version_id,
+          );
+        } catch (error) {
+          const code = admissionFailure(error);
+          if (!code) throw error;
+          const run = await this.lockRun(connection, task);
+          if (run?.status !== 'queued') return { handled: false };
+          await this.fail(connection, task, code);
+          return { handled: true };
+        }
         const run = await this.lockRun(connection, task);
         if (run?.status !== 'queued') return { handled: false };
-        await this.fail(connection, task, code);
-        return { handled: true };
-      }
-      const run = await this.lockRun(connection, task);
-      if (run?.status !== 'queued') return { handled: false };
-      if (
-        (await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true }))
-          .hard
-      )
-        return { handled: true };
-      let provider: TaskClaim['provider'];
-      let memory: RunMemoryContribution;
-      let knowledge: RunKnowledgeContribution;
-      let selectedMessages: Array<{
-        id: string;
-        creationSequence: number;
-        versionEventId: string;
-        role: 'user' | 'assistant';
-      }> = [];
-      let messages: ModelInput['messages'] = [
-        { role: 'system', content: target.configuration.instructions },
-      ];
-      try {
-        memory = await selectRunMemoryContribution(connection, task.id, this.now);
-        knowledge = await selectRunKnowledgeContribution(connection, task.id, this.now);
-        const items: ContextItem[] = [
-          {
-            kind: 'system',
-            id: 'system',
-            role: 'system',
-            content: target.configuration.instructions,
-          },
-        ];
-        for (const [index, message] of memory.messages.entries())
-          items.push({
-            kind: 'memory',
-            id: `memory-${index}`,
-            role: 'user',
-            content: message.content,
-            ...memoryItemProvenance(message.content, memory, task),
-          });
-        if (knowledge.messages[0])
-          items.push({
-            kind: 'knowledge',
-            id: 'knowledge',
-            role: 'user',
-            content: knowledge.messages[0].content,
-            ...knowledgeItemProvenance(knowledge, task),
-          });
-        const ledger: typeof selectedMessages = [];
-        let after = target.lowerBound - 1,
-          scanned = memory.itemCount + knowledge.itemCount;
-        if (scanned > 1000) throw new ContextLimitError();
-        while (true) {
-          const page = await currentPage(
+        if (
+          (await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true }))
+            .hard
+        )
+          return { handled: true };
+        if (
+          await applyRunConcurrency(
             connection,
-            task.conversation_id,
-            after,
-            Number(task.trigger_sequence),
-            100,
-            task.execution_user_id,
-            false,
-          );
-          for (const message of page.messages) {
-            scanned++;
-            if (scanned > 1000) throw new ContextLimitError();
-            if (!message.deleted && message.body) {
-              const role = 'kind' in message.author ? 'assistant' : 'user';
-              ledger.push({
-                id: message.id,
-                creationSequence: message.creationSequence,
-                versionEventId: message.versionEventId,
-                role,
-              });
-              items.push({
-                kind: 'ledger',
-                id: message.id,
-                role,
-                content: message.body,
-                sourceId: message.versionEventId,
-                version: message.version,
-                locator: `sequence:${message.creationSequence}`,
-              });
-            }
-          }
-          if (!page.hasMore) break;
-          after = page.messages.at(-1)!.creationSequence;
+            {
+              runId: task.id,
+              taskId: task.task_id,
+              workspaceId: task.workspace_id,
+              groupId: task.group_id,
+            },
+            this.now(),
+          )
+        ) {
+          skipped.push(task.id);
+          continue;
         }
-        const assembled = assembleRunContext(items);
-        if (assembled.bytes > CONTEXT_BUDGET_BYTES) throw new ContextLimitError();
-        const kept = new Set(assembled.items.map((item) => item.id));
-        const keptKinds = new Set(assembled.items.map((item) => item.kind));
-        messages = [...assembled.messages];
-        selectedMessages = ledger.filter((message) => kept.has(message.id));
-        memory = keptMemoryContribution(memory, assembled.items);
-        knowledge = keptKinds.has('knowledge')
-          ? knowledge
-          : {
-              ...knowledge,
-              messages: Object.freeze([]),
-              references: Object.freeze([]),
-              itemCount: 0,
-              bytes: 0,
-            };
-        const binding = await this.selectedBinding(connection, task.id, target.configuration);
-        provider = await admitExecutionModel(
-          connection,
-          { actorUserId: task.execution_user_id, scope: binding.scope },
-          { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+        await clearRunConcurrencyHold(connection, task.id);
+        let provider: TaskClaim['provider'];
+        let memory: RunMemoryContribution;
+        let knowledge: RunKnowledgeContribution;
+        let selectedMessages: Array<{
+          id: string;
+          creationSequence: number;
+          versionEventId: string;
+          role: 'user' | 'assistant';
+        }> = [];
+        let messages: ModelInput['messages'] = [
+          { role: 'system', content: target.configuration.instructions },
+        ];
+        try {
+          memory = await selectRunMemoryContribution(connection, task.id, this.now);
+          knowledge = await selectRunKnowledgeContribution(connection, task.id, this.now);
+          const items: ContextItem[] = [
+            {
+              kind: 'system',
+              id: 'system',
+              role: 'system',
+              content: target.configuration.instructions,
+            },
+          ];
+          for (const [index, message] of memory.messages.entries())
+            items.push({
+              kind: 'memory',
+              id: `memory-${index}`,
+              role: 'user',
+              content: message.content,
+              ...memoryItemProvenance(message.content, memory, task),
+            });
+          if (knowledge.messages[0])
+            items.push({
+              kind: 'knowledge',
+              id: 'knowledge',
+              role: 'user',
+              content: knowledge.messages[0].content,
+              ...knowledgeItemProvenance(knowledge, task),
+            });
+          const ledger: typeof selectedMessages = [];
+          let after = target.lowerBound - 1,
+            scanned = memory.itemCount + knowledge.itemCount;
+          if (scanned > 1000) throw new ContextLimitError();
+          while (true) {
+            const page = await currentPage(
+              connection,
+              task.conversation_id,
+              after,
+              Number(task.trigger_sequence),
+              100,
+              task.execution_user_id,
+              false,
+            );
+            for (const message of page.messages) {
+              scanned++;
+              if (scanned > 1000) throw new ContextLimitError();
+              if (!message.deleted && message.body) {
+                const role = 'kind' in message.author ? 'assistant' : 'user';
+                ledger.push({
+                  id: message.id,
+                  creationSequence: message.creationSequence,
+                  versionEventId: message.versionEventId,
+                  role,
+                });
+                items.push({
+                  kind: 'ledger',
+                  id: message.id,
+                  role,
+                  content: message.body,
+                  sourceId: message.versionEventId,
+                  version: message.version,
+                  locator: `sequence:${message.creationSequence}`,
+                });
+              }
+            }
+            if (!page.hasMore) break;
+            after = page.messages.at(-1)!.creationSequence;
+          }
+          const assembled = assembleRunContext(items);
+          if (assembled.bytes > CONTEXT_BUDGET_BYTES) throw new ContextLimitError();
+          const kept = new Set(assembled.items.map((item) => item.id));
+          const keptKinds = new Set(assembled.items.map((item) => item.kind));
+          messages = [...assembled.messages];
+          selectedMessages = ledger.filter((message) => kept.has(message.id));
+          memory = keptMemoryContribution(memory, assembled.items);
+          knowledge = keptKinds.has('knowledge')
+            ? knowledge
+            : {
+                ...knowledge,
+                messages: Object.freeze([]),
+                references: Object.freeze([]),
+                itemCount: 0,
+                bytes: 0,
+              };
+          const binding = await this.selectedBinding(connection, task.id, target.configuration);
+          provider = await admitExecutionModel(
+            connection,
+            { actorUserId: task.execution_user_id, scope: binding.scope },
+            { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+          );
+          const vision = await connectionSupportsVision(
+            connection,
+            { actorUserId: task.execution_user_id, scope: provider.scope },
+            provider.connectionId,
+          );
+          const imageMessageId = await selectCurrentTurnImageMessage(connection, {
+            conversationId: task.conversation_id,
+            triggerMessageId: task.trigger_message_id,
+            triggerSequence: task.trigger_sequence,
+          });
+          const currentImages = await this.loadAuthorizedImages(connection, {
+            workspaceId: task.workspace_id,
+            conversationId: task.conversation_id,
+            messageId: imageMessageId,
+          });
+          if (currentImages.length && !vision) throw new ProviderError('model_capability_required');
+          const knowledgeImages =
+            vision && knowledge.messages[0]
+              ? await this.loadKnowledgeImages(connection, knowledge.messages[0].content)
+              : [];
+          messages = assembled.items.map((item, index) => {
+            const message = messages[index] ?? assembled.messages[index]!;
+            if (item.kind === 'ledger' && item.id === imageMessageId && currentImages.length)
+              return withImages(message, currentImages);
+            if (item.kind === 'knowledge' && knowledgeImages.length)
+              return withImages(message, knowledgeImages);
+            return message;
+          });
+          if (
+            currentImages.length &&
+            vision &&
+            !assembled.items.some((item) => item.id === imageMessageId)
+          )
+            messages.push(withImages({ role: 'user', content: '' }, currentImages));
+        } catch (error) {
+          const code = admissionFailure(error);
+          if (!code) throw error;
+          await this.fail(connection, task, code);
+          return { handled: true };
+        }
+        const claimToken = randomUUID(),
+          startedAt = this.now(),
+          remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),
+          deadlineAt = new Date(
+            startedAt.getTime() +
+              (remainingMs ?? target.configuration.limits.maxDurationSeconds * 1000),
+          );
+        const claimed = await connection.query(
+          "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10 WHERE id=$1 AND status='queued' RETURNING id",
+          [
+            task.id,
+            claimToken,
+            startedAt,
+            deadlineAt,
+            provider.scope.kind,
+            provider.scope.id,
+            provider.connectionId,
+            provider.revision,
+            provider.protocol,
+            provider.modelId,
+          ],
         );
-        const vision = await connectionSupportsVision(
-          connection,
-          { actorUserId: task.execution_user_id, scope: provider.scope },
-          provider.connectionId,
+        if (!claimed.rows.length) return { handled: false };
+        await connection.query(
+          'INSERT INTO task_run_leases(run_id,claim_token,heartbeat_at,expires_at,created_at) VALUES($1,$2,$3,$4,$3)',
+          [task.id, claimToken, startedAt, leaseExpiry(startedAt, deadlineAt)],
         );
-        const imageMessageId = await selectCurrentTurnImageMessage(connection, {
-          conversationId: task.conversation_id,
-          triggerMessageId: task.trigger_message_id,
-          triggerSequence: task.trigger_sequence,
-        });
-        const currentImages = await this.loadAuthorizedImages(connection, {
+        await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
+        await persistRunMemoryReferences(connection, memory, this.now);
+        await persistRunKnowledgeReferences(connection, knowledge, this.now);
+        await persistRunSourceManifest(connection, {
+          runId: task.id,
           workspaceId: task.workspace_id,
           conversationId: task.conversation_id,
-          messageId: imageMessageId,
+          botVersionId: task.bot_version_id,
+          memory,
+          messages: selectedMessages,
+          now: this.now(),
         });
-        if (currentImages.length && !vision) throw new ProviderError('model_capability_required');
-        const knowledgeImages =
-          vision && knowledge.messages[0]
-            ? await this.loadKnowledgeImages(connection, knowledge.messages[0].content)
-            : [];
-        messages = assembled.items.map((item, index) => {
-          const message = messages[index] ?? assembled.messages[index]!;
-          if (item.kind === 'ledger' && item.id === imageMessageId && currentImages.length)
-            return withImages(message, currentImages);
-          if (item.kind === 'knowledge' && knowledgeImages.length)
-            return withImages(message, knowledgeImages);
-          return message;
+        const scheduled = await loadRunContinuation(connection, {
+          id: task.id,
+          protocol: provider.protocol,
+          modelId: provider.modelId,
         });
-        if (
-          currentImages.length &&
-          vision &&
-          !assembled.items.some((item) => item.id === imageMessageId)
-        )
-          messages.push(withImages({ role: 'user', content: '' }, currentImages));
-      } catch (error) {
-        const code = admissionFailure(error);
-        if (!code) throw error;
-        await this.fail(connection, task, code);
-        return { handled: true };
+        await this.audit(connection, task, 'task.running', {
+          protocol: provider.protocol,
+          modelId: provider.modelId,
+          connectionId: provider.connectionId,
+          connectionRevision: provider.revision,
+          ...(scheduled ? { continuation: wireContinuation(scheduled) } : {}),
+        });
+        await appendRunningRunState(connection, task.id, this.now);
+        return {
+          handled: true,
+          claim: {
+            runId: task.id,
+            taskId: task.task_id,
+            claimToken,
+            deadlineAt,
+            provider,
+            messages,
+            maxTotalTokens: target.configuration.limits.maxTotalTokens,
+          },
+        };
       }
-      const claimToken = randomUUID(),
-        startedAt = this.now(),
-        remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),
-        deadlineAt = new Date(
-          startedAt.getTime() +
-            (remainingMs ?? target.configuration.limits.maxDurationSeconds * 1000),
-        );
-      const claimed = await connection.query(
-        "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10 WHERE id=$1 AND status='queued' RETURNING id",
-        [
-          task.id,
-          claimToken,
-          startedAt,
-          deadlineAt,
-          provider.scope.kind,
-          provider.scope.id,
-          provider.connectionId,
-          provider.revision,
-          provider.protocol,
-          provider.modelId,
-        ],
-      );
-      if (!claimed.rows.length) return { handled: false };
-      await connection.query(
-        'INSERT INTO task_run_leases(run_id,claim_token,heartbeat_at,expires_at,created_at) VALUES($1,$2,$3,$4,$3)',
-        [task.id, claimToken, startedAt, leaseExpiry(startedAt, deadlineAt)],
-      );
-      await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
-      await persistRunMemoryReferences(connection, memory, this.now);
-      await persistRunKnowledgeReferences(connection, knowledge, this.now);
-      await persistRunSourceManifest(connection, {
-        runId: task.id,
-        workspaceId: task.workspace_id,
-        conversationId: task.conversation_id,
-        botVersionId: task.bot_version_id,
-        memory,
-        messages: selectedMessages,
-        now: this.now(),
-      });
-      const scheduled = await loadRunContinuation(connection, {
-        id: task.id,
-        protocol: provider.protocol,
-        modelId: provider.modelId,
-      });
-      await this.audit(connection, task, 'task.running', {
-        protocol: provider.protocol,
-        modelId: provider.modelId,
-        connectionId: provider.connectionId,
-        connectionRevision: provider.revision,
-        ...(scheduled ? { continuation: wireContinuation(scheduled) } : {}),
-      });
-      await appendRunningRunState(connection, task.id, this.now);
-      return {
-        handled: true,
-        claim: {
-          runId: task.id,
-          taskId: task.task_id,
-          claimToken,
-          deadlineAt,
-          provider,
-          messages,
-          maxTotalTokens: target.configuration.limits.maxTotalTokens,
-        },
-      };
     });
   }
   async publishDelta(claim: TaskClaim, text: string): Promise<void> {

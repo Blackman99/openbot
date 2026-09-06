@@ -489,7 +489,7 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries,0023_task_tree_cancellation,0024_bot_private_memories,0025_memory_extraction_jobs,0026_memory_candidates,0027_memory_candidate_review,0028_scoped_knowledge,0029_run_knowledge_references,0030_knowledge_full_text_search,0031_memory_revisions_and_revocations,0032_document_knowledge_locators,0033_task_pause_checkpoints,0034_task_resume_commands,0035_task_run_recovery,0036_task_execution_limit_snapshots,0037_task_execution_limit_enforcement'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries,0023_task_tree_cancellation,0024_bot_private_memories,0025_memory_extraction_jobs,0026_memory_candidates,0027_memory_candidate_review,0028_scoped_knowledge,0029_run_knowledge_references,0030_knowledge_full_text_search,0031_memory_revisions_and_revocations,0032_document_knowledge_locators,0033_task_pause_checkpoints,0034_task_resume_commands,0035_task_run_recovery,0036_task_execution_limit_snapshots,0037_task_execution_limit_enforcement,0038_task_run_concurrency_holds'
 
           # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
           docker compose exec -T api node --input-type=module <<'JS'
@@ -711,6 +711,14 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'TRUNCATE'))")"
           test "$limit_grant_privileges" = 't,t,f,f,f'
+          concurrency_hold_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'SELECT'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'INSERT'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'DELETE'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'TRUNCATE'))")"
+          test "$concurrency_hold_privileges" = 't,t,f,t,f'
+          task_policy_update="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT has_column_privilege('openbot_runtime', 'tasks', 'execution_policy', 'UPDATE')")"
+          test "$task_policy_update" = 'f'
 
           bot_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \

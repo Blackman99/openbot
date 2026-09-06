@@ -250,6 +250,11 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT SELECT, INSERT ON task_execution_limit_grants TO openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('task_run_concurrency_holds')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_run_concurrency_holds TO openbot_runtime',
+    );
+    expect(grants).not.toContain('GRANT UPDATE (execution_policy)');
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime',
     );
@@ -391,6 +396,13 @@ describe('repository contract', () => {
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE')",
     );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'tasks', 'execution_policy', 'UPDATE')",
+    );
+    expect(workflow).toContain('0038_task_run_concurrency_holds');
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",
     );

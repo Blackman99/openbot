@@ -35,6 +35,12 @@ export async function groupCancellationFixture(cleanup: Array<() => Promise<unkn
   const group = await groups.create(f.owner.user.id, f.owner.workspace.id, {
     name: 'Cancellation group',
   });
+  // Cancellation trees are not COL-13 evidence; keep the default group cap
+  // from starving sibling and retry claims in these fixtures.
+  await f.pool.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+    group.id,
+    JSON.stringify({ maxConcurrentRuns: 16 }),
+  ]);
   for (const [userId, role] of [
     [member.id, 'member'],
     [admin.id, 'admin'],

@@ -35,13 +35,11 @@ English contract for COL-13. Ticket ACs stay unchecked until Tester stamps nativ
 
 ## First slice
 
-Pure policy and occupancy only. Claim wiring, hold persistence, native, and Compose remain later leftovers.
+Pure policy and occupancy landed first. Claim wiring and hold persistence are now in product code; original AC boxes stay unchecked.
 
 ## Leftover before the original ACs can be stamped
 
-- Wire occupancy into `claimNext` with skip-blocked candidates.
-- Persist and expose the blocking policy layer on the still-queued Run.
-- Native multi-worker and expired-lease slot release.
+- Native multi-worker claim, skip-blocked, and expired-lease slot release under `openbot_runtime`.
 - Compose evidence that a default group never runs a fifth concurrent Bot.
 
 Do not check the five AC boxes until Tester stamps those leftovers.

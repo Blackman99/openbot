@@ -67,7 +67,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0037_task_execution_limit_enforcement');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0038_task_run_concurrency_holds');
   assert.deepEqual(
     (
       await pool.query(

@@ -228,6 +228,10 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       if (inGroup) {
         const groups = new GroupService(new PostgresGroupRepository(runtime));
         const group = await groups.create(ownerId, workspaceId, { name: 'Execution group' });
+        await runtime.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+          group.id,
+          JSON.stringify({ maxConcurrentRuns: 16 }),
+        ]);
         await groups.addMember(ownerId, workspaceId, group.id, {
           userId: memberId,
           role: 'member',

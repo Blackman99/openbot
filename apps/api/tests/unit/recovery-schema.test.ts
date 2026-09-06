@@ -11,7 +11,8 @@ describe('COL-11 recovery schema first slice', () => {
 
   it('is the next ordered ledger after resume commands and admits worker interruption', () => {
     expect(COL11_RECOVERY_REQUIRES_VERSION).toBe('0035_task_run_recovery');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0037_task_execution_limit_enforcement');
+    expect(MIGRATION_VERSIONS).toContain('0037_task_execution_limit_enforcement');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0038_task_run_concurrency_holds');
     expect(sql).toContain('worker_interrupted');
     expect(sql).toContain('CREATE TABLE task_run_leases');
     expect(sql).toContain('CREATE TABLE task_run_recovery_receipts');

@@ -28,6 +28,7 @@ import { encodeRunHistoryCursor, runHistoryCursor, type RunHistoryCursor } from 
 import type { TaskPartialOutput } from './partial-output.js';
 import { lockTaskAncestry } from './tree.js';
 import { loadRunContinuations, type RunContinuation } from './continuation.js';
+import { loadRunConcurrencyHolds, type ConcurrencyHold } from './execution-concurrency.js';
 import { grantTaskLimit, limitGrantCommand } from './execution-limit-grant.js';
 import {
   loadExecutionLimitPolicies,
@@ -63,6 +64,7 @@ export interface TaskView {
     error: TaskFailure | null;
     output: { messageId: string; eventId: string; sequence: number } | null;
     continuation?: RunContinuation;
+    queueHold?: { reason: 'concurrency' } & ConcurrencyHold;
   }[];
 }
 type TaskRow = {
@@ -137,9 +139,18 @@ async function readRuns(
       modelId: run.provider?.modelId ?? null,
     })),
   );
+  const holds = await loadRunConcurrencyHolds(
+    connection,
+    views.map((run) => run.id),
+  );
   return views.map((run) => {
     const continuation = continuations.get(run.id);
-    return continuation ? { ...run, continuation } : run;
+    const hold = run.status === 'queued' ? holds.get(run.id) : undefined;
+    return {
+      ...run,
+      ...(continuation ? { continuation } : {}),
+      ...(hold ? { queueHold: { reason: 'concurrency' as const, ...hold } } : {}),
+    };
   });
 }
 async function readTask(connection: SqlConnection, id: string): Promise<TaskView> {

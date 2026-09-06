@@ -182,6 +182,10 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
       if (inGroup) {
         const groups = new GroupService(new PostgresGroupRepository(runtime));
         const group = await groups.create(ownerId, workspaceId, { name: 'Execution group' });
+        await runtime.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+          group.id,
+          JSON.stringify({ maxConcurrentRuns: 16 }),
+        ]);
         await groups.addMember(ownerId, workspaceId, group.id, {
           userId: memberId,
           role: 'member',
@@ -578,7 +582,7 @@ const databaseUrl = process.env.TEST_TASK_CANCELLATION_DATABASE_URL;
             'SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 2',
           )
         ).rows.map((r) => r.version),
-      ).toEqual(['0037_task_execution_limit_enforcement', '0036_task_execution_limit_snapshots']);
+      ).toEqual(['0038_task_run_concurrency_holds', '0037_task_execution_limit_enforcement']);
       expect(
         (
           await admin.query(

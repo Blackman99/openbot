@@ -75,6 +75,7 @@ import {
 } from '../tasks/col11-postgres-guards.js';
 import { TASK_EXECUTION_LIMIT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-schema.js';
 import { TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-enforcement-schema.js';
+import { TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS } from '../tasks/execution-concurrency-schema.js';
 import {
   COL12_ENFORCEMENT_POSTGRES_GUARDS,
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -415,6 +416,11 @@ const MIGRATIONS = [
   {
     version: '0037_task_execution_limit_enforcement',
     statements: TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0038_task_run_concurrency_holds',
+    statements: TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;
