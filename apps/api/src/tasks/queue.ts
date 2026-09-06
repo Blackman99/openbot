@@ -52,8 +52,13 @@ import {
   reconcileRunTokenReservation,
   type TokenBudgetTarget,
 } from './token-budget-store.js';
+import { resolveCostBudgets } from './cost-budget.js';
+import { applyRunCostReservation, reconcileRunCostReservation } from './cost-budget-store.js';
+import { costMicros } from './model-price.js';
+import { loadActiveModelPrice, loadPinnedModelPrice } from './model-price-service.js';
 import { estimateTokens } from './token-usage.js';
 import { appendTokenBudgetWarnings } from './token-budget-warning.js';
+import { appendCostBudgetWarnings } from './cost-budget-warning.js';
 import {
   createDelegatedChild,
   parkParentForChild,
@@ -262,11 +267,40 @@ export class TaskQueue {
       run: { maxTotalTokens },
     });
   }
+  private async costBudgets(connection: SqlConnection, task: Candidate) {
+    const layers = await loadExecutionLimitPolicies(connection, task.workspace_id, task.group_id);
+    const taskPolicy = (
+      await connection.query<{ execution_policy: unknown }>(
+        'SELECT execution_policy FROM tasks WHERE id=$1',
+        [task.task_id],
+      )
+    ).rows[0];
+    return resolveCostBudgets({
+      workspace: layers.workspace,
+      group: layers.group,
+      task: parseExecutionPolicy(taskPolicy?.execution_policy),
+    });
+  }
   private async settleTokens(connection: SqlConnection, task: Candidate, usage: Usage | null) {
-    await reconcileRunTokenReservation(connection, this.tokenTarget(task), {
+    const counts = {
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
-    });
+    };
+    await reconcileRunTokenReservation(connection, this.tokenTarget(task), counts);
+    const pinned = (
+      await connection.query<{ price_version_id: string | null }>(
+        'SELECT price_version_id FROM task_runs WHERE id=$1',
+        [task.id],
+      )
+    ).rows[0];
+    const price = pinned?.price_version_id
+      ? await loadPinnedModelPrice(connection, pinned.price_version_id)
+      : undefined;
+    await reconcileRunCostReservation(
+      connection,
+      this.tokenTarget(task),
+      price ? costMicros(price, counts) : 0,
+    );
   }
   private limitAccess(task: Candidate) {
     return {
@@ -553,14 +587,15 @@ export class TaskQueue {
           await this.fail(connection, task, code);
           return { handled: true };
         }
+        const tokenRequest = reservationRequestForRun(
+          target.configuration.limits.maxTotalTokens,
+          messages.reduce((total, message) => total + estimateTokens(message.content), 0),
+        );
         const reservation = await applyRunTokenReservation(
           connection,
           this.tokenTarget(task),
           await this.tokenBudgets(connection, task, target.configuration.limits.maxTotalTokens),
-          reservationRequestForRun(
-            target.configuration.limits.maxTotalTokens,
-            messages.reduce((total, message) => total + estimateTokens(message.content), 0),
-          ),
+          tokenRequest,
           this.now(),
         );
         if (!reservation.allowed) {
@@ -569,6 +604,33 @@ export class TaskQueue {
         }
         if (reservation.soft)
           await appendTokenBudgetWarnings(connection, this.limitAccess(task), reservation.warnings);
+        const price = await loadActiveModelPrice(
+          connection,
+          task.workspace_id,
+          provider.connectionId,
+          provider.modelId,
+        );
+        const costBudgets = price ? await this.costBudgets(connection, task) : {};
+        if (price && Object.keys(costBudgets).length) {
+          const costReservation = await applyRunCostReservation(
+            connection,
+            this.tokenTarget(task),
+            costBudgets,
+            { micros: costMicros(price, tokenRequest), priceVersionId: price.id },
+            this.now(),
+          );
+          if (!costReservation.allowed) {
+            await this.settleTokens(connection, task, null);
+            await holdTaskForBudget(connection, this.limitAccess(task));
+            return { handled: true };
+          }
+          if (costReservation.soft)
+            await appendCostBudgetWarnings(
+              connection,
+              this.limitAccess(task),
+              costReservation.warnings,
+            );
+        }
         const claimToken = randomUUID(),
           startedAt = this.now(),
           remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),
@@ -577,7 +639,7 @@ export class TaskQueue {
               (remainingMs ?? target.configuration.limits.maxDurationSeconds * 1000),
           );
         const claimed = await connection.query(
-          "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10 WHERE id=$1 AND status='queued' RETURNING id",
+          "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10,price_version_id=$11 WHERE id=$1 AND status='queued' RETURNING id",
           [
             task.id,
             claimToken,
@@ -589,6 +651,7 @@ export class TaskQueue {
             provider.revision,
             provider.protocol,
             provider.modelId,
+            price?.id ?? null,
           ],
         );
         if (!claimed.rows.length) {

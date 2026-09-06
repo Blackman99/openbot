@@ -2,7 +2,7 @@
 sequence: 35
 id: COL-18
 title: "Price model usage and enforce cost budgets"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-10
   - COL-17
@@ -39,3 +39,7 @@ Administrators can version model prices and enforce atomic cost budgets across a
 - Provider invoice import
 - Foreign-exchange conversion
 - Automatic cheapest-model selection
+
+## Implementation note
+
+Only Workspace Owners and Administrators can create or supersede model price versions. Migration `0045_model_price_versions` stores immutable versions keyed by workspace, connection, and model; `0046_task_cost_budgets` stores used plus reserved micros at workspace, group, and task scopes with one reservation per Run. Unpriced models display as Unpriced and skip cost reservation even when a cost cap exists. A priced Run pins the active version at claim, charges actual or estimated tokens against that version, and fallbacks look up the model actually called. Claim locks cost ledgers, and finish, fail, or cancel deletes the reservation with `RETURNING`. A hard cost cap holds `waiting_budget`. Original acceptance texts stay unchecked.

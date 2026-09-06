@@ -194,7 +194,8 @@ export class ConversationStreamService implements ConversationStreams {
                   | 'handoffs'
                   | 'inputTokens'
                   | 'outputTokens'
-                  | 'totalTokens';
+                  | 'totalTokens'
+                  | 'cost';
                 used?: number;
                 limit?: number;
                 source?:
@@ -364,7 +365,8 @@ type LedgerNotice = {
       | 'handoffs'
       | 'inputTokens'
       | 'outputTokens'
-      | 'totalTokens';
+      | 'totalTokens'
+      | 'cost';
     used?: number;
     limit?: number;
     source?:

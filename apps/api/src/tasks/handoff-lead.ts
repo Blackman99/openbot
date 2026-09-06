@@ -16,6 +16,7 @@ import {
 import { writeNextAttempt } from './next-attempt.js';
 import { persistTokenUsage } from './token-usage.js';
 import { reconcileRunTokenReservation } from './token-budget-store.js';
+import { reconcileRunCostReservation } from './cost-budget-store.js';
 import { lockTaskAncestry } from './tree.js';
 import type { BotBinding } from '../bots/service.js';
 
@@ -202,16 +203,14 @@ async function failCurrentRun(
      WHERE id=$1 AND status='running'`,
     [run.id, now, ...persistTokenUsage(null)],
   );
-  await reconcileRunTokenReservation(
-    connection,
-    {
-      runId: run.id,
-      taskId: parent.id,
-      workspaceId: parent.workspace_id,
-      groupId: group?.group_id ?? null,
-    },
-    { inputTokens: 0, outputTokens: 0 },
-  );
+  const target = {
+    runId: run.id,
+    taskId: parent.id,
+    workspaceId: parent.workspace_id,
+    groupId: group?.group_id ?? null,
+  };
+  await reconcileRunTokenReservation(connection, target, { inputTokens: 0, outputTokens: 0 });
+  await reconcileRunCostReservation(connection, target, 0);
   await connection.query("UPDATE tasks SET status='failed' WHERE id=$1 AND status='running'", [
     parent.id,
   ]);

@@ -20,6 +20,14 @@
       {/each}
     </section>
   {/if}
+  {#if task.costBudgets?.length}
+    <section aria-label="Cost budget">
+      <h3>Cost budget</h3>
+      {#each task.costBudgets as scope (scope.kind)}
+        <p>{scope.kind === 'workspace' ? 'Workspace' : scope.kind === 'group' ? 'Group' : 'Task'}: used {scope.usedMicros} · reserved {scope.reservedMicros} · remaining {scope.remainingMicros}</p>
+      {/each}
+    </section>
+  {/if}
   {#if task.olderRunsCursor}<p><a href={`${conversationBase}/tasks/${task.id}/runs?cursor=${encodeURIComponent(task.olderRunsCursor)}`}>View earlier attempts</a></p>{/if}
   {#each task.runs as run (run.id)}
     <TaskRunSummary {run} {conversationBase} />

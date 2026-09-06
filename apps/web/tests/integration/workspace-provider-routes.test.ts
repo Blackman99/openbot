@@ -36,9 +36,10 @@ it('loads current workspace authority even when identity has no default workspac
     workspaces: [workspace],
     canManage: false,
     connections: [],
+    prices: [],
   });
   expect(fetch.mock.calls.at(-1)?.[0]).toBe(
-    'http://localhost:3001/api/v1/workspaces/workspace-1/model-connections',
+    'http://localhost:3001/api/v1/workspaces/workspace-1/model-prices',
   );
   expect(setHeaders).toHaveBeenCalledWith({ 'cache-control': 'private, no-store' });
 });

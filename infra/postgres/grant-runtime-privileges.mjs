@@ -299,6 +299,15 @@ try {
       IF to_regclass('task_token_reservations') IS NOT NULL THEN
         GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime;
       END IF;
+      IF to_regclass('model_price_versions') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON model_price_versions TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_cost_ledgers') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_cost_reservations') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime;
+      END IF;
       IF to_regprocedure('task_has_child_result_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
         REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
         GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime;
@@ -326,7 +335,7 @@ try {
     GRANT UPDATE (body, end_byte, updated_at) ON task_run_partial_outputs TO openbot_runtime;
     GRANT UPDATE (status) ON tasks TO openbot_runtime;
     GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
-      provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,
+      provider_scope_id, connection_id, connection_revision, protocol, model_id, price_version_id, input_tokens,
       output_tokens, usage_estimated, error_code, output_event_id) ON task_runs TO openbot_runtime;
     GRANT UPDATE (close_event_id, close_sequence, closed_at, closure_reason) ON group_bot_grants TO openbot_runtime;
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;

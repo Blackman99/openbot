@@ -48,6 +48,15 @@ export interface TaskRun {
     modelId: string;
   };
   usage: null | { inputTokens: number; outputTokens: number; estimated: boolean };
+  price?:
+    | { kind: 'unpriced' }
+    | {
+        kind: 'priced';
+        versionId: string;
+        inputMicrosPerMillion: number;
+        outputMicrosPerMillion: number;
+        costMicros: number | null;
+      };
   error: TaskErrorCode | null;
   output: MessageReceipt | null;
   continuation?: RunContinuation;
@@ -69,6 +78,13 @@ export interface TokenBudgetScopeView {
   reserved: TokenBudgetCounts;
   remaining: TokenBudgetRemaining;
 }
+export type CostBudgetLayer = 'workspace' | 'group' | 'task';
+export interface CostBudgetScopeView {
+  kind: CostBudgetLayer;
+  usedMicros: number;
+  reservedMicros: number;
+  remainingMicros: number;
+}
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -82,6 +98,7 @@ export interface TaskView {
   runCount: number;
   olderRunsCursor: string | null;
   tokenBudgets?: TokenBudgetScopeView[];
+  costBudgets?: CostBudgetScopeView[];
   runs: TaskRun[];
 }
 export interface TaskPage {
@@ -183,6 +200,28 @@ function parseTokenBudgets(value: unknown): TokenBudgetScopeView[] | undefined {
   return scopes;
 }
 
+function parseCostBudgets(value: unknown): CostBudgetScopeView[] | undefined {
+  if (!Array.isArray(value) || !value.length) return undefined;
+  const scopes: CostBudgetScopeView[] = [];
+  for (const item of value) {
+    if (
+      !taskKeys(item, 'kind,remainingMicros,reservedMicros,usedMicros') ||
+      (item.kind !== 'workspace' && item.kind !== 'group' && item.kind !== 'task') ||
+      !taskInteger(item.usedMicros, 0) ||
+      !taskInteger(item.reservedMicros, 0) ||
+      !taskInteger(item.remainingMicros, 0)
+    )
+      return undefined;
+    scopes.push({
+      kind: item.kind,
+      usedMicros: item.usedMicros,
+      reservedMicros: item.reservedMicros,
+      remainingMicros: item.remainingMicros,
+    });
+  }
+  return scopes;
+}
+
 function parseTaskUsage(value: unknown): TaskRun['usage'] | undefined {
   if (value === null) return null;
   if (
@@ -208,6 +247,28 @@ function receipt(value: unknown): MessageReceipt | undefined {
       }
     : undefined;
 }
+function parseRunPrice(value: unknown): TaskRun['price'] | undefined {
+  if (!taskKeys(value, 'kind') || value.kind !== 'unpriced') {
+    if (
+      !taskKeys(value, 'costMicros,inputMicrosPerMillion,kind,outputMicrosPerMillion,versionId') ||
+      value.kind !== 'priced' ||
+      !isConversationUuid(value.versionId) ||
+      !taskInteger(value.inputMicrosPerMillion, 0) ||
+      !taskInteger(value.outputMicrosPerMillion, 0) ||
+      (value.costMicros !== null && !taskInteger(value.costMicros, 0))
+    )
+      return undefined;
+    return {
+      kind: 'priced',
+      versionId: value.versionId.toLowerCase(),
+      inputMicrosPerMillion: value.inputMicrosPerMillion,
+      outputMicrosPerMillion: value.outputMicrosPerMillion,
+      costMicros: value.costMicros,
+    };
+  }
+  return { kind: 'unpriced' };
+}
+
 export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | undefined {
   if (
     (!taskKeys(
@@ -217,6 +278,14 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
       !taskKeys(
         value,
         'attempt,continuation,createdAt,error,finishedAt,id,output,provider,startedAt,status,usage',
+      ) &&
+      !taskKeys(
+        value,
+        'attempt,createdAt,error,finishedAt,id,output,price,provider,startedAt,status,usage',
+      ) &&
+      !taskKeys(
+        value,
+        'attempt,continuation,createdAt,error,finishedAt,id,output,price,provider,startedAt,status,usage',
       )) ||
     !isConversationUuid(value.id) ||
     !taskInteger(value.attempt) ||
@@ -299,6 +368,12 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     continuation = parseRunContinuation(value.continuation);
     if (!continuation) return undefined;
   }
+  let price: TaskRun['price'];
+  if ('price' in value) {
+    price = parseRunPrice(value.price);
+    if (!price) return undefined;
+    if (value.status === 'queued') return undefined;
+  }
   return {
     id: value.id.toLowerCase(),
     attempt: value.attempt,
@@ -311,6 +386,7 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     error: value.error,
     output,
     ...(continuation ? { continuation } : {}),
+    ...(price ? { price } : {}),
   };
 }
 export function parseTask(value: unknown, conversationId: string): TaskView | undefined {
@@ -330,6 +406,22 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
       !taskKeys(
         value,
         'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,tokenBudgets,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,runCount,runs,status,tokenBudgets,trigger',
+      ) &&
+      !taskKeys(
+        value,
+        'bot,conversationId,costBudgets,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,tokenBudgets,trigger',
       )) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.conversationId) ||
@@ -364,6 +456,11 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
   if ('tokenBudgets' in value) {
     tokenBudgets = parseTokenBudgets(value.tokenBudgets);
     if (!tokenBudgets) return undefined;
+  }
+  let costBudgets: TaskView['costBudgets'];
+  if ('costBudgets' in value) {
+    costBudgets = parseCostBudgets(value.costBudgets);
+    if (!costBudgets) return undefined;
   }
   const trigger = receipt(value.trigger),
     attempt = parseTaskRun(value.runs[0], value.createdAt);
@@ -401,6 +498,7 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     ...(routing === undefined ? {} : { routing }),
     trigger,
     ...(tokenBudgets ? { tokenBudgets } : {}),
+    ...(costBudgets ? { costBudgets } : {}),
     runs: [attempt],
   };
 }

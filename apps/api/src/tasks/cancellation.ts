@@ -6,6 +6,7 @@ import { conversationUuid, type ConversationAccess } from '../conversations/serv
 import { resumeParentAfterChild } from './delegate-child.js';
 import { TaskAccessError, TaskConflictError, TaskInputError } from './errors.js';
 import { reconcileRunTokenReservation } from './token-budget-store.js';
+import { reconcileRunCostReservation } from './cost-budget-store.js';
 import type { TaskStatus } from './service.js';
 
 export interface CancellationCommand {
@@ -202,16 +203,14 @@ export async function cancelTask(
         [task.id],
       )
     ).rows[0];
-    await reconcileRunTokenReservation(
-      connection,
-      {
-        runId: run.id,
-        taskId: task.id,
-        workspaceId: access.workspaceId,
-        groupId: group?.group_id ?? null,
-      },
-      { inputTokens: 0, outputTokens: 0 },
-    );
+    const target = {
+      runId: run.id,
+      taskId: task.id,
+      workspaceId: access.workspaceId,
+      groupId: group?.group_id ?? null,
+    };
+    await reconcileRunTokenReservation(connection, target, { inputTokens: 0, outputTokens: 0 });
+    await reconcileRunCostReservation(connection, target, 0);
   }
   for (const task of affected) {
     const run = runs.get(task.id)!;

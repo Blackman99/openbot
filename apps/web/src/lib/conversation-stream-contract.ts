@@ -100,7 +100,8 @@ export interface ExecutionLimitWarning {
     | 'handoffs'
     | 'inputTokens'
     | 'outputTokens'
-    | 'totalTokens';
+    | 'totalTokens'
+    | 'cost';
   used: number;
   limit: number;
   source: 'workspace' | 'group' | 'task' | 'run';
@@ -518,7 +519,8 @@ export function parseConversationStreamEvent(
       data.dimension === 'handoffs' ||
       data.dimension === 'inputTokens' ||
       data.dimension === 'outputTokens' ||
-      data.dimension === 'totalTokens') &&
+      data.dimension === 'totalTokens' ||
+      data.dimension === 'cost') &&
     integer(data.used) &&
     integer(data.limit) &&
     (data.source === 'workspace' ||

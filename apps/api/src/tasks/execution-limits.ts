@@ -19,6 +19,7 @@ export interface ExecutionLimitPolicy {
   maxInputTokens?: number;
   maxOutputTokens?: number;
   maxTotalTokens?: number;
+  maxCostMicros?: number;
 }
 
 export interface ResolvedExecutionLimits {
@@ -37,6 +38,7 @@ const POLICY_KEYS = [
   'maxInputTokens',
   'maxOutputTokens',
   'maxTotalTokens',
+  'maxCostMicros',
 ] as const;
 
 const SPECIFICITY: readonly ExecutionLimitLayer[] = ['run', 'task', 'group', 'workspace'];
@@ -88,6 +90,10 @@ export function parseExecutionPolicy(value: unknown): ExecutionLimitPolicy {
   if ('maxTotalTokens' in value) {
     if (!integer(value.maxTotalTokens, 1)) throw new TaskInputError();
     policy.maxTotalTokens = value.maxTotalTokens;
+  }
+  if ('maxCostMicros' in value) {
+    if (!integer(value.maxCostMicros, 1)) throw new TaskInputError();
+    policy.maxCostMicros = value.maxCostMicros;
   }
   return policy;
 }

@@ -78,6 +78,8 @@ describe('database migrations', () => {
       '0042_task_token_budgets',
       '0043_task_parallel_delegations',
       '0044_task_lead_handoffs',
+      '0045_model_price_versions',
+      '0046_task_cost_budgets',
     ]);
 
     const database: DatabaseClient = {
@@ -149,6 +151,7 @@ describe('database migrations', () => {
       'memory_revocation_events',
       'memory_versions',
       'message_purges',
+      'model_price_versions',
       'oidc_identities',
       'oidc_transactions',
       'openbot_schema_migrations',
@@ -161,6 +164,8 @@ describe('database migrations', () => {
       'run_source_manifests',
       'sessions',
       'task_cancel_commands',
+      'task_cost_ledgers',
+      'task_cost_reservations',
       'task_delegations',
       'task_execution_limit_grants',
       'task_execution_limit_snapshots',
@@ -200,7 +205,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0044_task_lead_handoffs' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0046_task_cost_budgets' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

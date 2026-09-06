@@ -67,7 +67,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0044_task_lead_handoffs');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0046_task_cost_budgets');
   assert.deepEqual(
     (
       await pool.query(

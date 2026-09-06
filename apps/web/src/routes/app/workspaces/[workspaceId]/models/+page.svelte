@@ -2,7 +2,10 @@
   import type { Workspace } from '$lib/server/workspace-api.js';
   import type { SharedConnectionView } from '$lib/server/workspace-provider-api.js';
   import type { PersonalConnection } from '$lib/server/provider-api.js';
-  let { data, form }: { data: { workspace: Workspace; canManage: boolean; connections: SharedConnectionView[] }; form?: { error?: string; success?: string } | null } = $props();
+  import type { ModelPriceView } from '$lib/server/model-price-api.js';
+  let { data, form }: { data: { workspace: Workspace; canManage: boolean; connections: SharedConnectionView[]; prices: ModelPriceView[] }; form?: { error?: string; success?: string } | null } = $props();
+  const priceFor = (connection: SharedConnectionView) =>
+    data.prices.find((item) => item.connectionId === connection.id && item.modelId === connection.modelId);
   const protocolNames = { 'openai-chat': 'OpenAI Chat Completions', 'openai-responses': 'OpenAI Responses', 'anthropic-messages': 'Anthropic Messages' };
   let selectedProtocols = $state<Record<string, string>>({});
 </script>
@@ -45,6 +48,20 @@
       <h2 id={`model-${connection.id}`}>{connection.name}</h2>
       <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/models/${encodeURIComponent(connection.id)}/capabilities`}>Capabilities and fallbacks</a></p>
       <p>{connection.availability === 'available' ? 'Available' : 'Unavailable (disabled)'} · {connection.modelId} · {protocolNames[connection.protocol]}</p>
+      {#if priceFor(connection)}
+        <p>Price: {priceFor(connection)!.inputMicrosPerMillion} input micros/M · {priceFor(connection)!.outputMicrosPerMillion} output micros/M</p>
+      {:else}
+        <p>Unpriced</p>
+      {/if}
+      {#if data.canManage}
+        <form method="POST" action="?/price">
+          <input type="hidden" name="connectionId" value={connection.id} />
+          <input type="hidden" name="modelId" value={connection.modelId} />
+          <label>Input micros per million tokens<input name="inputMicrosPerMillion" type="number" min="0" step="1" required value={priceFor(connection)?.inputMicrosPerMillion ?? 0} /></label>
+          <label>Output micros per million tokens<input name="outputMicrosPerMillion" type="number" min="0" step="1" required value={priceFor(connection)?.outputMicrosPerMillion ?? 0} /></label>
+          <button type="submit">Save price</button>
+        </form>
+      {/if}
       <p>Text stream: {connection.lastProbe.text.ok ? 'passed' : 'failed'} · Structured actions: {connection.lastProbe.action.ok ? 'passed' : 'unavailable'}</p>
       <p>Last tested: <time datetime={connection.lastProbe.testedAt}>{connection.lastProbe.testedAt}</time></p>
       {#if data.canManage && connection.settings}

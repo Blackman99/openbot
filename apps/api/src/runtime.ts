@@ -7,6 +7,7 @@ import { KnowledgeService } from './knowledge/service.js';
 import { attachmentLimit } from './attachments/types.js';
 import { BotVersionService } from './bots/version-service.js';
 import { TaskService } from './tasks/service.js';
+import { ModelPriceService } from './tasks/model-price-service.js';
 import { GroupRoutingService } from './routing/service.js';
 import { BotAvatarService } from './bots/avatar-service.js';
 import { startAvatarCleanup } from './bots/avatar-cleanup.js';
@@ -130,6 +131,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     conversationStreams: new ConversationStreamService(pool),
     tasks: new TaskService(pool),
+    modelPrices: new ModelPriceService(pool),
     groupRouting: new GroupRoutingService(pool),
     botVersions: new BotVersionService(pool, avatars),
     botCopies: new BotCopyService(pool),

@@ -13,6 +13,8 @@ import type { KnowledgeService } from './knowledge/service.js';
 import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
 import type { TaskService } from './tasks/service.js';
+import { registerModelPriceRoutes } from './tasks/model-price-routes.js';
+import type { ModelPriceService } from './tasks/model-price-service.js';
 import type { GroupRoutingService } from './routing/service.js';
 import { registerGroupRoutingRoutes } from './routing/routes.js';
 import type { BotVersionService } from './bots/version-service.js';
@@ -67,6 +69,7 @@ export interface BuildAppOptions {
   memories?: MemoryService;
   conversationStreams?: ConversationStreams;
   tasks?: TaskService;
+  modelPrices?: ModelPriceService;
   groupRouting?: GroupRoutingService;
   oidc?: OidcService;
   auth?: AuthService;
@@ -198,6 +201,7 @@ export function buildApp({
   botTemplates,
   teamTemplates,
   tasks,
+  modelPrices,
   groupRouting,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
@@ -248,6 +252,7 @@ export function buildApp({
     if (botTemplates) registerBotTemplateRoutes(app, auth, botTemplates, webOrigin);
     if (teamTemplates) registerTeamTemplateRoutes(app, auth, teamTemplates, webOrigin);
     if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);
+    if (modelPrices) registerModelPriceRoutes(app, auth, modelPrices, webOrigin);
     if (groupRouting) registerGroupRoutingRoutes(app, auth, groupRouting, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);
     if (groupBots) registerGroupBotRoutes(app, auth, groupBots, webOrigin);

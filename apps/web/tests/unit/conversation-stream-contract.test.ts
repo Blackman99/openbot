@@ -248,6 +248,19 @@ describe('conversation stream wire contract', () => {
     expect(
       parseConversationStreamEvent(envelope(tokenWarning, 'task.limit.warning'), scope),
     ).toEqual(envelope(tokenWarning, 'task.limit.warning'));
+    const costWarning = {
+      taskId,
+      dimension: 'cost',
+      used: 80,
+      limit: 100,
+      source: 'workspace',
+      soft: true,
+      hard: false,
+      body: 'Cost usage reached 80% of the 100 workspace limit.',
+    };
+    expect(
+      parseConversationStreamEvent(envelope(costWarning, 'task.limit.warning'), scope),
+    ).toEqual(envelope(costWarning, 'task.limit.warning'));
   });
 
   it('accepts positive safe persisted attempts without adding run history', () => {

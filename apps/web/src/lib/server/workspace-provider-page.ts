@@ -1,5 +1,6 @@
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { createWorkspaceProviderApiClient } from './workspace-provider-api.js';
+import { createModelPriceApiClient } from './model-price-api.js';
 import type { ProviderResult } from './provider-api.js';
 import {
   clearSessionCookie,
@@ -79,7 +80,40 @@ export async function loadWorkspaceModelsPage(context: PageContext, workspaceId:
       error(403, 'You cannot access models in this workspace');
     error(503, 'Workspace models unavailable');
   }
-  return { ...page, ...result.value };
+  const prices = await createModelPriceApiClient(context.fetch).list(
+    readSessionCookie(context.cookies) ?? '',
+    workspaceId,
+  );
+  return {
+    ...page,
+    ...result.value,
+    prices: prices.ok ? prices.value.prices : [],
+  };
+}
+
+export async function priceWorkspaceModelAction(context: ActionContext, workspaceId: string) {
+  const session = token(context);
+  const form = await context.request.formData();
+  const field = (name: string) => String(form.get(name) ?? '');
+  const input = {
+    connectionId: field('connectionId'),
+    modelId: field('modelId'),
+    inputMicrosPerMillion: Number(field('inputMicrosPerMillion')),
+    outputMicrosPerMillion: Number(field('outputMicrosPerMillion')),
+  };
+  const result = await createModelPriceApiClient(context.fetch).supersede(
+    session,
+    workspaceId,
+    input,
+  );
+  if (result.ok) return { success: 'Model price saved.' };
+  if (result.code === 'authentication_required') {
+    clearSessionCookie(context.cookies);
+    redirect(303, '/sign-in');
+  }
+  if (result.code === 'workspace_forbidden')
+    return fail(403, { error: 'Only workspace owners and administrators can set model prices.' });
+  return fail(400, { error: 'Check the price fields and try again.' });
 }
 
 export async function saveWorkspaceModelAction(context: ActionContext, workspaceId: string) {

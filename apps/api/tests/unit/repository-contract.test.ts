@@ -269,6 +269,17 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime',
     );
+    expect(grants).toContain("to_regclass('model_price_versions')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON model_price_versions TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_cost_ledgers')");
+    expect(grants).toContain('GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_cost_reservations')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime',
+    );
+    expect(grants).toContain('price_version_id');
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime',
     );
@@ -427,6 +438,8 @@ describe('repository contract', () => {
     expect(workflow).toContain('0042_task_token_budgets');
     expect(workflow).toContain('0043_task_parallel_delegations');
     expect(workflow).toContain('0044_task_lead_handoffs');
+    expect(workflow).toContain('0045_model_price_versions');
+    expect(workflow).toContain('0046_task_cost_budgets');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );
@@ -442,6 +455,15 @@ describe('repository contract', () => {
     );
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'task_token_reservations', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'model_price_versions', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_cost_reservations', 'SELECT')",
     );
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",

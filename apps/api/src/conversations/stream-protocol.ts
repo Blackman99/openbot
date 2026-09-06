@@ -82,7 +82,8 @@ export interface ExecutionLimitWarning {
     | 'handoffs'
     | 'inputTokens'
     | 'outputTokens'
-    | 'totalTokens';
+    | 'totalTokens'
+    | 'cost';
   used: number;
   limit: number;
   source: 'workspace' | 'group' | 'task' | 'run';
@@ -318,6 +319,7 @@ function projectPayload(payload: ConversationStreamPayload): ConversationStreamP
           'inputTokens',
           'outputTokens',
           'totalTokens',
+          'cost',
         ].includes(dimension) ||
         !Number.isSafeInteger(used) ||
         used < 0 ||

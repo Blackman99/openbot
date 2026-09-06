@@ -813,6 +813,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
                 'connection_revision',
                 'protocol',
                 'model_id',
+                'price_version_id',
                 'input_tokens',
                 'output_tokens',
                 'usage_estimated',

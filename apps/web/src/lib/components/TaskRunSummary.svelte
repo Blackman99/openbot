@@ -42,6 +42,7 @@
     {/if}
   {/if}
   {#if run.usage}<p>Input tokens: {run.usage.inputTokens} · Output tokens: {run.usage.outputTokens} · {run.usage.estimated ? 'Estimated' : 'Actual'}</p>{:else}<p>Token usage has not been reported.</p>{/if}
+  {#if run.price?.kind === 'unpriced'}<p>Unpriced</p>{:else if run.price?.kind === 'priced'}<p>Cost: {run.price.costMicros === null ? 'not yet charged' : `${run.price.costMicros} micros`} · input {run.price.inputMicrosPerMillion}/M · output {run.price.outputMicrosPerMillion}/M</p>{/if}
   {#if run.error}<p class="failure">{errors[run.error]}</p>{/if}
   {#if run.output}<a href={`${conversationBase}?messageId=${run.output.messageId}#message-${run.output.messageId}`}>Open conversation response</a>{/if}
 </section>

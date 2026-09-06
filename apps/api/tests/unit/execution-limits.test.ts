@@ -76,6 +76,8 @@ describe('COL-12 hierarchical execution limit resolution', () => {
       maxInputTokens: 80,
       maxOutputTokens: 40,
     });
+    expect(parseExecutionPolicy({ maxCostMicros: 2500 })).toEqual({ maxCostMicros: 2500 });
     expect(() => parseExecutionPolicy({ maxTotalTokens: 0 })).toThrow(TaskInputError);
+    expect(() => parseExecutionPolicy({ maxCostMicros: 0 })).toThrow(TaskInputError);
   });
 });

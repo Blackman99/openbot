@@ -40,6 +40,10 @@ import {
 } from './execution-limits.js';
 import { resolveTokenBudgets, type TokenBudgetScopeView } from './token-budget.js';
 import { readTokenBudgetView } from './token-budget-store.js';
+import { resolveCostBudgets, type CostBudgetScopeView } from './cost-budget.js';
+import { readCostBudgetView } from './cost-budget-store.js';
+import { costMicros } from './model-price.js';
+import { loadPinnedModelPrice } from './model-price-service.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
 export type TaskStatus =
@@ -64,6 +68,7 @@ export interface TaskView {
   runCount: number;
   olderRunsCursor: string | null;
   tokenBudgets: TokenBudgetScopeView[];
+  costBudgets?: CostBudgetScopeView[];
   runs: {
     id: string;
     attempt: number;
@@ -73,6 +78,15 @@ export interface TaskView {
     finishedAt: Date | null;
     provider: { protocol: ProviderProtocol; modelId: string } | null;
     usage: Usage | null;
+    price?:
+      | { kind: 'unpriced' }
+      | {
+          kind: 'priced';
+          versionId: string;
+          inputMicrosPerMillion: number;
+          outputMicrosPerMillion: number;
+          costMicros: number | null;
+        };
     error: TaskFailure | null;
     output: { messageId: string; eventId: string; sequence: number } | null;
     continuation?: RunContinuation;
@@ -118,6 +132,7 @@ async function readRuns(
       finished_at: Date | null;
       protocol: ProviderProtocol | null;
       model_id: string | null;
+      price_version_id: string | null;
       input_tokens: string | number | null;
       output_tokens: string | number | null;
       usage_estimated: boolean | null;
@@ -130,20 +145,44 @@ async function readRuns(
       window ? [id, limit, window.before, window.horizon] : [id, limit],
     )
   ).rows;
-  const views: TaskRunView[] = runs.map((run) => ({
-    id: run.id,
-    attempt: run.attempt,
-    status: run.status,
-    createdAt: run.created_at,
-    startedAt: run.started_at,
-    finishedAt: run.finished_at,
-    provider: run.protocol ? { protocol: run.protocol, modelId: run.model_id! } : null,
-    usage: readStoredTokenUsage(run.input_tokens, run.output_tokens, run.usage_estimated),
-    error: run.error_code,
-    output: run.output_event_id
-      ? { messageId: run.message_id!, eventId: run.output_event_id, sequence: Number(run.sequence) }
-      : null,
-  }));
+  const views: TaskRunView[] = [];
+  for (const run of runs) {
+    const usage = readStoredTokenUsage(run.input_tokens, run.output_tokens, run.usage_estimated);
+    const pinned = run.price_version_id
+      ? await loadPinnedModelPrice(connection, run.price_version_id)
+      : undefined;
+    views.push({
+      id: run.id,
+      attempt: run.attempt,
+      status: run.status,
+      createdAt: run.created_at,
+      startedAt: run.started_at,
+      finishedAt: run.finished_at,
+      provider: run.protocol ? { protocol: run.protocol, modelId: run.model_id! } : null,
+      usage,
+      error: run.error_code,
+      output: run.output_event_id
+        ? {
+            messageId: run.message_id!,
+            eventId: run.output_event_id,
+            sequence: Number(run.sequence),
+          }
+        : null,
+      ...(run.protocol
+        ? {
+            price: pinned
+              ? {
+                  kind: 'priced' as const,
+                  versionId: pinned.id,
+                  inputMicrosPerMillion: pinned.inputMicrosPerMillion,
+                  outputMicrosPerMillion: pinned.outputMicrosPerMillion,
+                  costMicros: usage ? costMicros(pinned, usage) : null,
+                }
+              : { kind: 'unpriced' as const },
+          }
+        : {}),
+    });
+  }
   const continuations = await loadRunContinuations(
     connection,
     views.map((run) => ({
@@ -180,19 +219,29 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
   ).rows[0]!;
   const runs = await readRuns(connection, id, 1);
   const layers = await loadExecutionLimitPolicies(connection, row.workspace_id, row.group_id);
+  const budgetTarget = {
+    runId: runs[0]!.id,
+    taskId: row.id,
+    workspaceId: row.workspace_id,
+    groupId: row.group_id,
+  };
   const tokenBudgets = await readTokenBudgetView(
     connection,
-    {
-      runId: runs[0]!.id,
-      taskId: row.id,
-      workspaceId: row.workspace_id,
-      groupId: row.group_id,
-    },
+    budgetTarget,
     resolveTokenBudgets({
       workspace: layers.workspace,
       group: layers.group,
       task: parseExecutionPolicy(row.execution_policy),
       run: { maxTotalTokens: row.configuration.limits.maxTotalTokens },
+    }),
+  );
+  const costBudgets = await readCostBudgetView(
+    connection,
+    budgetTarget,
+    resolveCostBudgets({
+      workspace: layers.workspace,
+      group: layers.group,
+      task: parseExecutionPolicy(row.execution_policy),
     }),
   );
   return {
@@ -228,6 +277,7 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
       sequence: Number(row.sequence),
     },
     tokenBudgets,
+    ...(costBudgets.length ? { costBudgets } : {}),
     runs,
   };
 }

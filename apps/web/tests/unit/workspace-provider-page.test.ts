@@ -43,7 +43,10 @@ const connection: SharedConnectionView = {
 };
 it('shows members model health and usage controls without connection management or configuration', () => {
   const html = render(ModelsPage, {
-    props: { data: { workspace, canManage: false, connections: [connection] }, form: null },
+    props: {
+      data: { workspace, canManage: false, connections: [connection], prices: [] },
+      form: null,
+    },
   }).body;
   for (const text of [
     'Workspace models',
@@ -54,6 +57,7 @@ it('shows members model health and usage controls without connection management 
     'Structured actions: unavailable',
     '2030-01-02',
     'action="?/test"',
+    'Unpriced',
   ])
     expect(html).toContain(text);
   for (const text of [
@@ -71,7 +75,7 @@ it('shows members model health and usage controls without connection management 
 it('uses fresh management authority to show masked all-protocol settings, edit and disable controls', () => {
   const html = render(ModelsPage, {
     props: {
-      data: { workspace, canManage: true, connections: [connection] },
+      data: { workspace, canManage: true, connections: [connection], prices: [] },
       form: { success: 'Workspace connection saved.' },
     },
   }).body;
@@ -90,6 +94,9 @@ it('uses fresh management authority to show masked all-protocol settings, edit a
     'Anthropic Messages',
     'value="2023-01-01"',
     'role="status"',
+    'Unpriced',
+    'action="?/price"',
+    'Save price',
   ])
     expect(html).toContain(text);
   expect(html).not.toContain('action="?/delete"');
@@ -105,6 +112,7 @@ it('retains disabled model identity with unavailable state and escapes names and
         connections: [
           { ...connection, name: '<script>secret()</script>', availability: 'unavailable' },
         ],
+        prices: [],
       },
       form: { error: '<img src=x onerror=secret()>' },
     },

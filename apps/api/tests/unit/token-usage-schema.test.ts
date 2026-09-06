@@ -11,7 +11,7 @@ describe('COL-17 token usage schema slice', () => {
   it('is the next ordered ledger after delegation and pairs estimated with tokens', () => {
     expect(COL17_TOKEN_USAGE_REQUIRES_VERSION).toBe('0041_task_token_usage');
     expect(MIGRATION_VERSIONS).toContain('0040_task_delegation');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0044_task_lead_handoffs');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0046_task_cost_budgets');
     expect(sql).toContain('ADD COLUMN usage_estimated BOOLEAN');
     expect(sql).toContain('task_runs_usage_estimated');
     expect(sql).toContain('usage_estimated IS NOT NULL');
