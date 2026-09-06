@@ -2489,7 +2489,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
     });
 
     it('pauses a group subtree under openbot_runtime and resumes only the selected Task', async () => {
-      const f = await fixture('personal', true);
+      const f = await fixture('workspace', true);
       const parent = await submit(f);
       const child = await createQueuedTaskChild(runtime, {
         workspaceId: f.workspaceId,
