@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-15 and COL-17 are complete on `feat/openbot-collaboration-system` / draft PR #1 at `2921166` with Tester PASS on [Verify 34014775723](https://github.com/Blackman99/openbot/actions/runs/34014775723) (all 20 jobs green). COL-16 is in progress: a schema-valid `handoff` transfers the same Task Lead, appends a public `task.handoff` event, and starts one successor Run. Forty-six of 67 tickets are complete. Next ready work also includes API-03 and COL-18. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-16 is complete on `feat/openbot-collaboration-system` / draft PR #1 at product `3bf4f06` with Tester PASS on [Verify 34015588159](https://github.com/Blackman99/openbot/actions/runs/34015588159) at `32e9c93` (all 20 jobs green). A schema-valid `handoff` transfers the same Task Lead, appends a public `task.handoff` event, and starts one successor Run. Forty-seven of 67 tickets are complete. Next ready work is API-03, COL-18, and COL-19. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-six of 67 tickets are implemented and independently reviewed, and all 46 are fully complete. All 401 original acceptance texts are preserved.
+Forty-seven of 67 tickets are implemented and independently reviewed, and all 47 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

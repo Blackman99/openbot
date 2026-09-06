@@ -2,7 +2,7 @@
 sequence: 36
 id: COL-19
 title: "Pause Tasks for human input and approval"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-08
   - COL-12
