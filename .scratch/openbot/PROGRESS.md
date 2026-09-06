@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** TPL-02 is in progress on `feat/openbot-collaboration-system` / draft PR #1. COL-13 is complete after Tester PASS on [Verify 34009661399](https://github.com/Blackman99/openbot/actions/runs/34009661399) at `242e37a`. HEAD [Verify 34010559407](https://github.com/Blackman99/openbot/actions/runs/34010559407) on `e27cbab` is all 20 jobs green, including `compose-task-concurrency`. The first TPL-02 TDD slice exports `openbot.team-template.v1` without users or secrets. Original TPL-02 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** TPL-02 is complete on `feat/openbot-collaboration-system` / draft PR #1 after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1` (all 20 jobs green). COL-14, COL-17, and API-03 remain ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-two of 67 tickets are implemented and independently reviewed, and all 42 are fully complete. All 401 original acceptance texts are preserved. TPL-02 original acceptance texts stay unchecked.
+Forty-three of 67 tickets are implemented and independently reviewed, and all 43 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 
