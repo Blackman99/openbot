@@ -21,6 +21,7 @@ import { ConversationService } from './conversations/service.js';
 import { PostgresConversationRepository } from './conversations/postgres-repository.js';
 import { ConversationStreamService } from './conversations/stream-service.js';
 import { WorkspaceEventService } from './events/service.js';
+import { RoutineService } from './routines/service.js';
 import { startConversationStreamCleanup } from './conversations/stream-cleanup.js';
 import { PostgresBotRepository } from './bots/postgres-bot-repository.js';
 import { OpenIdProvider } from './oidc/provider.js';
@@ -132,6 +133,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     conversations: new ConversationService(new PostgresConversationRepository(pool)),
     conversationStreams: new ConversationStreamService(pool),
     workspaceEvents: new WorkspaceEventService(pool),
+    routines: new RoutineService(pool),
     tasks: new TaskService(pool),
     modelPrices: new ModelPriceService(pool),
     groupRouting: new GroupRoutingService(pool),

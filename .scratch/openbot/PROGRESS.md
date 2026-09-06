@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-06 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `f728df0`, green [Verify 34030455850](https://github.com/Blackman99/openbot/actions/runs/34030455850), and Tester 6/6 PASS. ROUT-01 is in progress with the first TDD slice: persist one-time collaboration routines (owner, group, prompt, lead or routing policy, IANA time zone, execution time, budget, expiration) through `POST /v1/routines` with `groups:write`. Scheduling, restart recovery, occurrence uniqueness, and bot-deny ACs remain open. NOTIF-01 is unlocked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-06 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `f728df0`, green [Verify 34030455850](https://github.com/Blackman99/openbot/actions/runs/34030455850), and Tester 6/6 PASS. ROUT-01 first TDD slice lands migration `0051_routines` plus `POST /v1/routines` (`groups:write`) so one-time routines persist owner, group, prompt, lead or group routing policy, IANA time zone, execution time, max cost budget, and expiration (AC1; create path of AC2). Edit/pause/resume/cancel UI, scheduled task creation, restart recovery, occurrence uniqueness, and bot-deny ACs remain open. NOTIF-01 is unlocked. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-three of 67 tickets are implemented and independently reviewed, and all 53 are fully complete. All 401 original acceptance texts are preserved.
 

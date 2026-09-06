@@ -11,7 +11,10 @@ describe('API-06 workspace event stream schema slice', () => {
   it('is the next ordered ledger after group archive and adds workspace cursor retention', () => {
     expect(API06_WORKSPACE_EVENT_STREAM_REQUIRES_VERSION).toBe('0050_workspace_event_stream');
     expect(MIGRATION_VERSIONS).toContain('0049_group_archive');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0050_workspace_event_stream');
+    expect(MIGRATION_VERSIONS.indexOf('0050_workspace_event_stream')).toBe(
+      MIGRATION_VERSIONS.indexOf('0049_group_archive') + 1,
+    );
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0051_routines');
     expect(sql).toContain('CREATE TABLE workspace_event_streams');
     expect(sql).toContain('CREATE TABLE workspace_events');
     expect(sql).toContain('INSERT INTO workspace_event_streams');

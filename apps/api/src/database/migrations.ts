@@ -88,6 +88,7 @@ import { TASK_COST_GRANT_SCHEMA_STATEMENTS } from '../tasks/cost-grant-schema.js
 import { TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS } from '../tasks/human-request-schema.js';
 import { GROUP_ARCHIVE_SCHEMA_STATEMENTS } from '../groups/archive-schema.js';
 import { WORKSPACE_EVENT_STREAM_SCHEMA_STATEMENTS } from '../events/schema.js';
+import { ROUTINE_SCHEMA_STATEMENTS } from '../routines/schema.js';
 import {
   COL12_ENFORCEMENT_POSTGRES_GUARDS,
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -505,6 +506,11 @@ const MIGRATIONS = [
   {
     version: '0050_workspace_event_stream',
     statements: WORKSPACE_EVENT_STREAM_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0051_routines',
+    statements: ROUTINE_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

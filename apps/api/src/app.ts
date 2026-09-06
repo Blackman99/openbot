@@ -14,6 +14,8 @@ import { registerBotVersionRoutes } from './bots/version-routes.js';
 import { registerTaskRoutes } from './tasks/routes.js';
 import { registerPublicTaskRoutes } from './tasks/public-routes.js';
 import { registerPublicEventRoutes } from './events/public-routes.js';
+import { registerPublicRoutineRoutes } from './routines/public-routes.js';
+import type { RoutineService } from './routines/service.js';
 import type { WorkspaceEventService } from './events/service.js';
 import type { TaskService } from './tasks/service.js';
 import { registerModelPriceRoutes } from './tasks/model-price-routes.js';
@@ -73,6 +75,7 @@ export interface BuildAppOptions {
   memories?: MemoryService;
   conversationStreams?: ConversationStreams;
   workspaceEvents?: WorkspaceEventService;
+  routines?: RoutineService;
   tasks?: TaskService;
   modelPrices?: ModelPriceService;
   groupRouting?: GroupRoutingService;
@@ -202,6 +205,7 @@ export function buildApp({
   conversations,
   conversationStreams,
   workspaceEvents,
+  routines,
   botVersions,
   botCopies,
   botTemplates,
@@ -257,6 +261,7 @@ export function buildApp({
   if (apiTokens && tasks && conversations)
     registerPublicTaskRoutes(app, apiTokens, tasks, conversations);
   if (auth && apiTokens) registerPublicEventRoutes(app, auth, apiTokens, workspaceEvents);
+  if (apiTokens && routines) registerPublicRoutineRoutes(app, apiTokens, routines);
   if (auth) {
     if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);

@@ -12,7 +12,7 @@ describe('COL-13 concurrency hold schema', () => {
     expect(COL13_CONCURRENCY_REQUIRES_VERSION).toBe('0038_task_run_concurrency_holds');
     expect(MIGRATION_VERSIONS).toContain('0037_task_execution_limit_enforcement');
     expect(MIGRATION_VERSIONS).toContain('0038_task_run_concurrency_holds');
-    expect(MIGRATION_VERSIONS.at(-1)).toBe('0050_workspace_event_stream');
+    expect(MIGRATION_VERSIONS.at(-1)).toBe('0051_routines');
     expect(sql).toContain('ALTER TABLE tasks ADD COLUMN execution_policy');
     expect(sql).toContain('CREATE TABLE task_run_concurrency_holds');
     expect(sql).toContain("layer TEXT NOT NULL CHECK (layer IN ('workspace','group','task'))");

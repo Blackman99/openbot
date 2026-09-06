@@ -279,6 +279,9 @@ try {
       IF to_regclass('group_imported_routines') IS NOT NULL THEN
         GRANT SELECT, INSERT ON group_imported_routines TO openbot_runtime;
       END IF;
+      IF to_regclass('routines') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON routines TO openbot_runtime;
+      END IF;
       IF to_regclass('task_delegations') IS NOT NULL THEN
         GRANT SELECT, INSERT ON task_delegations TO openbot_runtime;
       END IF;
