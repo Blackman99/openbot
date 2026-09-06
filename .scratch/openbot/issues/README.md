@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **45**
-- Fully complete: **45**
+- Implemented and independently reviewed: **46**
+- Fully complete: **46**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -53,7 +53,7 @@ This directory contains the approved implementation backlog for the open-source 
 | 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | complete | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
 | 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | complete | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
 | 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | complete | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
-| 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | in-progress | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
+| 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | complete | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
 | 33 | [COL-16 — Transfer Task leadership through handoff](33-col-16-transfer-task-leadership-through-handoff.md) | ready-for-agent | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
 | 34 | [COL-17 — Meter and enforce token budgets](34-col-17-meter-and-enforce-token-budgets.md) | complete | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 35 | [COL-18 — Price model usage and enforce cost budgets](35-col-18-price-model-usage-and-enforce-cost-budgets.md) | ready-for-agent | [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md), [COL-17](34-col-17-meter-and-enforce-token-budgets.md) |
