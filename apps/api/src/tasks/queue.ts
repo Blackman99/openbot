@@ -39,7 +39,10 @@ import {
 import { admitTaskTarget } from './admission.js';
 import { TaskPartialOutputLimitError } from './partial-output.js';
 import { lockTaskAncestry, taskAncestryIsActive } from './tree.js';
-import { applyTaskExecutionLimits } from './execution-limit-enforcement.js';
+import {
+  applyTaskExecutionLimits,
+  remainingSnapshotDurationMs,
+} from './execution-limit-enforcement.js';
 import {
   selectRunMemoryContribution,
   persistRunMemoryReferences,
@@ -253,10 +256,7 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
-    // The claim deadline is the snapshotted duration cap. A timeout is a
-    // terminal Run failure, not a soft warning or successor-budget hold.
-    if (error !== 'execution_timeout')
-      await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
+    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
   }
   private async failIfRunning(
     connection: SqlConnection,
@@ -275,8 +275,7 @@ export class TaskQueue {
     ]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
-    if (error !== 'execution_timeout')
-      await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
+    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
     return true;
   }
   async isClaimActive(claim: TaskClaim): Promise<boolean> {
@@ -471,8 +470,10 @@ export class TaskQueue {
       }
       const claimToken = randomUUID(),
         startedAt = this.now(),
+        remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),
         deadlineAt = new Date(
-          startedAt.getTime() + target.configuration.limits.maxDurationSeconds * 1000,
+          startedAt.getTime() +
+            (remainingMs ?? target.configuration.limits.maxDurationSeconds * 1000),
         );
       const claimed = await connection.query(
         "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10 WHERE id=$1 AND status='queued' RETURNING id",

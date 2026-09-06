@@ -4,6 +4,7 @@ import {
   evaluateExecutionLimitUsage,
   EXECUTION_LIMIT_SOFT_DENOMINATOR,
   EXECUTION_LIMIT_SOFT_NUMERATOR,
+  remainingDurationMs,
 } from '../../src/tasks/execution-limit-enforcement.js';
 import {
   COL12_ENFORCEMENT_REQUIRES_VERSION,
@@ -102,6 +103,10 @@ describe('COL-12 soft threshold and hard limit evaluation', () => {
         { durationMs: 0, turns: 0, delegationDepth: 0, handoffs: 0 },
       ),
     ).toEqual([]);
+    expect(remainingDurationMs(1_000, 0)).toBe(1_000);
+    expect(remainingDurationMs(1_000, 400)).toBe(600);
+    expect(remainingDurationMs(1_000, 1_000)).toBe(0);
+    expect(remainingDurationMs(1_000, 1_200)).toBe(0);
   });
 });
 

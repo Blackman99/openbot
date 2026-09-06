@@ -108,7 +108,7 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
     ).toHaveLength(1);
   });
 
-  it('holds a Task at waiting_budget and starts no further Run after a hard duration limit', async () => {
+  it('aborts the provider stream at the snapshotted duration and holds waiting_budget', async () => {
     let current = new Date('2026-09-06T03:00:00.000Z');
     const { f, task } = await budgetTask(
       () => current,
@@ -117,7 +117,8 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
     );
     expect(
       await f
-        .worker(async () => {
+        .worker(async (_input, _signal, onEvent) => {
+          await onEvent?.({ type: 'text', text: 'Partial draft.' });
           current = new Date(current.getTime() + 1_000);
           return {
             events: [{ type: 'text', text: 'Partial draft.' }],
@@ -136,8 +137,37 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
     expect(held).toMatchObject({
       status: 'waiting_budget',
       runCount: 1,
-      runs: [{ status: 'failed', error: 'provider_failed' }],
+      runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
     });
+    const run = (
+      await f.pool.query<{
+        id: string;
+        started_at: Date;
+        deadline_at: Date;
+      }>('SELECT id,started_at,deadline_at FROM task_runs WHERE task_id=$1', [task.id])
+    ).rows[0]!;
+    expect(run.deadline_at.getTime() - run.started_at.getTime()).toBe(1_000);
+    expect(
+      (
+        await f.pool.query('SELECT body,end_byte FROM task_run_partial_outputs WHERE run_id=$1', [
+          run.id,
+        ])
+      ).rows,
+    ).toEqual([{ body: 'Partial draft.', end_byte: Buffer.byteLength('Partial draft.') }]);
+    expect(
+      (
+        await f.pool.query(
+          `SELECT event_type, metadata->>'error' AS error
+           FROM audit_events
+           WHERE metadata->>'taskId'=$1 AND event_type IN ('task.failed','task.waiting_budget')
+           ORDER BY occurred_at, event_type`,
+          [task.id],
+        )
+      ).rows,
+    ).toEqual([
+      { event_type: 'task.failed', error: 'execution_timeout' },
+      { event_type: 'task.waiting_budget', error: null },
+    ]);
     expect((await warnings(f.pool, task.id)).map((row) => row.dimension)).toEqual(['duration']);
     expect(
       (await f.pool.query('SELECT count(*)::int AS n FROM task_runs WHERE task_id=$1', [task.id]))

@@ -101,6 +101,23 @@ export function hasHardExecutionLimit(crossings: readonly ExecutionLimitCrossing
   return crossings.some((item) => item.hard);
 }
 
+export function remainingDurationMs(maxDurationMs: number, usedMs: number) {
+  return Math.max(0, maxDurationMs - usedMs);
+}
+
+export async function remainingSnapshotDurationMs(
+  connection: SqlConnection,
+  taskId: string,
+  now: Date,
+): Promise<number | undefined> {
+  const limits = await loadTaskLimitSnapshot(connection, taskId);
+  if (!limits?.duration) return undefined;
+  return remainingDurationMs(
+    limits.duration.maxDurationMs,
+    (await measureTaskLimitUsage(connection, taskId, now)).durationMs,
+  );
+}
+
 export async function loadTaskLimitSnapshot(
   connection: SqlConnection,
   taskId: string,

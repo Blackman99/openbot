@@ -44,10 +44,16 @@ Soft-threshold warnings and the hard-limit gate:
 - Reaching a hard limit starts no further Run. `writeNextAttempt` and claim refuse the successor; the Task moves to `waiting_budget` while the current Run keeps its queued/failed/paused state.
 - Migration `0037_task_execution_limit_enforcement` admits `waiting_budget` and the warning ledger/delivery shape. Runtime may SELECT/INSERT warning rows only.
 
+## Third landed slice
+
+Run timeout uses the remaining snapshotted duration as the claim deadline:
+
+- `claimNext` persists `deadline_at` from remaining snapshot milliseconds after lock wait, not a later Bot-config rewrite.
+- Crossing that deadline aborts the provider stream, keeps the committed partial prefix, writes `execution_timeout` audit, and holds `waiting_budget` so no further Run starts.
+
 ## Leftover before the original ACs can be stamped
 
 - Authorized idempotent grant of one selected limit without rewriting usage.
-- Run timeout abort of the provider stream with retained partial output and audit.
-- Native PostgreSQL and Compose evidence for the snapshot/guards and this enforcement slice.
+- Native PostgreSQL and Compose evidence for the snapshot/guards, enforcement, and timeout slice.
 
 Do not check the six AC boxes until Tester stamps those leftovers.

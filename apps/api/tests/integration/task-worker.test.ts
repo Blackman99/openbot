@@ -221,7 +221,7 @@ describe('Task execution authority and terminal outcomes', () => {
     });
     expect(await worker.runOnce()).toBe(true);
     expect(await f.read()).toMatchObject({
-      status: 'failed',
+      status: 'waiting_budget',
       runs: [{ error: 'execution_timeout', output: null }],
     });
     const second = await f.tasks.submit(f.owner.user.id, f.owner.workspace.id, f.conversation.id, {
@@ -302,7 +302,7 @@ describe('Task execution authority and terminal outcomes', () => {
     expect(await worker.runOnce()).toBe(true);
     expect(calls).toBe(0);
     expect(await f.read()).toMatchObject({
-      status: 'failed',
+      status: 'waiting_budget',
       runs: [{ error: 'execution_timeout', output: null }],
     });
   });

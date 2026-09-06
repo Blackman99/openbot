@@ -1515,12 +1515,14 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         }),
       ).toBe(true);
       expect(await read(f, task.id)).toMatchObject({
-        status: 'failed',
+        status: 'waiting_budget',
         runs: [
           { error: 'execution_timeout', output: null, usage: { inputTokens: 2, outputTokens: 1 } },
         ],
       });
-      expect((await snapshot(f)).events).toHaveLength(1);
+      const stored = await snapshot(f);
+      expect(stored.events).toHaveLength(2);
+      expect(stored.events[1]).toMatchObject({ event_type: 'task.limit.warning' });
     });
 
     it('reads the version after its submission lock wait and pins it across subsequent current-version changes', async () => {
