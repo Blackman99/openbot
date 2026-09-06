@@ -347,3 +347,205 @@ it('denies cancel without tasks:write or without group access', async () => {
   expect(ui.statusCode).toBe(200);
   expect(ui.json().task.status).toBe('queued');
 });
+
+it('retries a failed task into a new run while preserving the prior run, error, and audit', async () => {
+  const f = await publicTaskFixture(cleanup);
+  const headers = await f.bearer(['tasks:write']);
+  const { groupId, leadGrantId } = await f.readyGroup();
+  const created = await f.publicApp.inject({
+    method: 'POST',
+    url: '/v1/tasks',
+    headers: { ...headers, 'idempotency-key': 'retry-me' },
+    payload: { groupId, prompt: 'Retry this failure.', leadGrantId },
+  });
+  expect(created.statusCode).toBe(202);
+  const submitted = created.json().task;
+  const worker = new TaskWorker(f.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => {
+        throw new Error('provider failed');
+      },
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const failed = await f.sessionApp.inject({
+    url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${submitted.conversationId}/tasks/${submitted.id}`,
+    headers: f.headers,
+  });
+  expect(failed.statusCode).toBe(200);
+  expect(failed.json().task).toMatchObject({
+    status: 'failed',
+    runs: [{ id: submitted.runs[0].id, attempt: 1, status: 'failed', error: 'provider_failed' }],
+  });
+  const priorRun = (
+    await f.pool.query('SELECT * FROM task_runs WHERE id=$1', [submitted.runs[0].id])
+  ).rows[0];
+  const retried = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/tasks/${submitted.id}/retries`,
+    headers: { ...headers, 'idempotency-key': 'public-retry-1' },
+    payload: { expectedRunId: submitted.runs[0].id },
+  });
+  expect(retried.statusCode).toBe(202);
+  expect(retried.headers['cache-control']).toBe('private, no-store');
+  expect(retried.headers['x-content-type-options']).toBe('nosniff');
+  expect(retried.json()).toMatchObject({
+    task: {
+      id: submitted.id,
+      groupId,
+      status: 'queued',
+      runCount: 2,
+      runs: [{ id: expect.any(String), attempt: 2, status: 'queued', error: null }],
+    },
+    receipt: { runId: expect.any(String), attempt: 2 },
+  });
+  expect(retried.json().receipt.runId).toBe(retried.json().task.runs[0].id);
+  expect(retried.json().task.runs).toHaveLength(1);
+  expect(
+    (await f.pool.query('SELECT * FROM task_runs WHERE id=$1', [submitted.runs[0].id])).rows[0],
+  ).toEqual(priorRun);
+  const audits = (
+    await f.pool.query(
+      "SELECT actor_user_id,occurred_at,metadata FROM audit_events WHERE event_type='task.retried' AND metadata->>'taskId'=$1",
+      [submitted.id],
+    )
+  ).rows;
+  expect(audits).toHaveLength(1);
+  expect(audits[0]).toMatchObject({
+    actor_user_id: f.owner.user.id,
+    occurred_at: expect.any(Date),
+  });
+  expect(audits[0].metadata).toMatchObject({
+    taskId: submitted.id,
+    previousRunId: submitted.runs[0].id,
+    runId: retried.json().receipt.runId,
+    attempt: 2,
+  });
+  expect(JSON.stringify(audits[0].metadata)).not.toMatch(/Bearer|sk-|secret/i);
+  const ui = await f.sessionApp.inject({
+    url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${submitted.conversationId}/tasks/${submitted.id}`,
+    headers: f.headers,
+  });
+  expect(ui.statusCode).toBe(200);
+  expect(ui.json().task).toMatchObject({
+    status: 'queued',
+    runCount: 2,
+    runs: [{ id: retried.json().receipt.runId, attempt: 2, status: 'queued' }],
+  });
+  const history = await f.sessionApp.inject({
+    url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${submitted.conversationId}/tasks/${submitted.id}/runs`,
+    headers: f.headers,
+  });
+  expect(history.statusCode).toBe(200);
+  expect(history.json().runs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: retried.json().receipt.runId,
+        attempt: 2,
+        status: 'queued',
+      }),
+      expect.objectContaining({
+        id: submitted.runs[0].id,
+        attempt: 1,
+        status: 'failed',
+        error: 'provider_failed',
+      }),
+    ]),
+  );
+});
+
+it('replays the same Idempotency-Key retry without creating another run', async () => {
+  const f = await publicTaskFixture(cleanup);
+  const headers = await f.bearer(['tasks:write']);
+  const { groupId, leadGrantId } = await f.readyGroup();
+  const created = await f.publicApp.inject({
+    method: 'POST',
+    url: '/v1/tasks',
+    headers: { ...headers, 'idempotency-key': 'retry-replay-source' },
+    payload: { groupId, prompt: 'Retry once.', leadGrantId },
+  });
+  expect(created.statusCode).toBe(202);
+  const submitted = created.json().task;
+  const worker = new TaskWorker(f.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => {
+        throw new Error('provider failed');
+      },
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const retry = () =>
+    f.publicApp.inject({
+      method: 'POST',
+      url: `/v1/tasks/${submitted.id}/retries`,
+      headers: { ...headers, 'idempotency-key': 'public-retry-replay' },
+      payload: { expectedRunId: submitted.runs[0].id },
+    });
+  const first = await retry();
+  expect(first.statusCode).toBe(202);
+  const second = await retry();
+  expect(second.statusCode).toBe(202);
+  expect(second.json()).toEqual(first.json());
+  expect(
+    (await f.pool.query('SELECT id FROM task_runs WHERE task_id=$1', [submitted.id])).rows,
+  ).toHaveLength(2);
+  expect(
+    (await f.pool.query('SELECT id FROM task_retry_commands WHERE task_id=$1', [submitted.id]))
+      .rows,
+  ).toHaveLength(1);
+});
+
+it('denies retry without tasks:write or without group access', async () => {
+  const f = await publicTaskFixture(cleanup);
+  const writeHeaders = await f.bearer(['tasks:write']);
+  const { groupId, leadGrantId } = await f.readyGroup();
+  const created = await f.publicApp.inject({
+    method: 'POST',
+    url: '/v1/tasks',
+    headers: { ...writeHeaders, 'idempotency-key': 'deny-retry-source' },
+    payload: { groupId, prompt: 'Protected retry.', leadGrantId },
+  });
+  expect(created.statusCode).toBe(202);
+  const submitted = created.json().task;
+  const worker = new TaskWorker(f.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => {
+        throw new Error('provider failed');
+      },
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const command = { expectedRunId: submitted.runs[0].id };
+  const readOnly = await f.bearer(['tasks:read']);
+  const missingScope = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/tasks/${submitted.id}/retries`,
+    headers: { ...readOnly, 'idempotency-key': 'denied-retry-scope' },
+    payload: command,
+  });
+  expect(missingScope.statusCode).toBe(403);
+  expect(missingScope.json()).toEqual({ error: { code: 'insufficient_scope' } });
+  const outsider = await f.addUser();
+  const outsiderHeaders = await f.bearer(['tasks:write'], outsider.id);
+  const noGroup = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/tasks/${submitted.id}/retries`,
+    headers: { ...outsiderHeaders, 'idempotency-key': 'denied-retry-group' },
+    payload: command,
+  });
+  expect(noGroup.statusCode).toBe(403);
+  expect(noGroup.json()).toEqual({ error: { code: 'task_forbidden' } });
+  const ui = await f.sessionApp.inject({
+    url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${submitted.conversationId}/tasks/${submitted.id}`,
+    headers: f.headers,
+  });
+  expect(ui.statusCode).toBe(200);
+  expect(ui.json().task).toMatchObject({
+    status: 'failed',
+    runCount: 1,
+    runs: [{ id: submitted.runs[0].id, attempt: 1, status: 'failed' }],
+  });
+});

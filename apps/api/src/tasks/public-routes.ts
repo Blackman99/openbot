@@ -217,5 +217,29 @@ export function registerPublicTaskRoutes(
         };
       },
     );
+    routes.post<{ Params: { taskId: string } }>(
+      '/v1/tasks/:taskId/retries',
+      { bodyLimit: 16384 },
+      async (request, reply) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'tasks:write',
+        );
+        emptyQuery(request.query);
+        const key = idempotencyKey(request.headers as Record<string, unknown>);
+        const retried = await tasks.retryPublic(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.taskId,
+          request.body,
+          key,
+          admit,
+        );
+        return reply.code(202).send({
+          task: publicTaskView(retried.task, retried.groupId),
+          receipt: retried.receipt,
+        });
+      },
+    );
   });
 }

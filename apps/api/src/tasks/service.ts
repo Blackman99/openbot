@@ -889,112 +889,155 @@ export class TaskService {
     taskId: string,
     input: unknown,
   ) {
+    const command = retryCommand(input);
+    const access = taskAccess(actorUserId, workspaceId, conversationId);
+    const id = conversationUuid(taskId);
+    return this.transaction(async (connection) =>
+      retryFailedTask(connection, access, id, command, this.now),
+    );
+  }
+  retryPublic(
+    actorUserId: string,
+    workspaceId: string,
+    taskId: string,
+    input: unknown,
+    idempotencyKey: string,
+    admission?: TransactionAdmission,
+  ) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
     const value = input as Record<string, unknown>;
-    if (
-      Object.keys(value).some((key) => !['idempotencyKey', 'expectedRunId'].includes(key)) ||
-      typeof value.idempotencyKey !== 'string' ||
-      !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
-    )
-      throw new TaskInputError();
-    const access = taskAccess(actorUserId, workspaceId, conversationId);
+    if (Object.keys(value).some((key) => key !== 'expectedRunId')) throw new TaskInputError();
+    const command = retryCommand({
+      idempotencyKey,
+      expectedRunId: value.expectedRunId,
+    });
     const id = conversationUuid(taskId),
-      expectedRunId = conversationUuid(value.expectedRunId);
-    const key = value.idempotencyKey;
+      workspace = conversationUuid(workspaceId);
     return this.transaction(async (connection) => {
-      const task = (
-        await connection.query<{
-          execution_user_id: string;
-          bot_version_id: string;
-          group_grant_id: string | null;
-        }>(
-          'SELECT execution_user_id,bot_version_id,group_grant_id FROM tasks WHERE id=$1 AND workspace_id=$2 AND conversation_id=$3',
-          [id, access.workspaceId, access.conversationId],
-        )
-      ).rows[0];
-      if (!task || task.execution_user_id !== access.actorUserId) throw new TaskAccessError();
-      const target = await admitTaskTarget(
-        connection,
-        access,
-        task.group_grant_id,
-        this.now,
-        task.bot_version_id,
-      );
-      const activeAncestry = await lockTaskAncestry(connection, id);
-      const locked = (
-        await connection.query<{ status: TaskStatus }>(
-          'SELECT status FROM tasks WHERE id=$1 FOR UPDATE',
-          [id],
-        )
-      ).rows[0]!;
-      const current = (
-        await connection.query<{ id: string; attempt: number; status: TaskStatus }>(
-          'SELECT id,attempt,status FROM task_runs WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1 FOR UPDATE',
-          [id],
-        )
-      ).rows[0]!;
-      const prior = (
-        await connection.query<{ expected_run_id: string; run_id: string; attempt: number }>(
-          'SELECT c.expected_run_id,c.run_id,r.attempt FROM task_retry_commands c JOIN task_runs r ON r.id=c.run_id AND r.task_id=c.task_id WHERE c.task_id=$1 AND c.actor_user_id=$2 AND c.idempotency_key=$3',
-          [id, access.actorUserId, key],
-        )
-      ).rows[0];
-      if (prior && prior.expected_run_id !== expectedRunId) throw new TaskConflictError();
-      if (!prior) {
-        if (!activeAncestry) throw new TaskConflictError('task_retry_cancelled_ancestor');
-        if (locked.status !== 'failed' || current.status !== 'failed')
-          throw new TaskConflictError('task_retry_state_conflict');
-        if (current.id !== expectedRunId) throw new TaskConflictError('task_retry_run_conflict');
-        if (current.attempt >= 2147483647) throw new TaskConflictError('task_attempt_exhausted');
-      }
-      const binding = target.configuration.modelBinding;
-      await admitUsableModel(
-        connection,
-        { actorUserId: access.actorUserId, scope: binding.scope },
-        { connectionId: binding.connectionId, expectedModelId: binding.modelId },
-      );
-      if (prior)
-        return {
-          task: await readTask(connection, id),
-          receipt: { runId: prior.run_id, attempt: prior.attempt },
-        };
-      const runId = randomUUID(),
-        commandId = randomUUID(),
-        attempt = current.attempt + 1,
-        occurredAt = this.now();
-      await connection.query(
-        "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
-        [runId, id, attempt, occurredAt],
-      );
-      await connection.query(
-        'INSERT INTO task_retry_commands(id,task_id,actor_user_id,expected_run_id,run_id,idempotency_key,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [commandId, id, access.actorUserId, expectedRunId, runId, key, occurredAt],
-      );
-      await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [id]);
-      await appendQueuedRunState(connection, runId, this.now);
-      await connection.query(
-        "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.retried',$2,$3,$4::jsonb)",
-        [
-          randomUUID(),
-          access.actorUserId,
-          this.now(),
-          JSON.stringify({
-            workspaceId: access.workspaceId,
-            conversationId: access.conversationId,
-            taskId: id,
-            retryCommandId: commandId,
-            previousRunId: current.id,
-            runId,
-            attempt,
-            botId: target.botId,
-            botVersionId: target.versionId,
-          }),
-        ],
-      );
-      return { task: await readTask(connection, id), receipt: { runId, attempt } };
+      const located = await locateGroupTask(connection, workspace, id);
+      const access = taskAccess(actorUserId, workspace, located.conversationId);
+      const result = await retryFailedTask(connection, access, id, command, this.now);
+      await admission?.(connection);
+      return { ...result, groupId: located.groupId };
     });
   }
 }
+
+function retryCommand(input: unknown): { idempotencyKey: string; expectedRunId: string } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
+  const value = input as Record<string, unknown>;
+  if (
+    Object.keys(value).some((key) => !['idempotencyKey', 'expectedRunId'].includes(key)) ||
+    typeof value.idempotencyKey !== 'string' ||
+    !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey)
+  )
+    throw new TaskInputError();
+  return {
+    idempotencyKey: value.idempotencyKey,
+    expectedRunId: conversationUuid(value.expectedRunId),
+  };
+}
+async function retryFailedTask(
+  connection: SqlConnection,
+  access: ConversationAccess,
+  id: string,
+  command: { idempotencyKey: string; expectedRunId: string },
+  now: () => Date,
+) {
+  const expectedRunId = command.expectedRunId;
+  const key = command.idempotencyKey;
+  const task = (
+    await connection.query<{
+      execution_user_id: string;
+      bot_version_id: string;
+      group_grant_id: string | null;
+    }>(
+      'SELECT execution_user_id,bot_version_id,group_grant_id FROM tasks WHERE id=$1 AND workspace_id=$2 AND conversation_id=$3',
+      [id, access.workspaceId, access.conversationId],
+    )
+  ).rows[0];
+  if (!task || task.execution_user_id !== access.actorUserId) throw new TaskAccessError();
+  const target = await admitTaskTarget(
+    connection,
+    access,
+    task.group_grant_id,
+    now,
+    task.bot_version_id,
+  );
+  const activeAncestry = await lockTaskAncestry(connection, id);
+  const locked = (
+    await connection.query<{ status: TaskStatus }>(
+      'SELECT status FROM tasks WHERE id=$1 FOR UPDATE',
+      [id],
+    )
+  ).rows[0]!;
+  const current = (
+    await connection.query<{ id: string; attempt: number; status: TaskStatus }>(
+      'SELECT id,attempt,status FROM task_runs WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1 FOR UPDATE',
+      [id],
+    )
+  ).rows[0]!;
+  const prior = (
+    await connection.query<{ expected_run_id: string; run_id: string; attempt: number }>(
+      'SELECT c.expected_run_id,c.run_id,r.attempt FROM task_retry_commands c JOIN task_runs r ON r.id=c.run_id AND r.task_id=c.task_id WHERE c.task_id=$1 AND c.actor_user_id=$2 AND c.idempotency_key=$3',
+      [id, access.actorUserId, key],
+    )
+  ).rows[0];
+  if (prior && prior.expected_run_id !== expectedRunId) throw new TaskConflictError();
+  if (!prior) {
+    if (!activeAncestry) throw new TaskConflictError('task_retry_cancelled_ancestor');
+    if (locked.status !== 'failed' || current.status !== 'failed')
+      throw new TaskConflictError('task_retry_state_conflict');
+    if (current.id !== expectedRunId) throw new TaskConflictError('task_retry_run_conflict');
+    if (current.attempt >= 2147483647) throw new TaskConflictError('task_attempt_exhausted');
+  }
+  const binding = target.configuration.modelBinding;
+  await admitUsableModel(
+    connection,
+    { actorUserId: access.actorUserId, scope: binding.scope },
+    { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+  );
+  if (prior)
+    return {
+      task: await readTask(connection, id),
+      receipt: { runId: prior.run_id, attempt: prior.attempt },
+    };
+  const runId = randomUUID(),
+    commandId = randomUUID(),
+    attempt = current.attempt + 1,
+    occurredAt = now();
+  await connection.query(
+    "INSERT INTO task_runs(id,task_id,attempt,status,created_at) VALUES($1,$2,$3,'queued',$4)",
+    [runId, id, attempt, occurredAt],
+  );
+  await connection.query(
+    'INSERT INTO task_retry_commands(id,task_id,actor_user_id,expected_run_id,run_id,idempotency_key,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [commandId, id, access.actorUserId, expectedRunId, runId, key, occurredAt],
+  );
+  await connection.query("UPDATE tasks SET status='queued' WHERE id=$1", [id]);
+  await appendQueuedRunState(connection, runId, now);
+  await connection.query(
+    "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.retried',$2,$3,$4::jsonb)",
+    [
+      randomUUID(),
+      access.actorUserId,
+      now(),
+      JSON.stringify({
+        workspaceId: access.workspaceId,
+        conversationId: access.conversationId,
+        taskId: id,
+        retryCommandId: commandId,
+        previousRunId: current.id,
+        runId,
+        attempt,
+        botId: target.botId,
+        botVersionId: target.versionId,
+      }),
+    ],
+  );
+  return { task: await readTask(connection, id), receipt: { runId, attempt } };
+}
+
 function taskAccess(
   actorUserId: string,
   workspaceId: string,
