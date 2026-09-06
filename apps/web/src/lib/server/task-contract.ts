@@ -16,8 +16,7 @@ export {
   parseRunContinuation,
   parseSafeModelSnapshot,
 } from '../task-continuation-contract.js';
-export type TaskStatus =
-  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 export const taskErrorCodes = [
   'execution_forbidden',
   'model_unavailable',
@@ -57,28 +56,7 @@ export interface TaskView {
   trigger: MessageReceipt;
   runCount: number;
   olderRunsCursor: string | null;
-  limits?: TaskLimitView;
   runs: TaskRun[];
-}
-export type LimitSource = 'workspace' | 'group' | 'task' | 'run';
-export type LimitDimension = 'durationMs' | 'turns' | 'depth' | 'handoffs';
-export interface TaskLimitView {
-  durationMs: number;
-  durationSource: LimitSource;
-  turns: number;
-  turnsSource: LimitSource;
-  depth: number;
-  depthSource: LimitSource;
-  handoffs: number;
-  handoffsSource: LimitSource;
-  usage: { durationMs: number; turns: number; depth: number; handoffs: number };
-  warnings: Array<{
-    kind: 'soft_warning' | 'hard_limit';
-    dimension: LimitDimension;
-    usage: number;
-    threshold: number;
-    createdAt: string;
-  }>;
 }
 export interface TaskPage {
   conversationId: string;
@@ -106,8 +84,7 @@ function status(value: unknown): value is TaskStatus {
     value === 'completed' ||
     value === 'failed' ||
     value === 'cancelled' ||
-    value === 'paused' ||
-    value === 'waiting_budget'
+    value === 'paused'
   );
 }
 function errorCode(value: unknown): value is TaskErrorCode {
@@ -214,9 +191,7 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
   )
     return undefined;
   if (
-    (value.status === 'cancelled' ||
-      value.status === 'paused' ||
-      value.status === 'waiting_budget') &&
+    (value.status === 'cancelled' || value.status === 'paused') &&
     (value.finishedAt === null ||
       value.error !== null ||
       output !== null ||
@@ -243,66 +218,6 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     ...(continuation ? { continuation } : {}),
   };
 }
-function parseLimitView(value: unknown): TaskLimitView | undefined {
-  if (
-    !taskKeys(
-      value,
-      'depth,depthSource,durationMs,durationSource,handoffs,handoffsSource,turns,turnsSource,usage,warnings',
-    ) ||
-    !taskInteger(value.durationMs, 0) ||
-    !taskInteger(value.turns, 0) ||
-    !taskInteger(value.depth, 0) ||
-    !taskInteger(value.handoffs, 0) ||
-    !isLimitSource(value.durationSource) ||
-    !isLimitSource(value.turnsSource) ||
-    !isLimitSource(value.depthSource) ||
-    !isLimitSource(value.handoffsSource) ||
-    !taskKeys(value.usage, 'depth,durationMs,handoffs,turns') ||
-    !taskInteger(value.usage.durationMs, 0) ||
-    !taskInteger(value.usage.turns, 0) ||
-    !taskInteger(value.usage.depth, 0) ||
-    !taskInteger(value.usage.handoffs, 0) ||
-    !Array.isArray(value.warnings)
-  )
-    return undefined;
-  const warnings: TaskLimitView['warnings'] = [];
-  for (const warning of value.warnings) {
-    if (
-      !taskKeys(warning, 'createdAt,dimension,kind,threshold,usage') ||
-      (warning.kind !== 'soft_warning' && warning.kind !== 'hard_limit') ||
-      !isLimitDimension(warning.dimension) ||
-      !taskInteger(warning.usage, 0) ||
-      !taskInteger(warning.threshold, 0) ||
-      !taskDate(warning.createdAt)
-    )
-      return undefined;
-    warnings.push({
-      kind: warning.kind,
-      dimension: warning.dimension,
-      usage: warning.usage,
-      threshold: warning.threshold,
-      createdAt: warning.createdAt,
-    });
-  }
-  return {
-    durationMs: value.durationMs,
-    durationSource: value.durationSource,
-    turns: value.turns,
-    turnsSource: value.turnsSource,
-    depth: value.depth,
-    depthSource: value.depthSource,
-    handoffs: value.handoffs,
-    handoffsSource: value.handoffsSource,
-    usage: value.usage,
-    warnings,
-  };
-}
-function isLimitSource(value: unknown): value is LimitSource {
-  return value === 'workspace' || value === 'group' || value === 'task' || value === 'run';
-}
-function isLimitDimension(value: unknown): value is LimitDimension {
-  return value === 'durationMs' || value === 'turns' || value === 'depth' || value === 'handoffs';
-}
 export function parseTask(value: unknown, conversationId: string): TaskView | undefined {
   if (
     (!taskKeys(
@@ -312,14 +227,6 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
       !taskKeys(
         value,
         'bot,conversationId,createdAt,executionUser,groupGrantId,id,olderRunsCursor,routing,runCount,runs,status,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,createdAt,executionUser,groupGrantId,id,limits,olderRunsCursor,runCount,runs,status,trigger',
-      ) &&
-      !taskKeys(
-        value,
-        'bot,conversationId,createdAt,executionUser,groupGrantId,id,limits,olderRunsCursor,routing,runCount,runs,status,trigger',
       )) ||
     !isConversationUuid(value.id) ||
     !isConversationUuid(value.conversationId) ||
@@ -350,17 +257,12 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     routing = parseRoutingSummary(value.routing);
     if (value.groupGrantId === null || routing === undefined) return undefined;
   }
-  let limits: TaskLimitView | undefined;
-  if ('limits' in value) {
-    limits = parseLimitView(value.limits);
-    if (!limits) return undefined;
-  }
   const trigger = receipt(value.trigger),
     attempt = parseTaskRun(value.runs[0], value.createdAt);
   if (
     !trigger ||
     !attempt ||
-    (attempt.status !== value.status && value.status !== 'waiting_budget') ||
+    attempt.status !== value.status ||
     attempt.attempt !== value.runCount ||
     (attempt.output !== null &&
       (attempt.output.sequence <= trigger.sequence ||
@@ -387,7 +289,6 @@ export function parseTask(value: unknown, conversationId: string): TaskView | un
     runCount: value.runCount,
     olderRunsCursor: value.olderRunsCursor,
     ...(routing === undefined ? {} : { routing }),
-    ...(limits === undefined ? {} : { limits }),
     trigger,
     runs: [attempt],
   };

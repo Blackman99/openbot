@@ -3,7 +3,7 @@
   import TaskRunSummary from './TaskRunSummary.svelte';
   let { task, conversationBase, showLink = true }: { task: TaskView; conversationBase: string; showLink?: boolean } = $props();
   const routingReasons = { mention: 'Explicit @ mention', default: 'Group default', 'local-match': 'Local term match' };
-  const labels = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', paused: 'Paused', waiting_budget: 'Waiting for budget' };
+  const labels = { queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', paused: 'Paused' };
 </script>
 <article id={`task-${task.id}`} aria-label={`Task for ${task.bot.name}`}>
   <h2>{task.bot.name} · {labels[task.status]}</h2>

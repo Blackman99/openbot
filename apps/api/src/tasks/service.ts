@@ -34,14 +34,9 @@ import {
   resolveExecutionLimits,
   taskPolicyFromBotLimits,
 } from './execution-limits.js';
-import { LimitAccessError, LimitConflictError, LimitInputError } from './execution-limits.js';
-import { grantTaskLimit, limitGrantCommand } from './limit-grant.js';
-import { loadTaskLimitView, readSubmitTaskPolicy } from './limit-snapshot.js';
-import type { TaskLimitView } from './limit-snapshot.js';
 
 export { TaskInputError, TaskAccessError, TaskConflictError } from './errors.js';
-export type TaskStatus =
-  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
+export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 export interface TaskView {
   id: string;
   conversationId: string;
@@ -54,7 +49,6 @@ export interface TaskView {
   trigger: { messageId: string; eventId: string; sequence: number };
   runCount: number;
   olderRunsCursor: string | null;
-  limits?: TaskLimitView;
   runs: {
     id: string;
     attempt: number;
@@ -158,7 +152,6 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
     )
   ).rows[0]!;
   const runs = await readRuns(connection, id, 1);
-  const limits = await loadTaskLimitView(connection, id, new Date());
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -192,7 +185,6 @@ async function readTask(connection: SqlConnection, id: string): Promise<TaskView
       sequence: Number(row.sequence),
     },
     runs,
-    ...(limits ? { limits } : {}),
   };
 }
 export class TaskService {
@@ -216,9 +208,6 @@ export class TaskService {
       )
         throw new TaskAccessError();
       if (error instanceof ConversationConflictError) throw new TaskConflictError(error.code);
-      if (error instanceof LimitAccessError) throw new TaskAccessError();
-      if (error instanceof LimitInputError) throw new TaskInputError();
-      if (error instanceof LimitConflictError) throw new TaskConflictError(error.code);
       // Keep the established Task admission error contract while the reusable
       // group selector expresses unavailable bindings in Bot domain terms.
       if (error instanceof BotModelError) {
@@ -263,27 +252,6 @@ export class TaskService {
     return this.transaction(async (connection) => {
       const pause = await pauseTask(connection, access, id, command, this.now);
       return { task: await readTask(connection, id), pause };
-    });
-  }
-  grantLimit(
-    actorUserId: string,
-    workspaceId: string,
-    conversationId: string,
-    taskId: string,
-    input: unknown,
-  ) {
-    const access = taskAccess(actorUserId, workspaceId, conversationId),
-      id = conversationUuid(taskId);
-    let command;
-    try {
-      command = limitGrantCommand(input);
-    } catch (error) {
-      if (error instanceof LimitInputError) throw new TaskInputError();
-      throw error;
-    }
-    return this.transaction(async (connection) => {
-      const grant = await grantTaskLimit(connection, access, id, command, this.now);
-      return { task: await readTask(connection, id), grant };
     });
   }
   resume(
@@ -442,9 +410,7 @@ export class TaskService {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
     const value = input as Record<string, unknown>;
     if (
-      Object.keys(value).some(
-        (key) => !['idempotencyKey', 'body', 'groupGrantId', 'policy'].includes(key),
-      ) ||
+      Object.keys(value).some((key) => !['idempotencyKey', 'body', 'groupGrantId'].includes(key)) ||
       typeof value.idempotencyKey !== 'string' ||
       !/^[\x21-\x7e]{1,128}$/u.test(value.idempotencyKey) ||
       typeof value.body !== 'string' ||
@@ -453,13 +419,6 @@ export class TaskService {
     )
       throw new TaskInputError();
     const command = { idempotencyKey: value.idempotencyKey, body: value.body };
-    let taskPolicy;
-    try {
-      taskPolicy = readSubmitTaskPolicy(value);
-    } catch (error) {
-      if (error instanceof LimitInputError) throw new TaskInputError();
-      throw error;
-    }
     const groupGrantId =
       value.groupGrantId === undefined ? null : conversationUuid(value.groupGrantId);
     const access: ConversationAccess = Object.freeze({
@@ -520,10 +479,7 @@ export class TaskService {
         id,
         resolveExecutionLimits({
           ...policies,
-          task: {
-            ...taskPolicyFromBotLimits(bot.configuration.limits),
-            ...taskPolicy,
-          },
+          task: taskPolicyFromBotLimits(bot.configuration.limits),
         }),
         occurredAt,
       );

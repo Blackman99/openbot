@@ -37,12 +37,6 @@ import {
   appendFailedRunState,
 } from '../conversations/append-event.js';
 import { admitTaskTarget } from './admission.js';
-import {
-  holdTaskForBudget,
-  recordSoftLimitWarnings,
-  shouldHoldNextRun,
-} from './limit-enforcement.js';
-import { loadEffectiveLimits, loadSnapshot } from './limit-snapshot.js';
 import { TaskPartialOutputLimitError } from './partial-output.js';
 import { lockTaskAncestry, taskAncestryIsActive } from './tree.js';
 import {
@@ -454,28 +448,11 @@ export class TaskQueue {
         await this.fail(connection, task, code);
         return { handled: true };
       }
-      const holdDimension = await shouldHoldNextRun(connection, task.task_id, this.now());
-      if (holdDimension) {
-        await holdTaskForBudget(connection, {
-          taskId: task.task_id,
-          runId: task.id,
-          workspaceId: task.workspace_id,
-          conversationId: task.conversation_id,
-          actorUserId: task.execution_user_id,
-          dimension: holdDimension,
-          now: this.now(),
-        });
-        return { handled: true };
-      }
-      const snapshot = await loadSnapshot(connection, task.task_id);
-      const effective = snapshot
-        ? await loadEffectiveLimits(connection, task.task_id, snapshot)
-        : undefined;
-      const durationMs =
-        effective?.durationMs ?? target.configuration.limits.maxDurationSeconds * 1000;
       const claimToken = randomUUID(),
         startedAt = this.now(),
-        deadlineAt = new Date(startedAt.getTime() + durationMs);
+        deadlineAt = new Date(
+          startedAt.getTime() + target.configuration.limits.maxDurationSeconds * 1000,
+        );
       const claimed = await connection.query(
         "UPDATE task_runs SET status='running',claim_token=$2,started_at=$3,deadline_at=$4,provider_scope_kind=$5,provider_scope_id=$6,connection_id=$7,connection_revision=$8,protocol=$9,model_id=$10 WHERE id=$1 AND status='queued' RETURNING id",
         [
@@ -687,14 +664,6 @@ export class TaskQueue {
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
       await appendCompletedRunState(connection, task.id, this.now);
-      await recordSoftLimitWarnings(connection, {
-        taskId: task.task_id,
-        runId: task.id,
-        workspaceId: task.workspace_id,
-        conversationId: task.conversation_id,
-        actorUserId: task.execution_user_id,
-        now: this.now(),
-      });
       const digest = (
         await connection.query<{ digest: string }>(
           'SELECT digest FROM run_source_manifests WHERE run_id=$1',

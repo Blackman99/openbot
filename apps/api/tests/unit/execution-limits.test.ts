@@ -66,7 +66,6 @@ describe('COL-12 hierarchical execution limit resolution', () => {
     expect(parseExecutionPolicy(undefined)).toEqual({});
     expect(parseExecutionPolicy({})).toEqual({});
     expect(parseExecutionPolicy({ maxHandoffs: 0 })).toEqual({ maxHandoffs: 0 });
-    expect(parseExecutionPolicy({ maxTurns: 0 })).toEqual({ maxTurns: 0 });
     expect(() => parseExecutionPolicy({ maxTurns: 1.5 })).toThrow(TaskInputError);
     expect(() => parseExecutionPolicy({ maxDurationSeconds: 0 })).toThrow(TaskInputError);
     expect(() => parseExecutionPolicy({ maxDelegationDepth: -1 })).toThrow(TaskInputError);

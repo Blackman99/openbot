@@ -2,14 +2,6 @@ import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import type { BotLimits } from '../bots/service.js';
 import { TaskInputError } from './errors.js';
 
-export class LimitInputError extends TaskInputError {}
-export class LimitAccessError extends Error {}
-export class LimitConflictError extends Error {
-  constructor(readonly code = 'idempotency_conflict') {
-    super(code);
-  }
-}
-
 // Duration is enforced later as active-Run milliseconds after lock wait.
 // Turns count successful new Runs. Depth is parent edges from the root.
 // Handoffs count committed Lead transfers. Workspace and Group policies are
@@ -55,22 +47,22 @@ export function parseExecutionPolicy(value: unknown): ExecutionLimitPolicy {
     !object(value) ||
     Object.keys(value).some((key) => !POLICY_KEYS.includes(key as (typeof POLICY_KEYS)[number]))
   )
-    throw new LimitInputError();
+    throw new TaskInputError();
   const policy: ExecutionLimitPolicy = {};
   if ('maxDurationSeconds' in value) {
-    if (!integer(value.maxDurationSeconds, 1)) throw new LimitInputError();
+    if (!integer(value.maxDurationSeconds, 1)) throw new TaskInputError();
     policy.maxDurationSeconds = value.maxDurationSeconds;
   }
   if ('maxTurns' in value) {
-    if (!integer(value.maxTurns, 0)) throw new LimitInputError();
+    if (!integer(value.maxTurns, 1)) throw new TaskInputError();
     policy.maxTurns = value.maxTurns;
   }
   if ('maxDelegationDepth' in value) {
-    if (!integer(value.maxDelegationDepth, 0)) throw new LimitInputError();
+    if (!integer(value.maxDelegationDepth, 0)) throw new TaskInputError();
     policy.maxDelegationDepth = value.maxDelegationDepth;
   }
   if ('maxHandoffs' in value) {
-    if (!integer(value.maxHandoffs, 0)) throw new LimitInputError();
+    if (!integer(value.maxHandoffs, 0)) throw new TaskInputError();
     policy.maxHandoffs = value.maxHandoffs;
   }
   return policy;

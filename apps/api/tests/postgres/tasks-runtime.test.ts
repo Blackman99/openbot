@@ -37,7 +37,6 @@ import { createQueuedTaskChild } from '../helpers/task-tree-fixture.js';
 import { TaskAccessError, TaskConflictError, TaskService } from '../../src/tasks/service.js';
 import { TaskWorker } from '../../src/tasks/worker.js';
 import { GroupRoutingService, RoutingSettingConflictError } from '../../src/routing/service.js';
-import { ExecutionLimitService } from '../../src/tasks/limit-policy.js';
 
 // This provisioner rotates the fixed runtime role. Use the isolated task job's
 // disposable database, never another native suite's PostgreSQL service.
@@ -2706,116 +2705,5 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         runs: [{ id: admitted[0]!.runId, attempt: 2, status: 'completed', error: null }],
       });
     }, 15000);
-
-    it('stores an immutable layered limit snapshot under openbot_runtime', async () => {
-      const f = await fixture('workspace', true);
-      const limits = new ExecutionLimitService(runtime);
-      await limits.putWorkspacePolicy(f.ownerId, f.workspaceId, {
-        maxDurationSeconds: 60,
-        maxTurns: 4,
-        maxHandoffs: 2,
-      });
-      await limits.putGroupPolicy(f.ownerId, f.workspaceId, f.grant!.groupId, {
-        maxDurationSeconds: 120,
-        maxTurns: 3,
-        maxDelegationDepth: 1,
-      });
-      const task = await new TaskService(runtime).submit(
-        f.actorId,
-        f.workspaceId,
-        f.conversationId,
-        {
-          idempotencyKey: 'native-layered-limits',
-          body: 'Honor native layers.',
-          groupGrantId: f.grant!.id,
-          policy: { maxTurns: 6 },
-        },
-      );
-      expect(task.limits).toMatchObject({
-        durationMs: 60_000,
-        durationSource: 'workspace',
-        turns: 3,
-        turnsSource: 'group',
-        depth: 1,
-        depthSource: 'group',
-        handoffs: 2,
-        handoffsSource: 'workspace',
-      });
-      await expect(
-        runtime.query('UPDATE task_execution_limit_snapshots SET max_turns=99 WHERE task_id=$1', [
-          task.id,
-        ]),
-      ).rejects.toMatchObject({ code: '55000' });
-      await expect(
-        runtime.query('DELETE FROM task_execution_limit_snapshots WHERE task_id=$1', [task.id]),
-      ).rejects.toMatchObject({ code: '55000' });
-      expect(
-        (
-          await runtime.query(
-            'SELECT max_turns,turns_source FROM task_execution_limit_snapshots WHERE task_id=$1',
-            [task.id],
-          )
-        ).rows,
-      ).toEqual([{ max_turns: 3, turns_source: 'group' }]);
-    });
-
-    it('holds a zero-turn Task and resumes from an idempotent grant under openbot_runtime', async () => {
-      const f = await fixture();
-      const held = await new TaskService(runtime).submit(
-        f.actorId,
-        f.workspaceId,
-        f.conversationId,
-        {
-          idempotencyKey: 'native-zero-turns',
-          body: 'Do not start.',
-          policy: { maxTurns: 0 },
-        },
-      );
-      let calls = 0;
-      const worker = new TaskWorker(runtime, {
-        secrets: f.secrets,
-        createAdapter: () => ({
-          generate: async () => {
-            calls += 1;
-            throw new Error('must not call provider');
-          },
-        }),
-      });
-      expect(await worker.runOnce()).toBe(true);
-      expect(calls).toBe(0);
-      expect(await read(f, held.id)).toMatchObject({
-        status: 'waiting_budget',
-        runs: [{ status: 'waiting_budget', startedAt: null, provider: null }],
-        limits: { turns: 0, turnsSource: 'task' },
-      });
-      const granted = await new TaskService(runtime).grantLimit(
-        f.actorId,
-        f.workspaceId,
-        f.conversationId,
-        held.id,
-        { idempotencyKey: 'native-grant-turns', dimension: 'turns', limit: 2 },
-      );
-      expect(granted).toMatchObject({
-        task: { status: 'queued', runCount: 2 },
-        grant: { dimension: 'turns', previousLimit: 0, grantedLimit: 2, attempt: 2 },
-      });
-      expect(granted.task.limits).toMatchObject({ turns: 2, usage: { turns: 0 } });
-      const replay = await new TaskService(runtime).grantLimit(
-        f.actorId,
-        f.workspaceId,
-        f.conversationId,
-        held.id,
-        { idempotencyKey: 'native-grant-turns', dimension: 'turns', limit: 2 },
-      );
-      expect(replay.grant).toEqual(granted.grant);
-      expect(
-        (
-          await runtime.query(
-            'SELECT max_turns,turns_source FROM task_execution_limit_snapshots WHERE task_id=$1',
-            [held.id],
-          )
-        ).rows,
-      ).toEqual([{ max_turns: 0, turns_source: 'task' }]);
-    });
   },
 );

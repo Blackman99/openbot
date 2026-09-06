@@ -19,7 +19,7 @@ export interface MessageReference {
   runId: string | null;
 }
 export type StreamTaskStatus =
-  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused' | 'waiting_budget';
+  'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused';
 export type StreamTaskFailure =
   | 'execution_forbidden'
   | 'model_unavailable'
@@ -146,8 +146,7 @@ function status(value: unknown): value is StreamTaskStatus {
     value === 'completed' ||
     value === 'failed' ||
     value === 'cancelled' ||
-    value === 'paused' ||
-    value === 'waiting_budget'
+    value === 'paused'
   );
 }
 function failure(value: unknown): value is StreamTaskFailure {
@@ -350,9 +349,7 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
   )
     return undefined;
   if (
-    (value.taskStatus === 'cancelled' ||
-      value.taskStatus === 'paused' ||
-      value.taskStatus === 'waiting_budget') &&
+    (value.taskStatus === 'cancelled' || value.taskStatus === 'paused') &&
     (value.finishedAt === null ||
       value.error !== null ||
       output !== null ||
