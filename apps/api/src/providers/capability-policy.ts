@@ -39,7 +39,7 @@ export function emptyPolicy(): ModelPolicy {
     fallbacks: { requiredCapability: 'basic', connectionIds: [] },
   };
 }
-export function currentPolicy(policy?: ModelPolicy): ModelPolicy {
+export function currentPolicy(policy?: ModelPolicy | null): ModelPolicy {
   return policy && Number.isSafeInteger(policy.generation) ? policy : emptyPolicy();
 }
 export function recordProbe(
