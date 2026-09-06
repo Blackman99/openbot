@@ -2,7 +2,7 @@
 sequence: 36
 id: COL-19
 title: "Pause Tasks for human input and approval"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-08
   - COL-12
@@ -42,3 +42,7 @@ Validated request_input and request_approval actions pause a Task, collect one a
 - Approval for external tools
 - Third-party approval channels
 - Bot self-approval or timeout approval
+
+## Implementation note
+
+Schema-valid `request_input` and `request_approval` model actions pause the current Run without a final answer. `request_input` carries a prompt and a bounded object response schema; `request_approval` carries an action summary. Only an authorized human group member can submit one idempotent decision; Bots cannot satisfy their own requests. The decision resumes exactly one new Run. Original acceptance texts stay unchecked.

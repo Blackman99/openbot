@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-16 is complete on `feat/openbot-collaboration-system` / draft PR #1 at product `3bf4f06` with Tester PASS on [Verify 34015588159](https://github.com/Blackman99/openbot/actions/runs/34015588159) at `32e9c93`. COL-18 is in progress: Workspace Admins version model prices, unpriced models skip cost limits, and priced Runs reserve micros against the version pinned at start. Forty-seven of 67 tickets are complete. Next ready work is API-03 and COL-19. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-16 is complete on `feat/openbot-collaboration-system` / draft PR #1 at product `3bf4f06` with Tester PASS on [Verify 34015588159](https://github.com/Blackman99/openbot/actions/runs/34015588159) at `32e9c93`. COL-18 is in progress on `ae7f6dd`: Workspace Admins version model prices, unpriced models skip cost limits, and priced Runs reserve micros against the version pinned at start. COL-19 is in progress: schema-valid `request_input` and `request_approval` actions. Forty-seven of 67 tickets are complete. Next independent ready work is API-03. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty-seven of 67 tickets are implemented and independently reviewed, and all 47 are fully complete. All 401 original acceptance texts are preserved.
 
