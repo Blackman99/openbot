@@ -25,6 +25,7 @@ const base = {
   canPause: false,
   canConfirmPause: false,
   canResume: false,
+  canDecide: false,
   canConfirmResume: false,
   partialOutput: null,
   partialUnavailable: false,

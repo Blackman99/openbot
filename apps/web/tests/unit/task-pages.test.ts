@@ -18,6 +18,7 @@ const base = {
   canConfirmPause: false,
   canResume: false,
   canConfirmResume: false,
+  canDecide: false,
   partialOutput: null,
   partialUnavailable: false,
 };
@@ -406,6 +407,50 @@ describe('Task pages', () => {
     expect(html).toContain('Planned model: fallback-model · openai-chat');
     expect(html).not.toContain('connectionId');
     expect(html).not.toContain('baseUrl');
+  });
+  it('renders requested input fields and approval controls', () => {
+    const waiting: TaskView = {
+      ...task,
+      status: 'waiting_input',
+      humanRequest: {
+        id: '70000000-0000-4000-8000-000000000007',
+        kind: 'input',
+        prompt: 'What should we keep?',
+        responseSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { note: { type: 'string' } },
+          required: ['note'],
+        },
+        createdAt: '2026-09-05T00:00:01.000Z',
+      },
+      runs: [
+        {
+          ...task.runs[0]!,
+          status: 'waiting_input',
+          startedAt: '2026-09-05T00:00:01.000Z',
+          finishedAt: '2026-09-05T00:00:02.000Z',
+          provider: { protocol: 'openai-responses', modelId: 'actual-model' },
+        },
+      ],
+    };
+    const html = render(DetailPage, {
+      props: {
+        data: {
+          ...base,
+          task: waiting,
+          canRetry: false,
+          canDecide: true,
+          idempotencyKey: 'input-command',
+        },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Waiting for input');
+    expect(html).toContain('What should we keep?');
+    expect(html).toContain('Submit requested input');
+    expect(html).toContain('name="note"');
   });
   it('preserves the complete uncertain request and permits only unchanged replay', () => {
     const html = render(ListPage, {
