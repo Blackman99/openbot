@@ -46,7 +46,10 @@ export class ModelPriceApiClient {
     workspaceId: string,
     input: unknown,
   ): Promise<ModelPriceResult<{ price: ModelPriceView }>> {
-    return this.send(token, workspaceId, 'PUT', input);
+    const result = await this.send(token, workspaceId, 'PUT', input);
+    if (!result.ok) return result;
+    if (!result.value.price) return { ok: false, code: 'model_price_unavailable' };
+    return { ok: true, value: { price: result.value.price } };
   }
 
   private async send(
