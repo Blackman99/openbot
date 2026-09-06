@@ -78,6 +78,7 @@ import { TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS } from '../tasks/exe
 import { TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS } from '../tasks/execution-concurrency-schema.js';
 import { TEAM_TEMPLATE_SCHEMA_STATEMENTS } from '../groups/team-template-schema.js';
 import { TASK_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/delegate-schema.js';
+import { TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/parallel-delegation-schema.js';
 import { TASK_TOKEN_USAGE_SCHEMA_STATEMENTS } from '../tasks/token-usage-schema.js';
 import { TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS } from '../tasks/token-budget-schema.js';
 import {
@@ -449,6 +450,11 @@ const MIGRATIONS = [
   {
     version: '0042_task_token_budgets',
     statements: TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0043_task_parallel_delegations',
+    statements: TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
 ] as const;

@@ -4,7 +4,7 @@ import { appendQueuedRunState, appendWaitingChildRunState } from '../conversatio
 import { ConversationAccessError } from '../conversations/service.js';
 import { GroupBotAccessError } from '../group-bots/service.js';
 import { admitTaskTarget } from './admission.js';
-import { attributedChildResult, inheritChildLimits } from './delegate.js';
+import { inheritChildLimits, joinChildResults, type JoinableChildResult } from './delegate.js';
 import type { DelegateAction } from './delegate-action.js';
 import { persistTaskLimitSnapshot, taskPolicyFromBotLimits } from './execution-limits.js';
 import {
@@ -48,18 +48,11 @@ export async function createDelegatedChild(
   if (!(await lockTaskAncestry(connection, parent.id))) return { denied: true };
   const existing = (
     await connection.query<{ child_task_id: string }>(
-      'SELECT child_task_id FROM task_delegations WHERE parent_run_id=$1',
-      [claim.runId],
+      'SELECT child_task_id FROM task_delegations WHERE parent_run_id=$1 AND action_id=$2',
+      [claim.runId, actionId],
     )
   ).rows[0];
   if (existing) return { childTaskId: existing.child_task_id };
-  const unfinished = (
-    await connection.query(
-      `SELECT id FROM tasks WHERE parent_task_id=$1 AND status IN ('queued','running','waiting_child')`,
-      [parent.id],
-    )
-  ).rows[0];
-  if (unfinished) return { denied: true };
   const access = {
     actorUserId: parent.execution_user_id,
     workspaceId: parent.workspace_id,
@@ -232,40 +225,52 @@ export async function resumeParentAfterChild(
   ).rows[0];
   if (!parent || parent.status !== 'waiting_child' || parentRun?.status !== 'waiting_child')
     return false;
-  const child = (
+  const children = (
     await connection.query<{
+      child_task_id: string;
+      created_at: Date;
       status: string;
       bot_name: string;
     }>(
-      `SELECT t.status,v.configuration->>'name' AS bot_name
-       FROM tasks t JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
-       WHERE t.id=$1`,
-      [childTaskId],
+      `SELECT d.child_task_id,d.created_at,t.status,v.configuration->>'name' AS bot_name
+       FROM task_delegations d
+       JOIN tasks t ON t.id=d.child_task_id
+       JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+       WHERE d.parent_run_id=$1
+       ORDER BY d.created_at,d.child_task_id`,
+      [delegation.parent_run_id],
     )
-  ).rows[0];
-  if (!child || !['completed', 'failed', 'cancelled'].includes(child.status)) return false;
-  const childRun = (
-    await connection.query<{
-      error_code: string | null;
-      body: string | null;
-    }>(
-      `SELECT r.error_code,e.body FROM task_runs r
-       LEFT JOIN conversation_events e ON e.id=r.output_event_id
-       WHERE r.task_id=$1 ORDER BY r.attempt DESC LIMIT 1`,
-      [childTaskId],
-    )
-  ).rows[0];
-  const outcome =
-    child.status === 'completed'
-      ? { status: 'completed' as const, body: childRun?.body?.trim() || 'Child finished.' }
-      : child.status === 'failed'
-        ? { status: 'failed' as const, error: childRun?.error_code || 'provider_failed' }
-        : { status: 'cancelled' as const };
-  const attributed = attributedChildResult({
-    childTaskId,
-    botName: child.bot_name,
-    outcome,
-  });
+  ).rows;
+  if (!children.length) return false;
+  if (children.some((child) => !['completed', 'failed', 'cancelled'].includes(child.status)))
+    return false;
+  const joined: JoinableChildResult[] = [];
+  for (const child of children) {
+    const childRun = (
+      await connection.query<{
+        error_code: string | null;
+        body: string | null;
+      }>(
+        `SELECT r.error_code,e.body FROM task_runs r
+         LEFT JOIN conversation_events e ON e.id=r.output_event_id
+         WHERE r.task_id=$1 ORDER BY r.attempt DESC LIMIT 1`,
+        [child.child_task_id],
+      )
+    ).rows[0];
+    const outcome =
+      child.status === 'completed'
+        ? { status: 'completed' as const, body: childRun?.body?.trim() || 'Child finished.' }
+        : child.status === 'failed'
+          ? { status: 'failed' as const, error: childRun?.error_code || 'provider_failed' }
+          : { status: 'cancelled' as const };
+    joined.push({
+      childTaskId: child.child_task_id,
+      botName: child.bot_name,
+      createdAt: new Date(child.created_at).toISOString(),
+      outcome,
+    });
+  }
+  const attributed = joinChildResults(joined);
   const target = await admitTaskTarget(
     connection,
     {
@@ -306,7 +311,7 @@ export async function resumeParentAfterChild(
     },
     now,
     attributedResult: attributed,
-    childTaskId,
+    childTaskId: children.length === 1 ? children[0]!.child_task_id : childTaskId,
   });
   return scheduled.scheduled;
 }

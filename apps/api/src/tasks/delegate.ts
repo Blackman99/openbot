@@ -46,18 +46,43 @@ export function inheritChildLimits(input: {
   };
 }
 
-export function attributedChildResult(input: {
+export type ChildResultOutcome =
+  | { status: 'completed'; body: string }
+  | { status: 'failed'; error: string }
+  | { status: 'cancelled' };
+
+export type ChildResultInput = {
   childTaskId: string;
   botName: string;
-  outcome:
-    | { status: 'completed'; body: string }
-    | { status: 'failed'; error: string }
-    | { status: 'cancelled' };
-}): string {
+  outcome: ChildResultOutcome;
+};
+
+export type JoinableChildResult = ChildResultInput & { createdAt: string };
+
+export const CHILD_RESULT_DISAGREEMENT =
+  'These results disagree or are incomplete. State the disagreement; do not present them as consensus.';
+
+export function attributedChildResult(input: ChildResultInput): string {
   const header = `Delegated child ${input.childTaskId} (${input.botName})`;
   if (input.outcome.status === 'completed') return `${header} completed:\n${input.outcome.body}`;
   if (input.outcome.status === 'failed') return `${header} failed: ${input.outcome.error}`;
   return `${header} was cancelled.`;
+}
+
+export function joinChildResults(children: readonly JoinableChildResult[]): string {
+  const ordered = [...children].sort((left, right) => {
+    if (left.createdAt !== right.createdAt) return left.createdAt < right.createdAt ? -1 : 1;
+    return left.childTaskId < right.childTaskId ? -1 : left.childTaskId > right.childTaskId ? 1 : 0;
+  });
+  const parts = ordered.map((child) => attributedChildResult(child));
+  if (ordered.length < 2) return parts[0] ?? '';
+  const completed = ordered.filter((child) => child.outcome.status === 'completed');
+  const bodies = new Set(
+    completed.map((child) => (child.outcome.status === 'completed' ? child.outcome.body : '')),
+  );
+  const agreed = completed.length === ordered.length && bodies.size === 1;
+  const joined = parts.join('\n\n');
+  return agreed ? joined : `${joined}\n\n${CHILD_RESULT_DISAGREEMENT}`;
 }
 
 function minimum(values: Array<number | undefined>): number | undefined {

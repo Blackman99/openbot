@@ -813,7 +813,11 @@ export class TaskQueue {
       return true;
     });
   }
-  async delegate(claim: TaskClaim, action: DelegateAction, actionId: string): Promise<boolean> {
+  async delegate(
+    claim: TaskClaim,
+    actions: Array<{ action: DelegateAction; actionId: string }>,
+  ): Promise<boolean> {
+    if (!actions.length) return false;
     return this.transaction(async (connection) => {
       const run = (
         await connection.query<{ status: string; claim_token: string | null }>(
@@ -822,8 +826,16 @@ export class TaskQueue {
         )
       ).rows[0];
       if (run?.status !== 'running' || run.claim_token !== claim.claimToken) return false;
-      const created = await createDelegatedChild(connection, claim, action, actionId, this.now());
-      if ('denied' in created) return false;
+      for (const item of actions) {
+        const created = await createDelegatedChild(
+          connection,
+          claim,
+          item.action,
+          item.actionId,
+          this.now(),
+        );
+        if ('denied' in created) return false;
+      }
       return parkParentForChild(connection, claim, this.now());
     });
   }

@@ -420,6 +420,7 @@ describe('repository contract', () => {
     expect(workflow).toContain('0040_task_delegation');
     expect(workflow).toContain('0041_task_token_usage');
     expect(workflow).toContain('0042_task_token_budgets');
+    expect(workflow).toContain('0043_task_parallel_delegations');
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
     );

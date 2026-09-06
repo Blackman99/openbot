@@ -22,7 +22,6 @@ AS $$
     JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
     JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
     JOIN task_delegations d ON d.parent_task_id=target AND d.parent_run_id=previous.id
-    JOIN tasks child ON child.id=d.child_task_id
     WHERE a.event_type='task.queued'
       AND a.actor_user_id=actor
       AND a.metadata->>'taskId'=target::text
@@ -30,7 +29,13 @@ AS $$
       AND a.metadata->>'origin'='child_result'
       AND previous.status='waiting_child'
       AND previous.attempt::bigint+1=next_run.attempt
-      AND child.status IN ('completed','failed','cancelled')
+      AND NOT EXISTS (
+        SELECT 1 FROM task_delegations pending
+        JOIN tasks sibling ON sibling.id=pending.child_task_id
+        WHERE pending.parent_run_id=previous.id
+          AND pending.parent_task_id=target
+          AND sibling.status NOT IN ('completed','failed','cancelled')
+      )
   )
 $$`,
   'REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC',

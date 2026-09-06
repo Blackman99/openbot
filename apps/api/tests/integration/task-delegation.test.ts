@@ -301,3 +301,227 @@ describe('COL-14 bounded child delegation', () => {
     ).toEqual({ status: 'cancelled' });
   });
 });
+
+describe('COL-15 parallel child join', () => {
+  const cleanup: Array<() => Promise<unknown>> = [];
+  afterEach(async () => {
+    for (const close of cleanup.splice(0).reverse()) await close();
+  });
+
+  async function groupFixture(policy?: { maxConcurrentRuns?: number }) {
+    const f = await taskFixture(cleanup, () => new Date(), { submitInitialTask: false });
+    const groups = new GroupService(new PostgresGroupRepository(f.pool));
+    const group = await groups.create(f.owner.user.id, f.owner.workspace.id, {
+      name: 'Parallel delegation group',
+    });
+    await f.pool.query('UPDATE groups SET execution_policy=$2::jsonb WHERE id=$1', [
+      group.id,
+      JSON.stringify({
+        maxConcurrentRuns: policy?.maxConcurrentRuns ?? 16,
+        maxDelegationDepth: 2,
+      }),
+    ]);
+    const shared = await f.providers.inWorkspace(f.owner.workspace.id).save(f.owner.user.id, {
+      name: 'Shared parallel',
+      baseUrl: 'https://models.example/v1',
+      modelId: 'shared-model',
+      apiKey: 'shared-parallel-secret',
+      headers: {},
+    });
+    const bots = new BotService(new PostgresBotRepository(f.pool));
+    const binding = {
+      scope: { kind: 'workspace' as const, id: f.owner.workspace.id },
+      connectionId: shared.id,
+      modelId: shared.modelId,
+    };
+    const lead = await bots.create(f.owner.user.id, f.owner.workspace.id, {
+      name: 'Lead',
+      roleDescription: 'Coordinator',
+      instructions: 'Delegate in parallel.',
+      modelBinding: binding,
+    });
+    const researcher = await bots.create(f.owner.user.id, f.owner.workspace.id, {
+      name: 'Researcher',
+      roleDescription: 'Specialist',
+      instructions: 'Answer the delegated brief.',
+      modelBinding: binding,
+    });
+    const writer = await bots.create(f.owner.user.id, f.owner.workspace.id, {
+      name: 'Writer',
+      roleDescription: 'Specialist',
+      instructions: 'Answer the delegated brief.',
+      modelBinding: binding,
+    });
+    const grants = new GroupBotService(new PostgresGroupBotRepository(f.pool));
+    const leadGrant = await grants.invite(f.owner.user.id, f.owner.workspace.id, group.id, {
+      botId: lead.id,
+      idempotencyKey: 'lead-invite',
+    });
+    const researcherGrant = await grants.invite(f.owner.user.id, f.owner.workspace.id, group.id, {
+      botId: researcher.id,
+      idempotencyKey: 'researcher-invite',
+    });
+    const writerGrant = await grants.invite(f.owner.user.id, f.owner.workspace.id, group.id, {
+      botId: writer.id,
+      idempotencyKey: 'writer-invite',
+    });
+    const task = await f.tasks.submit(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      leadGrant.conversationId,
+      {
+        idempotencyKey: 'lead-task',
+        body: 'Ask both specialists.',
+        groupGrantId: leadGrant.id,
+      },
+    );
+    return {
+      ...f,
+      group,
+      leadGrant,
+      researcherGrant,
+      writerGrant,
+      task,
+      read: () =>
+        f.tasks.get(f.owner.user.id, f.owner.workspace.id, leadGrant.conversationId, task.id),
+    };
+  }
+
+  function complete(text: string): ModelResponse {
+    return {
+      events: [
+        { type: 'text', text },
+        { type: 'complete', stopReason: 'stop' },
+      ],
+      raw: '',
+    };
+  }
+
+  it('joins conflicting children once and keeps both sources visible', async () => {
+    const f = await groupFixture();
+    let stage: 'delegate' | 'first' | 'second' | 'lead' = 'delegate';
+    const worker = f.worker(async (input) => {
+      if (stage === 'delegate') {
+        stage = 'first';
+        return {
+          events: [
+            {
+              type: 'action',
+              id: 'call-1',
+              name: 'delegate',
+              arguments: {
+                grantId: f.researcherGrant.id,
+                body: 'Find the sky color.',
+              },
+            },
+            {
+              type: 'action',
+              id: 'call-2',
+              name: 'delegate',
+              arguments: {
+                grantId: f.writerGrant.id,
+                body: 'Find the grass color.',
+              },
+            },
+            { type: 'complete', stopReason: 'tool_calls' },
+          ],
+          raw: '',
+        };
+      }
+      if (stage === 'lead') {
+        expect(input.messages.some((message) => message.content.includes('The sky is blue.'))).toBe(
+          true,
+        );
+        expect(
+          input.messages.some((message) => message.content.includes('The grass is purple.')),
+        ).toBe(true);
+        expect(input.messages.some((message) => message.content.includes('Researcher'))).toBe(true);
+        expect(input.messages.some((message) => message.content.includes('Writer'))).toBe(true);
+        expect(
+          input.messages.some((message) =>
+            message.content.includes('State the disagreement; do not present them as consensus.'),
+          ),
+        ).toBe(true);
+        return complete('The specialists disagree.');
+      }
+      const lastUser = [...input.messages]
+        .reverse()
+        .find((message) => message.role === 'user')?.content;
+      if (lastUser?.includes('Find the grass color.')) {
+        stage = 'lead';
+        return complete('The grass is purple.');
+      }
+      if (lastUser?.includes('Find the sky color.')) {
+        stage = 'second';
+        return complete('The sky is blue.');
+      }
+      throw new Error(`unexpected generate: ${lastUser ?? 'none'}`);
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(await f.read()).toMatchObject({ status: 'waiting_child' });
+    expect(
+      (await f.pool.query('SELECT id FROM tasks WHERE parent_task_id=$1', [f.task.id])).rows,
+    ).toHaveLength(2);
+    expect(await worker.runOnce()).toBe(true);
+    expect(await f.read()).toMatchObject({ status: 'waiting_child', runCount: 1 });
+    expect(await worker.runOnce()).toBe(true);
+    const afterJoin = await f.read();
+    expect(afterJoin.status).toBe('queued');
+    expect(afterJoin.runCount).toBe(2);
+    const queued = (
+      await f.pool.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM audit_events
+         WHERE event_type='task.queued' AND metadata->>'taskId'=$1 AND metadata->>'origin'='child_result'`,
+        [f.task.id],
+      )
+    ).rows[0]!;
+    expect(queued).toEqual({ n: 1 });
+    expect(await worker.runOnce()).toBe(true);
+    expect(await f.read()).toMatchObject({ status: 'completed', runCount: 2 });
+  });
+
+  it('keeps excess children queued inside the group concurrency cap', async () => {
+    const f = await groupFixture({ maxConcurrentRuns: 1 });
+    const worker = f.worker(async (input) => {
+      if (input.messages.some((message) => message.content.includes('First brief.')))
+        return complete('First child only.');
+      if (input.messages.some((message) => message.content.includes('Second brief.')))
+        return complete('Second child only.');
+      return {
+        events: [
+          {
+            type: 'action',
+            id: 'call-1',
+            name: 'delegate',
+            arguments: {
+              grantId: f.researcherGrant.id,
+              body: 'First brief.',
+            },
+          },
+          {
+            type: 'action',
+            id: 'call-2',
+            name: 'delegate',
+            arguments: {
+              grantId: f.writerGrant.id,
+              body: 'Second brief.',
+            },
+          },
+          { type: 'complete', stopReason: 'tool_calls' },
+        ],
+        raw: '',
+      };
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(await f.read()).toMatchObject({ status: 'waiting_child' });
+    expect(await worker.runOnce()).toBe(true);
+    const children = (
+      await f.pool.query<{ status: string }>(
+        'SELECT status FROM tasks WHERE parent_task_id=$1 ORDER BY created_at,id',
+        [f.task.id],
+      )
+    ).rows;
+    expect(children).toEqual([{ status: 'completed' }, { status: 'queued' }]);
+    expect(await f.read()).toMatchObject({ status: 'waiting_child' });
+  });
+});

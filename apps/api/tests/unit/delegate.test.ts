@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { attributedChildResult, inheritChildLimits } from '../../src/tasks/delegate.js';
+import {
+  attributedChildResult,
+  CHILD_RESULT_DISAGREEMENT,
+  inheritChildLimits,
+  joinChildResults,
+} from '../../src/tasks/delegate.js';
 
 const GRANT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
@@ -60,5 +65,38 @@ describe('attributed child results', () => {
         outcome: { status: 'cancelled' },
       }),
     ).toContain('was cancelled');
+  });
+
+  it('joins children in stable order and tells the Lead to state a disagreement', () => {
+    const later = {
+      childTaskId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      botName: 'Writer',
+      createdAt: '2026-09-06T06:00:01.000Z',
+      outcome: { status: 'completed' as const, body: 'The sky is green.' },
+    };
+    const earlier = {
+      childTaskId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      botName: 'Researcher',
+      createdAt: '2026-09-06T06:00:00.000Z',
+      outcome: { status: 'completed' as const, body: 'The sky is blue.' },
+    };
+    const joined = joinChildResults([later, earlier]);
+    expect(joined.startsWith(attributedChildResult(earlier))).toBe(true);
+    expect(joined).toContain(attributedChildResult(later));
+    expect(joined).toContain('The sky is blue.');
+    expect(joined).toContain('The sky is green.');
+    expect(joined).toContain(CHILD_RESULT_DISAGREEMENT);
+    expect(
+      joinChildResults([
+        { ...earlier, outcome: { status: 'completed', body: 'Same finding.' } },
+        { ...later, outcome: { status: 'completed', body: 'Same finding.' } },
+      ]),
+    ).not.toContain(CHILD_RESULT_DISAGREEMENT);
+    expect(
+      joinChildResults([
+        earlier,
+        { ...later, outcome: { status: 'failed', error: 'provider_failed' } },
+      ]),
+    ).toContain(CHILD_RESULT_DISAGREEMENT);
   });
 });

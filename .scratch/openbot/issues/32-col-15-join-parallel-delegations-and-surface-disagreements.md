@@ -2,7 +2,7 @@
 sequence: 32
 id: COL-15
 title: "Join parallel delegations and surface disagreements"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-14
 labels:
@@ -37,3 +37,7 @@ A Lead can run bounded child Tasks in parallel, join their attributed outcomes, 
 - Majority voting
 - Unlimited recursive delegation
 - Cross-group delegation
+
+## Implementation note
+
+A schema-valid Lead generation may emit multiple `delegate` actions. Migration `0043_task_parallel_delegations` lets one parent Run record many children. The parent parks once, stays `waiting_child` until every child is terminal, then creates exactly one `child_result` Lead Run. Joined results keep Bot and Task attribution in created-at order. Conflicting or incomplete children stay visible and instruct the Lead to state the disagreement instead of presenting consensus. Excess children remain queued behind COL-13 concurrency holds. Original acceptance texts stay unchecked.

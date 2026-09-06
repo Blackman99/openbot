@@ -155,9 +155,17 @@ export class TaskWorker {
         usage = null;
         const actions = response.events.filter((event) => event.type === 'action');
         if (actions.length) {
-          const parsed = actions.length === 1 ? parseDelegateAction(actions[0]) : undefined;
-          const actionId = actions[0] && typeof actions[0].id === 'string' ? actions[0].id : '';
-          if (parsed && actionId && (await this.queue.delegate(claim, parsed, actionId))) {
+          const parsed = [];
+          for (const event of actions) {
+            const action = parseDelegateAction(event);
+            const actionId = typeof event.id === 'string' ? event.id : '';
+            if (!action || !actionId) {
+              parsed.length = 0;
+              break;
+            }
+            parsed.push({ action, actionId });
+          }
+          if (parsed.length && (await this.queue.delegate(claim, parsed))) {
             await publication.discard();
             return true;
           }
