@@ -27,6 +27,7 @@ export async function botAclFixture(
     now?: () => Date;
     retryPolicy?: { maxAttemptsPerModel: number; maxRunsPerChain: number };
     fallbackModel?: boolean;
+    actionSupported?: boolean;
   } = {},
 ) {
   const database = newProviderDatabase();
@@ -52,7 +53,9 @@ export async function botAclFixture(
       run: async () => ({
         testedAt: new Date().toISOString(),
         text: { ok: true, code: 'passed', raw: 'Text' },
-        action: { ok: false, code: 'provider_action_unsupported', raw: 'Unsupported' },
+        action: options.actionSupported
+          ? { ok: true, code: 'passed', raw: 'Action' }
+          : { ok: false, code: 'provider_action_unsupported', raw: 'Unsupported' },
       }),
     },
   );

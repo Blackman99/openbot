@@ -1,5 +1,10 @@
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
-import { currentPolicy, policyDetails, type CapabilityRecord } from './capability-policy.js';
+import {
+  currentPolicy,
+  policyDetails,
+  type CapabilityRecord,
+  type ModelPolicy,
+} from './capability-policy.js';
 import { capabilityExclusion } from './fallback-policy.js';
 import { authorizeProviderScope, providerStorage } from './postgres-provider-scope.js';
 import type { ConnectionAccess } from './scope.js';
@@ -58,10 +63,11 @@ export async function admitExecutionModel(
       metadata: ConnectionMetadata;
       revision: number;
       sealed_credentials: string;
-    }>(`SELECT metadata,revision,sealed_credentials FROM ${table} WHERE ${key}=$1 AND id=$2`, [
-      admitted.scope.id,
-      admitted.connectionId,
-    ])
+      policy: ModelPolicy | null;
+    }>(
+      `SELECT metadata,revision,sealed_credentials,policy FROM ${table} WHERE ${key}=$1 AND id=$2`,
+      [admitted.scope.id, admitted.connectionId],
+    )
   ).rows[0];
   if (!row) throw new ProviderError('connection_not_found');
   return {
@@ -74,5 +80,12 @@ export async function admitExecutionModel(
     anthropicVersion: row.metadata.anthropicVersion,
     sealedCredentials: row.sealed_credentials,
     credentialContext: credentialContext(admitted.scope, admitted.connectionId),
+    supportsActions:
+      policyDetails({
+        metadata: row.metadata,
+        revision: row.revision,
+        policy: currentPolicy(row.policy),
+        canManage: false,
+      }).flags.toolCalling.status === 'supported',
   };
 }

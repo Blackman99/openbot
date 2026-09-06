@@ -62,6 +62,31 @@ describe('COL-19 human input and approval holds', () => {
     };
   }
 
+  it('advertises human tools only when the connection supports structured actions', async () => {
+    const chatOnly = await taskFixture(cleanup);
+    let chatTools: unknown;
+    expect(
+      await chatOnly
+        .worker(async (input) => {
+          chatTools = input.tools;
+          return complete('OK');
+        })
+        .runOnce(),
+    ).toBe(true);
+    expect(chatTools).toBeUndefined();
+    const capable = await taskFixture(cleanup, () => new Date(), { actionSupported: true });
+    let advertised: Array<{ name: string }> | undefined;
+    expect(
+      await capable
+        .worker(async (input) => {
+          advertised = input.tools;
+          return complete('OK');
+        })
+        .runOnce(),
+    ).toBe(true);
+    expect(advertised?.map((tool) => tool.name)).toEqual(['request_input', 'request_approval']);
+  });
+
   it('parks a valid request_input and resumes once from authorized input', async () => {
     const f = await taskFixture(cleanup);
     const waiting = f.worker(async () => requestInput());

@@ -22,7 +22,10 @@ type TaskFixtureShared = Awaited<ReturnType<typeof botAclFixture>> & {
 export async function taskFixture<SubmitInitialTask extends boolean = true>(
   cleanup: Array<() => Promise<unknown>>,
   now: () => Date = () => new Date(),
-  options: TaskFixtureOptions & { submitInitialTask?: SubmitInitialTask } = {},
+  options: TaskFixtureOptions & {
+    submitInitialTask?: SubmitInitialTask;
+    actionSupported?: boolean;
+  } = {},
 ): Promise<
   TaskFixtureShared & (SubmitInitialTask extends false ? { task?: undefined } : { task: TaskView })
 > {

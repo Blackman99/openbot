@@ -703,11 +703,15 @@ export class TaskQueue {
               ? [...messages, { role: 'user' as const, content: attributed }]
               : messages,
             maxTotalTokens: target.configuration.limits.maxTotalTokens,
-            tools: [
-              REQUEST_INPUT_TOOL,
-              REQUEST_APPROVAL_TOOL,
-              ...(task.group_grant_id ? [DELEGATE_TOOL, HANDOFF_TOOL] : []),
-            ],
+            ...(provider.supportsActions
+              ? {
+                  tools: [
+                    REQUEST_INPUT_TOOL,
+                    REQUEST_APPROVAL_TOOL,
+                    ...(task.group_grant_id ? [DELEGATE_TOOL, HANDOFF_TOOL] : []),
+                  ],
+                }
+              : {}),
           },
         };
       }
