@@ -2,7 +2,7 @@
 sequence: 32
 id: COL-15
 title: "Join parallel delegations and surface disagreements"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-14
 labels:

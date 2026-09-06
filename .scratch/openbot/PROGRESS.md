@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-14 is in progress on `feat/openbot-collaboration-system` / draft PR #1. TPL-02 is complete after Tester PASS on [Verify 34010936156](https://github.com/Blackman99/openbot/actions/runs/34010936156) at `ecb8ab1`. A schema-valid `delegate` action now creates one bounded child Task and resumes the Lead once. Original COL-14 acceptance texts stay unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-14 is complete after Tester PASS on [Verify 34012044549](https://github.com/Blackman99/openbot/actions/runs/34012044549) at `eef3ba4`. COL-15, COL-16, COL-17, and API-03 are ready-for-agent on `feat/openbot-collaboration-system` / draft PR #1. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-three of 67 tickets are implemented and independently reviewed, and all 43 are fully complete. All 401 original acceptance texts are preserved. COL-14 original acceptance texts stay unchecked.
+Forty-four of 67 tickets are implemented and independently reviewed, and all 44 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

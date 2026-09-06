@@ -2,7 +2,7 @@
 sequence: 33
 id: COL-16
 title: "Transfer Task leadership through handoff"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - COL-12
   - COL-14

@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **43**
-- Fully complete: **43**
+- Implemented and independently reviewed: **44**
+- Fully complete: **44**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -52,9 +52,9 @@ This directory contains the approved implementation backlog for the open-source 
 | 28 | [COL-11 — Recover Runs after worker failure](28-col-11-recover-runs-after-worker-failure.md) | complete | [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-09](26-col-09-retry-failed-tasks-with-immutable-attempts.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md) |
 | 29 | [COL-12 — Enforce hierarchical execution limits](29-col-12-enforce-hierarchical-execution-limits.md) | complete | [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md) |
 | 30 | [COL-13 — Enforce atomic Run concurrency limits](30-col-13-enforce-atomic-run-concurrency-limits.md) | complete | [COL-11](28-col-11-recover-runs-after-worker-failure.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md) |
-| 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | in-progress | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
-| 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | blocked | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
-| 33 | [COL-16 — Transfer Task leadership through handoff](33-col-16-transfer-task-leadership-through-handoff.md) | blocked | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
+| 31 | [COL-14 — Delegate a bounded child Task](31-col-14-delegate-a-bounded-child-task.md) | complete | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
+| 32 | [COL-15 — Join parallel delegations and surface disagreements](32-col-15-join-parallel-delegations-and-surface-disagreements.md) | ready-for-agent | [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
+| 33 | [COL-16 — Transfer Task leadership through handoff](33-col-16-transfer-task-leadership-through-handoff.md) | ready-for-agent | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-14](31-col-14-delegate-a-bounded-child-task.md) |
 | 34 | [COL-17 — Meter and enforce token budgets](34-col-17-meter-and-enforce-token-budgets.md) | ready-for-agent | [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md), [PROV-05](11-prov-05-manage-capabilities-overrides-and-compatible-fallback-chains.md) |
 | 35 | [COL-18 — Price model usage and enforce cost budgets](35-col-18-price-model-usage-and-enforce-cost-budgets.md) | blocked | [COL-10](27-col-10-add-bounded-retries-and-explicit-model-fallback.md), [COL-17](34-col-17-meter-and-enforce-token-budgets.md) |
 | 36 | [COL-19 — Pause Tasks for human input and approval](36-col-19-pause-tasks-for-human-input-and-approval.md) | blocked | [COL-08](25-col-08-pause-and-resume-tasks-from-checkpoints.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-16](33-col-16-transfer-task-leadership-through-handoff.md) |
