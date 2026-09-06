@@ -1,4 +1,4 @@
-import { newDb, DataType } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { buildApp } from '../../src/app.js';
 import { LocalAuthService } from '../../src/auth/service.js';
 import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
@@ -11,14 +11,8 @@ import { OpenIdProvider } from '../../src/oidc/provider.js';
 import { WorkspaceService } from '../../src/workspaces/service.js';
 import { PostgresWorkspaceRepository } from '../../src/workspaces/postgres-workspace-repository.js';
 import { startMockIdp } from '../helpers/mock-idp.js';
-const database = newDb({ noAstCoverageCheck: true });
+const database = newMemDatabase();
 // Lock behavior is verified by the real PostgreSQL suites; this fixture exercises browser + API + SQL paths.
-database.public.registerFunction({
-  name: 'pg_advisory_xact_lock',
-  args: [DataType.integer, DataType.integer],
-  returns: DataType.integer,
-  implementation: () => 0,
-});
 const pool = new (database.adapters.createPg().Pool)();
 await migrateDatabase(pool, { installPostgresGuards: false });
 const auth = new LocalAuthService(new PostgresAuthRepository(pool));

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { newDb } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../../src/app.js';
@@ -20,7 +20,7 @@ describe('workspace boundaries', () => {
   });
 
   async function fixture() {
-    const database = newDb({ noAstCoverageCheck: true });
+    const database = newMemDatabase();
     const pool = new (database.adapters.createPg().Pool)();
     cleanup.push(() => pool.end());
     await migrateDatabase(pool, { installPostgresGuards: false });

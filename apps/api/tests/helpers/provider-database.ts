@@ -43,9 +43,15 @@ export function registerAdvisoryXactLockStub(database: ReturnType<typeof newDb>)
   });
 }
 
-export function newProviderDatabase() {
+/** pg-mem database with the workspace-authority advisory lock stub. Prefer this over raw newDb. */
+export function newMemDatabase() {
   const database = newDb({ noAstCoverageCheck: true });
   registerAdvisoryXactLockStub(database);
+  return database;
+}
+
+export function newProviderDatabase() {
+  const database = newMemDatabase();
   registerKnowledgeFtsStubs(database);
   return database;
 }

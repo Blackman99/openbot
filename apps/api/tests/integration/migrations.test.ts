@@ -1,4 +1,4 @@
-import { newDb } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -20,7 +20,7 @@ describe('database migrations', () => {
   });
 
   it('records ordered immutable migrations and makes readiness current', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -104,7 +104,7 @@ describe('database migrations', () => {
   });
 
   it('creates the local-owner authentication schema without storing credentials on users', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -467,7 +467,7 @@ describe('database migrations', () => {
     expect(connections).toBe(0);
   });
   it('rejects a historical target older than the existing ledger without changing it', async () => {
-    const database = newDb({ noAstCoverageCheck: true });
+    const database = newMemDatabase();
     const pool = new (database.adapters.createPg().Pool)();
     pools.push(pool);
     await migrateDatabase(pool, { installPostgresGuards: false });
@@ -485,7 +485,7 @@ describe('database migrations', () => {
     ).toEqual(before);
   });
   it('backfills exact invitation provenance for memberships created before migration 0006', async () => {
-    const database = newDb({ noAstCoverageCheck: true });
+    const database = newMemDatabase();
     const pool = new (database.adapters.createPg().Pool)();
     pools.push(pool);
     await migrateDatabase(pool, {

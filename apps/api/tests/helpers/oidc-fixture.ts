@@ -1,4 +1,4 @@
-import { newDb, DataType } from 'pg-mem';
+import { newMemDatabase } from './provider-database.js';
 import { LocalAuthService } from '../../src/auth/service.js';
 import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
 import { PostgresOidcRepository } from '../../src/oidc/postgres-repository.js';
@@ -7,13 +7,7 @@ import { OpenIdProvider } from '../../src/oidc/provider.js';
 import { migrateDatabase } from '../../src/database/migrations.js';
 import { startMockIdp } from './mock-idp.js';
 export async function oidcFixture(close: Array<() => Promise<unknown>>) {
-  const database = newDb({ noAstCoverageCheck: true });
-  database.public.registerFunction({
-    name: 'pg_advisory_xact_lock',
-    args: [DataType.integer, DataType.integer],
-    returns: DataType.integer,
-    implementation: () => 0,
-  });
+  const database = newMemDatabase();
   const pool = new (database.adapters.createPg().Pool)();
   close.push(() => pool.end());
   await migrateDatabase(pool, { installPostgresGuards: false });

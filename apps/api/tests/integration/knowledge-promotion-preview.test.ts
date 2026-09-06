@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { newDb } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { buildApp } from '../../src/app.js';
 import { migrateDatabase } from '../../src/database/migrations.js';
 import { LocalAuthService } from '../../src/auth/service.js';
@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const db = newDb({ noAstCoverageCheck: true });
+  const db = newMemDatabase();
   const pool = new (db.adapters.createPg().Pool)();
   cleanup.push(() => pool.end());
   await migrateDatabase(pool, { installPostgresGuards: false });

@@ -1,5 +1,4 @@
-import { newDb } from 'pg-mem';
-import { registerAdvisoryXactLockStub } from '../helpers/provider-database.js';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../../src/app.js';
@@ -25,8 +24,7 @@ describe('workspace members and roles', () => {
   });
 
   async function fixture() {
-    const database = newDb({ noAstCoverageCheck: true });
-    registerAdvisoryXactLockStub(database);
+    const database = newMemDatabase();
     const pool = new (database.adapters.createPg().Pool)();
     cleanup.push(() => pool.end());
     await migrateDatabase(pool, { installPostgresGuards: false });
