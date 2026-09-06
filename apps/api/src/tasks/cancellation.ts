@@ -5,6 +5,7 @@ import { ConversationTransaction } from '../conversations/postgres-repository.js
 import { conversationUuid, type ConversationAccess } from '../conversations/service.js';
 import { resumeParentAfterChild } from './delegate-child.js';
 import { TaskAccessError, TaskConflictError, TaskInputError } from './errors.js';
+import { reconcileRunTokenReservation } from './token-budget-store.js';
 import type { TaskStatus } from './service.js';
 
 export interface CancellationCommand {
@@ -195,6 +196,22 @@ export async function cancelTask(
       run.id,
       row.cancelled_at,
     ]);
+    const group = (
+      await connection.query<{ group_id: string | null }>(
+        'SELECT c.group_id FROM tasks t JOIN conversations c ON c.id=t.conversation_id WHERE t.id=$1',
+        [task.id],
+      )
+    ).rows[0];
+    await reconcileRunTokenReservation(
+      connection,
+      {
+        runId: run.id,
+        taskId: task.id,
+        workspaceId: access.workspaceId,
+        groupId: group?.group_id ?? null,
+      },
+      { inputTokens: 0, outputTokens: 0 },
+    );
   }
   for (const task of affected) {
     const run = runs.get(task.id)!;

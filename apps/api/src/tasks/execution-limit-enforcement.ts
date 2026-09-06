@@ -243,7 +243,7 @@ export async function applyTaskExecutionLimits(
   return { hard };
 }
 
-async function holdTaskForBudget(
+export async function holdTaskForBudget(
   connection: SqlConnection,
   input: {
     taskId: string;

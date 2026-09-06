@@ -103,6 +103,17 @@ export function evaluateTokenReservation(input: {
   };
 }
 
+export function reservationRequestForRun(
+  maxTotalTokens: number,
+  estimatedInputTokens: number,
+): TokenCounts {
+  const inputTokens = Math.max(0, estimatedInputTokens);
+  return {
+    inputTokens,
+    outputTokens: Math.max(0, maxTotalTokens - inputTokens),
+  };
+}
+
 export function reconcileTokenReservation(ledger: TokenLedger, usage: TokenCounts): TokenLedger {
   return {
     reserved: { inputTokens: 0, outputTokens: 0 },

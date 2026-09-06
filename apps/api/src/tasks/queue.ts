@@ -41,9 +41,18 @@ import { TaskPartialOutputLimitError } from './partial-output.js';
 import { lockTaskAncestry, taskAncestryIsActive } from './tree.js';
 import {
   applyTaskExecutionLimits,
+  holdTaskForBudget,
   remainingSnapshotDurationMs,
 } from './execution-limit-enforcement.js';
 import { applyRunConcurrency, clearRunConcurrencyHold } from './execution-concurrency.js';
+import { loadExecutionLimitPolicies, parseExecutionPolicy } from './execution-limits.js';
+import { reservationRequestForRun, resolveTokenBudgets } from './token-budget.js';
+import {
+  applyRunTokenReservation,
+  reconcileRunTokenReservation,
+  type TokenBudgetTarget,
+} from './token-budget-store.js';
+import { estimateTokens } from './token-usage.js';
 import {
   createDelegatedChild,
   parkParentForChild,
@@ -226,6 +235,38 @@ export class TaskQueue {
       [task.workspace_id, task.conversation_id],
     );
   }
+  private tokenTarget(task: Candidate): TokenBudgetTarget {
+    return {
+      runId: task.id,
+      taskId: task.task_id,
+      workspaceId: task.workspace_id,
+      groupId: task.group_id,
+    };
+  }
+  private async tokenBudgets(connection: SqlConnection, task: Candidate, maxTotalTokens: number) {
+    const layers = await loadExecutionLimitPolicies(connection, task.workspace_id, task.group_id);
+    const taskPolicy = (
+      await connection.query<{ execution_policy: unknown }>(
+        'SELECT execution_policy FROM tasks WHERE id=$1',
+        [task.task_id],
+      )
+    ).rows[0];
+    return resolveTokenBudgets({
+      workspace: layers.workspace,
+      group: layers.group,
+      task: {
+        ...parseExecutionPolicy(taskPolicy?.execution_policy),
+        maxTotalTokens,
+      },
+      run: { maxTotalTokens },
+    });
+  }
+  private async settleTokens(connection: SqlConnection, task: Candidate, usage: Usage | null) {
+    await reconcileRunTokenReservation(connection, this.tokenTarget(task), {
+      inputTokens: usage?.inputTokens ?? 0,
+      outputTokens: usage?.outputTokens ?? 0,
+    });
+  }
   private limitAccess(task: Candidate) {
     return {
       taskId: task.task_id,
@@ -271,6 +312,7 @@ export class TaskQueue {
       "UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5,usage_estimated=$6 WHERE id=$1",
       [task.id, this.now(), error, ...persistTokenUsage(usage)],
     );
+    await this.settleTokens(connection, task, usage);
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
@@ -291,6 +333,7 @@ export class TaskQueue {
       [task.id, this.now(), error, ...persistTokenUsage(usage)],
     );
     if (!marked.rows.length) return false;
+    await this.settleTokens(connection, task, usage);
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1 AND status='running'", [
       task.task_id,
     ]);
@@ -509,6 +552,20 @@ export class TaskQueue {
           await this.fail(connection, task, code);
           return { handled: true };
         }
+        const reservation = await applyRunTokenReservation(
+          connection,
+          this.tokenTarget(task),
+          await this.tokenBudgets(connection, task, target.configuration.limits.maxTotalTokens),
+          reservationRequestForRun(
+            target.configuration.limits.maxTotalTokens,
+            messages.reduce((total, message) => total + estimateTokens(message.content), 0),
+          ),
+          this.now(),
+        );
+        if (!reservation.allowed) {
+          await holdTaskForBudget(connection, this.limitAccess(task));
+          return { handled: true };
+        }
         const claimToken = randomUUID(),
           startedAt = this.now(),
           remainingMs = await remainingSnapshotDurationMs(connection, task.task_id, startedAt),
@@ -531,7 +588,10 @@ export class TaskQueue {
             provider.modelId,
           ],
         );
-        if (!claimed.rows.length) return { handled: false };
+        if (!claimed.rows.length) {
+          await this.settleTokens(connection, task, null);
+          return { handled: false };
+        }
         await connection.query(
           'INSERT INTO task_run_leases(run_id,claim_token,heartbeat_at,expires_at,created_at) VALUES($1,$2,$3,$4,$3)',
           [task.id, claimToken, startedAt, leaseExpiry(startedAt, deadlineAt)],
@@ -728,6 +788,7 @@ export class TaskQueue {
         "UPDATE task_runs SET status='completed',finished_at=$2,input_tokens=$3,output_tokens=$4,usage_estimated=$5,output_event_id=$6 WHERE id=$1",
         [task.id, this.now(), ...persistTokenUsage(outcome.usage), output.eventId],
       );
+      await this.settleTokens(connection, task, outcome.usage);
       await connection.query("UPDATE tasks SET status='completed' WHERE id=$1", [task.task_id]);
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);
       await this.audit(connection, task, 'task.completed', { outputEventId: output.eventId });
