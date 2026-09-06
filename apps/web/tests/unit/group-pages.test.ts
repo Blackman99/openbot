@@ -64,6 +64,8 @@ describe('group pages', () => {
     }).body;
     expect(html).toContain('Groups');
     expect(html).toContain('Create group');
+    expect(html).toContain('/app/workspaces/workspace-1/groups/import');
+    expect(html).toContain('Import team template');
     expect(html).toContain('value="private" selected');
     expect(html).toContain('/app/workspaces/workspace-1/groups/group-1');
     expect(html).toContain('Metadata only · Not a member');
@@ -88,6 +90,8 @@ describe('group pages', () => {
     expect(html).toContain('Remove Grace from group');
     expect(html).toContain('Change role for Grace');
     expect(html).toContain('value="owner"');
+    expect(html).toContain('/groups/group-1/template');
+    expect(html).toContain('Export team template');
   });
   it('limits group admins to non-owner controls and ordinary members to reads', () => {
     const admin = detail('admin');
@@ -99,5 +103,7 @@ describe('group pages', () => {
     expect(readonly).not.toContain('action="?/');
     expect(readonly).toContain('Only group owners and admins can manage');
     expect(readonly).toContain('/groups/group-1/bots');
+    expect(readonly).not.toContain('Export team template');
+    expect(admin).toContain('Export team template');
   });
 });

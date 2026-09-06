@@ -2,6 +2,8 @@ import { registerBotCopyRoutes } from './bots/copy-routes.js';
 import type { BotCopyService } from './bots/copy-service.js';
 import { registerBotTemplateRoutes } from './bots/template-routes.js';
 import type { BotTemplateService } from './bots/template-service.js';
+import { registerTeamTemplateRoutes } from './groups/team-template-routes.js';
+import type { TeamTemplateService } from './groups/team-template-service.js';
 import { registerAttachmentRoutes } from './attachments/routes.js';
 import { registerKnowledgeRoutes } from './knowledge/routes.js';
 import { registerMemoryRoutes } from './memories/routes.js';
@@ -90,6 +92,7 @@ export interface BuildAppOptions {
   botVersions?: BotVersionService;
   botCopies?: BotCopyService;
   botTemplates?: BotTemplateService;
+  teamTemplates?: TeamTemplateService;
 }
 
 const SESSION_COOKIE = 'openbot_session';
@@ -193,6 +196,7 @@ export function buildApp({
   botVersions,
   botCopies,
   botTemplates,
+  teamTemplates,
   tasks,
   groupRouting,
 }: BuildAppOptions): FastifyInstance {
@@ -242,6 +246,7 @@ export function buildApp({
     if (memories) registerMemoryRoutes(app, auth, memories, webOrigin);
     if (botCopies) registerBotCopyRoutes(app, auth, botCopies, webOrigin);
     if (botTemplates) registerBotTemplateRoutes(app, auth, botTemplates, webOrigin);
+    if (teamTemplates) registerTeamTemplateRoutes(app, auth, teamTemplates, webOrigin);
     if (tasks) registerTaskRoutes(app, auth, tasks, webOrigin);
     if (groupRouting) registerGroupRoutingRoutes(app, auth, groupRouting, webOrigin);
     if (botVersions) registerBotVersionRoutes(app, auth, botVersions, webOrigin);

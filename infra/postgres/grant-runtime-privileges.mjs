@@ -276,6 +276,9 @@ try {
       IF to_regclass('task_run_concurrency_holds') IS NOT NULL THEN
         GRANT SELECT, INSERT, DELETE ON task_run_concurrency_holds TO openbot_runtime;
       END IF;
+      IF to_regclass('group_imported_routines') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON group_imported_routines TO openbot_runtime;
+      END IF;
       IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
         GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
       END IF;

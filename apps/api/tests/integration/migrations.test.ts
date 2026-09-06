@@ -72,6 +72,7 @@ describe('database migrations', () => {
       '0036_task_execution_limit_snapshots',
       '0037_task_execution_limit_enforcement',
       '0038_task_run_concurrency_holds',
+      '0039_group_imported_routines',
     ]);
 
     const database: DatabaseClient = {
@@ -121,6 +122,7 @@ describe('database migrations', () => {
       'conversation_events',
       'conversations',
       'group_bot_grants',
+      'group_imported_routines',
       'group_memberships',
       'group_memories',
       'group_routing_settings',
@@ -189,7 +191,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0038_task_run_concurrency_holds' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0039_group_imported_routines' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

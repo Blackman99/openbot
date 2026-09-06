@@ -20,6 +20,7 @@
  {:else}
   <p>Your group role: {data.group.role}</p>
   <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/bots`}>Group Bots</a></p>
+  {#if manager}<p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/template`}>Export team template</a></p>{/if}
   <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/routing`}>Routing settings</a></p>
   <p><a href={`/app/workspaces/${data.workspace.id}/groups/${data.group.id}/memories`}>Group memories</a></p>
   {#if manager}

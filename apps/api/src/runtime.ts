@@ -1,5 +1,6 @@
 import { BotCopyService } from './bots/copy-service.js';
 import { BotTemplateService } from './bots/template-service.js';
+import { TeamTemplateService } from './groups/team-template-service.js';
 import { MemoryService } from './memories/service.js';
 import { AttachmentService } from './attachments/service.js';
 import { KnowledgeService } from './knowledge/service.js';
@@ -134,6 +135,7 @@ export function buildProductionApp(options: ProductionAppOptions) {
     botCopies: new BotCopyService(pool),
     bots,
     botTemplates: new BotTemplateService(pool, bots),
+    teamTemplates: new TeamTemplateService(pool),
     botAcl: new BotAclService(new PostgresBotAclRepository(pool)),
     botLifecycle: new BotLifecycleService(pool),
     groups: new GroupService(new PostgresGroupRepository(pool)),

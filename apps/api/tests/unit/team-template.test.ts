@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  TEAM_TEMPLATE_ACKNOWLEDGEMENTS,
+  TEAM_TEMPLATE_ROUTINE_ACKNOWLEDGEMENT,
   TEAM_TEMPLATE_SCHEMA_VERSION,
   TeamTemplateError,
+  describeTeamTemplate,
   exportTeamTemplate,
+  parseTeamImportCommand,
   parseTeamTemplate,
+  unresolvedTeamImportErrors,
 } from '../../src/groups/team-template.js';
 import { BOT_TEMPLATE_SCHEMA_VERSION } from '../../src/bots/template.js';
 import { DEFAULT_BOT_LIMITS } from '../../src/bots/service.js';
@@ -155,5 +160,70 @@ describe('safe Bot-team template schema', () => {
         bots: [{ ...valid.bots[0], template: { ...valid.bots[0]!.template, connectionId: 'x' } }],
       }),
     ).toEqual([{ field: 'bots[0].template.connectionId', code: 'forbidden_field' }]);
+  });
+
+  it('accepts a later compatible schema version and keeps included routines disabled in the preview', () => {
+    const valid = exportTeamTemplate({
+      identity: { name: 'Research desk', description: 'Find then write' },
+      bots: [researcher],
+      defaultLeadKey: 'researcher',
+      collaboration: { maxConcurrentRuns: 4 },
+      budgets: { maxDurationSeconds: 300, maxTurns: 8, maxDelegationDepth: 2 },
+    });
+    const template = parseTeamTemplate({
+      ...valid,
+      schemaVersion: 'openbot.team-template.v1.routines',
+      routines: [{ key: 'nightly-digest', name: 'Nightly digest' }],
+    });
+    expect(template.schemaVersion).toBe(TEAM_TEMPLATE_SCHEMA_VERSION);
+    expect(template.routines).toEqual([{ key: 'nightly-digest', name: 'Nightly digest' }]);
+    const preview = describeTeamTemplate(template);
+    expect(preview.objects).toEqual(
+      expect.arrayContaining([
+        { kind: 'group', name: 'Research desk', description: 'Find then write' },
+        expect.objectContaining({ kind: 'bot', key: 'researcher' }),
+        { kind: 'membership', botKey: 'researcher', role: 'Researcher' },
+        { kind: 'collaboration', maxConcurrentRuns: 4 },
+        { kind: 'defaultLead', botKey: 'researcher' },
+        { kind: 'routine', key: 'nightly-digest', name: 'Nightly digest', enabled: false },
+      ]),
+    );
+    expect(preview.acknowledgements.map((row) => row.id)).toEqual([
+      ...TEAM_TEMPLATE_ACKNOWLEDGEMENTS,
+      TEAM_TEMPLATE_ROUTINE_ACKNOWLEDGEMENT,
+    ]);
+    expect(preview.unresolved).toBe(true);
+  });
+
+  it('refuses import while a model mapping or acknowledgement is unresolved', () => {
+    const template = exportTeamTemplate({
+      identity: { name: 'Research desk', description: 'Find then write' },
+      bots: [researcher, writer],
+      defaultLeadKey: 'researcher',
+      collaboration: { maxConcurrentRuns: 4 },
+      budgets: { maxDurationSeconds: 300, maxTurns: 8, maxDelegationDepth: 2 },
+    });
+    const command = parseTeamImportCommand({
+      template,
+      modelBindings: {
+        researcher: {
+          scope: { kind: 'personal', id: '11111111-1111-4111-8111-111111111111' },
+          connectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          modelId: 'local-model',
+        },
+      },
+      acknowledgements: ['create-bots'],
+    });
+    expect(
+      unresolvedTeamImportErrors(command.template, command.modelBindings, command.acknowledgements),
+    ).toEqual([
+      { field: 'modelBindings.writer', code: 'unresolved_mapping' },
+      { field: 'acknowledgements.create-memberships', code: 'unresolved_acknowledgement' },
+      {
+        field: 'acknowledgements.create-group-configuration',
+        code: 'unresolved_acknowledgement',
+      },
+      { field: 'acknowledgements.no-source-access', code: 'unresolved_acknowledgement' },
+    ]);
   });
 });

@@ -403,6 +403,10 @@ describe('repository contract', () => {
       "has_column_privilege('openbot_runtime', 'tasks', 'execution_policy', 'UPDATE')",
     );
     expect(workflow).toContain('0038_task_run_concurrency_holds');
+    expect(workflow).toContain('0039_group_imported_routines');
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'group_imported_routines', 'SELECT')",
+    );
     expect(workflow).toContain(
       "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",
     );

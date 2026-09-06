@@ -7,6 +7,7 @@
   <a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}`}>Back to {data.workspace.name}</a>
   <h1>Groups</h1>
   <p>Create a private group or discover groups shared with {data.workspace.name}.</p>
+  <p><a href={`/app/workspaces/${data.workspace.id}/groups/import`}>Import team template</a></p>
   {#if data.groups.length === 0}<p>No groups available yet.</p>{/if}
   <ul aria-label="Groups">
     {#each data.groups as group (group.id)}
