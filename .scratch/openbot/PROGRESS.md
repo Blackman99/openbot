@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-04 is complete on `feat/openbot-collaboration-system` / draft PR #1 after tip `a406b25`, green [Verify 34020498010](https://github.com/Blackman99/openbot/actions/runs/34020498010), and Tester 6/6 PASS. API-05 is in progress with the first public-retry TDD slice (failed-task retry + Idempotency-Key replay), reusing COL-10 retry internals and API-04 public token patterns; approval resolve ACs remain open. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-05 approvals cut is on `feat/openbot-collaboration-system` / draft PR #1 after the public retry tip `d015912`. This cut adds `GET/POST /v1/approvals` resolve under `tasks:approve` (ACs 3–4 + AC6 approve audit), reusing COL-19 human-decision internals; AC5 live UI without refresh is deferred to a follow-up cut because the task pages still rely on explicit refresh rather than SSE-driven task reload. Leave Tester checkboxes unchecked. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty-one of 67 tickets are implemented and independently reviewed, and all 51 are fully complete. All 401 original acceptance texts are preserved.
 

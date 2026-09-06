@@ -921,6 +921,62 @@ export class TaskService {
       return { ...result, groupId: located.groupId };
     });
   }
+  listPublicApprovals(actorUserId: string, workspaceId: string, admission?: TransactionAdmission) {
+    const actor = conversationUuid(actorUserId),
+      workspace = conversationUuid(workspaceId);
+    return this.transaction(async (connection) => {
+      const rows = await listPendingApprovals(connection, workspace, actor);
+      await admission?.(connection);
+      return rows;
+    });
+  }
+  getPublicApproval(
+    actorUserId: string,
+    workspaceId: string,
+    approvalId: string,
+    admission?: TransactionAdmission,
+  ) {
+    const actor = conversationUuid(actorUserId),
+      workspace = conversationUuid(workspaceId),
+      id = conversationUuid(approvalId);
+    return this.transaction(async (connection) => {
+      const approval = await readPublicApproval(connection, workspace, actor, id);
+      await admission?.(connection);
+      return approval;
+    });
+  }
+  decidePublicApproval(
+    actorUserId: string,
+    workspaceId: string,
+    approvalId: string,
+    input: unknown,
+    idempotencyKey: string,
+    admission?: TransactionAdmission,
+  ) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TaskInputError();
+    const value = input as Record<string, unknown>;
+    if (Object.keys(value).some((key) => key !== 'decision')) throw new TaskInputError();
+    if (value.decision !== 'approve' && value.decision !== 'reject') throw new TaskInputError();
+    const actor = conversationUuid(actorUserId),
+      workspace = conversationUuid(workspaceId),
+      id = conversationUuid(approvalId);
+    return this.transaction(async (connection) => {
+      const located = await locateApproval(connection, workspace, id);
+      if (located.kind !== 'approval') throw new TaskAccessError();
+      const access = taskAccess(actor, workspace, located.conversationId);
+      const decision = await decideHumanRequest(
+        connection,
+        access,
+        located.taskId,
+        { decision: value.decision, idempotencyKey },
+        this.now,
+      );
+      const task = await readTask(connection, located.taskId);
+      const approval = await readPublicApproval(connection, workspace, actor, id);
+      await admission?.(connection);
+      return { approval, task, decision, groupId: located.groupId };
+    });
+  }
 }
 
 function retryCommand(input: unknown): { idempotencyKey: string; expectedRunId: string } {
@@ -1036,6 +1092,144 @@ async function retryFailedTask(
     ],
   );
   return { task: await readTask(connection, id), receipt: { runId, attempt } };
+}
+
+export type PublicApprovalView = {
+  id: string;
+  taskId: string;
+  groupId: string;
+  conversationId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  summary: string;
+  createdAt: Date;
+  decision?: 'approve' | 'reject';
+  decidedAt?: Date;
+};
+
+async function locateApproval(
+  connection: SqlConnection,
+  workspaceId: string,
+  approvalId: string,
+): Promise<{
+  id: string;
+  taskId: string;
+  conversationId: string;
+  groupId: string;
+  kind: 'input' | 'approval';
+}> {
+  const row = (
+    await connection.query<{
+      id: string;
+      task_id: string;
+      conversation_id: string;
+      group_id: string | null;
+      kind: 'input' | 'approval';
+    }>(
+      `SELECT r.id,r.task_id,t.conversation_id,c.group_id,r.kind
+       FROM task_human_requests r
+       JOIN tasks t ON t.id=r.task_id AND t.workspace_id=$2
+       JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id
+       WHERE r.id=$1`,
+      [approvalId, workspaceId],
+    )
+  ).rows[0];
+  if (!row || !row.group_id) throw new TaskAccessError();
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    conversationId: row.conversation_id,
+    groupId: row.group_id,
+    kind: row.kind,
+  };
+}
+
+async function listPendingApprovals(
+  connection: SqlConnection,
+  workspaceId: string,
+  actorUserId: string,
+): Promise<PublicApprovalView[]> {
+  const rows = (
+    await connection.query<{
+      id: string;
+      task_id: string;
+      conversation_id: string;
+      group_id: string;
+      summary: string;
+      created_at: Date;
+    }>(
+      `SELECT r.id,r.task_id,t.conversation_id,c.group_id,r.summary,r.created_at
+       FROM task_human_requests r
+       JOIN tasks t ON t.id=r.task_id AND t.workspace_id=$1
+       JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id
+       JOIN group_memberships m ON m.group_id=c.group_id AND m.user_id=$2
+       WHERE r.kind='approval' AND r.resolved_at IS NULL AND r.summary IS NOT NULL AND c.group_id IS NOT NULL
+       ORDER BY r.created_at ASC, r.id ASC`,
+      [workspaceId, actorUserId],
+    )
+  ).rows;
+  return rows.map((row) => ({
+    id: row.id,
+    taskId: row.task_id,
+    groupId: row.group_id,
+    conversationId: row.conversation_id,
+    status: 'pending' as const,
+    summary: row.summary,
+    createdAt: row.created_at,
+  }));
+}
+
+async function readPublicApproval(
+  connection: SqlConnection,
+  workspaceId: string,
+  actorUserId: string,
+  approvalId: string,
+): Promise<PublicApprovalView> {
+  const row = (
+    await connection.query<{
+      id: string;
+      task_id: string;
+      conversation_id: string;
+      group_id: string | null;
+      summary: string | null;
+      created_at: Date;
+      resolved_at: Date | null;
+      decision: 'approve' | 'reject' | null;
+      decided_at: Date | null;
+    }>(
+      `SELECT r.id,r.task_id,t.conversation_id,c.group_id,r.summary,r.created_at,r.resolved_at,
+              d.decision,d.created_at AS decided_at
+       FROM task_human_requests r
+       JOIN tasks t ON t.id=r.task_id AND t.workspace_id=$2
+       JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id
+       JOIN group_memberships m ON m.group_id=c.group_id AND m.user_id=$3
+       LEFT JOIN task_human_decisions d ON d.request_id=r.id AND d.decision IN ('approve','reject')
+       WHERE r.id=$1 AND r.kind='approval'`,
+      [approvalId, workspaceId, actorUserId],
+    )
+  ).rows[0];
+  if (!row || !row.group_id || !row.summary) throw new TaskAccessError();
+  if (!row.resolved_at)
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      groupId: row.group_id,
+      conversationId: row.conversation_id,
+      status: 'pending',
+      summary: row.summary,
+      createdAt: row.created_at,
+    };
+  if (!row.decision || !row.decided_at) throw new TaskAccessError();
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    groupId: row.group_id,
+    conversationId: row.conversation_id,
+    status: row.decision === 'approve' ? 'approved' : 'rejected',
+    summary: row.summary,
+    createdAt: row.created_at,
+    decision: row.decision,
+    decidedAt: row.decided_at,
+  };
 }
 
 function taskAccess(

@@ -16,6 +16,7 @@ import {
   TaskAccessError,
   TaskConflictError,
   TaskInputError,
+  type PublicApprovalView,
   type TaskConfirmedResult,
   type TaskDelegationNode,
   type TaskService,
@@ -111,6 +112,20 @@ export function publicTaskDetailView(
   };
 }
 
+export function publicApprovalView(approval: PublicApprovalView) {
+  return {
+    id: approval.id,
+    taskId: approval.taskId,
+    groupId: approval.groupId,
+    conversationId: approval.conversationId,
+    status: approval.status,
+    summary: approval.summary,
+    createdAt: approval.createdAt,
+    ...(approval.decision && approval.decidedAt
+      ? { decision: approval.decision, decidedAt: approval.decidedAt }
+      : {}),
+  };
+}
 export function registerPublicTaskRoutes(
   app: FastifyInstance,
   tokens: ApiTokenService,
@@ -238,6 +253,58 @@ export function registerPublicTaskRoutes(
         return reply.code(202).send({
           task: publicTaskView(retried.task, retried.groupId),
           receipt: retried.receipt,
+        });
+      },
+    );
+    routes.get('/v1/approvals', async (request) => {
+      const { identity, admit } = await tokens.authorizeResource(
+        readApiRequestToken(request),
+        'tasks:approve',
+      );
+      emptyQuery(request.query);
+      const approvals = await tasks.listPublicApprovals(
+        identity.user.id,
+        identity.workspace.id,
+        admit,
+      );
+      return { approvals: approvals.map(publicApprovalView) };
+    });
+    routes.get<{ Params: { approvalId: string } }>('/v1/approvals/:approvalId', async (request) => {
+      const { identity, admit } = await tokens.authorizeResource(
+        readApiRequestToken(request),
+        'tasks:approve',
+      );
+      emptyQuery(request.query);
+      const approval = await tasks.getPublicApproval(
+        identity.user.id,
+        identity.workspace.id,
+        request.params.approvalId,
+        admit,
+      );
+      return { approval: publicApprovalView(approval) };
+    });
+    routes.post<{ Params: { approvalId: string } }>(
+      '/v1/approvals/:approvalId/decisions',
+      { bodyLimit: 16384 },
+      async (request, reply) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'tasks:approve',
+        );
+        emptyQuery(request.query);
+        const key = idempotencyKey(request.headers as Record<string, unknown>);
+        const decided = await tasks.decidePublicApproval(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.approvalId,
+          request.body,
+          key,
+          admit,
+        );
+        return reply.code(202).send({
+          approval: publicApprovalView(decided.approval),
+          task: publicTaskView(decided.task, decided.groupId),
+          receipt: decided.decision,
         });
       },
     );

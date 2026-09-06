@@ -11,8 +11,11 @@ import { PostgresConversationRepository } from '../../src/conversations/postgres
 import { TaskService } from '../../src/tasks/service.js';
 import { botAclFixture } from './bot-acl-fixture.js';
 
-export async function publicTaskFixture(cleanup: Array<() => Promise<unknown>>) {
-  const base = await botAclFixture(cleanup);
+export async function publicTaskFixture(
+  cleanup: Array<() => Promise<unknown>>,
+  options: { actionSupported?: boolean } = {},
+) {
+  const base = await botAclFixture(cleanup, options);
   const tokens = new ApiTokenService(new PostgresApiTokenRepository(base.pool));
   const groups = new GroupService(new PostgresGroupRepository(base.pool));
   const groupBots = new GroupBotService(new PostgresGroupBotRepository(base.pool));

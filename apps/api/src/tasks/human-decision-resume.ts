@@ -145,7 +145,7 @@ export async function decideHumanRequest(
   const eventId = await appendHumanDecisionEvent(connection, {
     workspaceId: selected.workspace_id,
     conversationId: selected.conversation_id,
-    executionUserId: selected.execution_user_id,
+    actorUserId: access.actorUserId,
     taskId,
     requestId: request.id,
     kind: request.kind,
@@ -238,12 +238,14 @@ function sameDecision(
   actorUserId: string,
   parsed: HumanInputDecision | HumanApprovalDecision,
 ): boolean {
-  if (prior.actor_user_id !== actorUserId || prior.idempotency_key !== parsed.idempotencyKey)
-    return false;
+  if (prior.actor_user_id !== actorUserId) return false;
   if ('values' in parsed)
     return (
-      prior.decision === 'input' && JSON.stringify(prior.values) === JSON.stringify(parsed.values)
+      prior.idempotency_key === parsed.idempotencyKey &&
+      prior.decision === 'input' &&
+      JSON.stringify(prior.values) === JSON.stringify(parsed.values)
     );
+  // Closed approvals replay by decision (API-05 AC4), not by idempotency key alone.
   return prior.decision === parsed.decision && prior.values === null;
 }
 
@@ -277,7 +279,7 @@ async function appendHumanDecisionEvent(
   input: {
     workspaceId: string;
     conversationId: string;
-    executionUserId: string;
+    actorUserId: string;
     taskId: string;
     requestId: string;
     kind: 'input' | 'approval';
@@ -323,7 +325,7 @@ async function appendHumanDecisionEvent(
       eventId,
       input.conversationId,
       sequence,
-      input.executionUserId,
+      input.actorUserId,
       input.now,
       body,
       `task.human.decided:${input.requestId}`,
@@ -335,7 +337,7 @@ async function appendHumanDecisionEvent(
     "INSERT INTO audit_events(id,event_type,actor_user_id,occurred_at,metadata) VALUES($1,'task.human.decided',$2,$3,$4::jsonb)",
     [
       randomUUID(),
-      input.executionUserId,
+      input.actorUserId,
       input.now,
       JSON.stringify({
         workspaceId: input.workspaceId,

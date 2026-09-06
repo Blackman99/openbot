@@ -549,3 +549,212 @@ it('denies retry without tasks:write or without group access', async () => {
     runs: [{ id: submitted.runs[0].id, attempt: 1, status: 'failed' }],
   });
 });
+
+async function parkPublicApproval(
+  cleanup: Array<() => Promise<unknown>>,
+  prompt = 'Draft the announcement.',
+  summary = 'Send the announcement.',
+) {
+  const f = await publicTaskFixture(cleanup, { actionSupported: true });
+  const writeHeaders = await f.bearer(['tasks:write']);
+  const { groupId, leadGrantId } = await f.readyGroup();
+  const created = await f.publicApp.inject({
+    method: 'POST',
+    url: '/v1/tasks',
+    headers: { ...writeHeaders, 'idempotency-key': `approval-source-${prompt.length}` },
+    payload: { groupId, prompt, leadGrantId },
+  });
+  expect(created.statusCode).toBe(202);
+  const submitted = created.json().task;
+  const worker = new TaskWorker(f.pool, {
+    secrets: new ProviderSecretBox(Buffer.alloc(32, 7).toString('base64')),
+    createAdapter: () => ({
+      generate: async () => ({
+        events: [
+          {
+            type: 'action',
+            id: 'call-1',
+            name: 'request_approval',
+            arguments: { summary },
+          },
+          { type: 'complete', stopReason: 'tool_calls' },
+        ],
+        raw: '',
+      }),
+    }),
+  });
+  expect(await worker.runOnce()).toBe(true);
+  const ui = await f.sessionApp.inject({
+    url: `/api/v1/workspaces/${f.owner.workspace.id}/conversations/${submitted.conversationId}/tasks/${submitted.id}`,
+    headers: f.headers,
+  });
+  expect(ui.statusCode).toBe(200);
+  expect(ui.json().task).toMatchObject({
+    status: 'waiting_approval',
+    humanRequest: { kind: 'approval', summary, id: expect.any(String) },
+  });
+  return {
+    f,
+    groupId,
+    submitted,
+    approvalId: ui.json().task.humanRequest.id as string,
+    summary,
+  };
+}
+
+it('lists and retrieves pending approvals for tasks:approve group members', async () => {
+  const parked = await parkPublicApproval(cleanup);
+  const headers = await parked.f.bearer(['tasks:approve']);
+  const listed = await parked.f.publicApp.inject({ url: '/v1/approvals', headers });
+  expect(listed.statusCode).toBe(200);
+  expect(listed.headers['cache-control']).toBe('private, no-store');
+  expect(listed.json()).toEqual({
+    approvals: [
+      {
+        id: parked.approvalId,
+        taskId: parked.submitted.id,
+        groupId: parked.groupId,
+        conversationId: parked.submitted.conversationId,
+        status: 'pending',
+        summary: parked.summary,
+        createdAt: expect.any(String),
+      },
+    ],
+  });
+  const got = await parked.f.publicApp.inject({
+    url: `/v1/approvals/${parked.approvalId}`,
+    headers,
+  });
+  expect(got.statusCode).toBe(200);
+  expect(got.json()).toEqual({ approval: listed.json().approvals[0] });
+});
+
+it('lets tasks:approve resolve an approval and records actor, timestamp, and task ref without token plaintext', async () => {
+  const parked = await parkPublicApproval(cleanup, 'Approve this draft.', 'Publish the draft.');
+  const headers = await parked.f.bearer(['tasks:approve']);
+  const decided = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...headers, 'idempotency-key': 'public-approve-1' },
+    payload: { decision: 'approve' },
+  });
+  expect(decided.statusCode).toBe(202);
+  expect(decided.headers['cache-control']).toBe('private, no-store');
+  expect(decided.headers['x-content-type-options']).toBe('nosniff');
+  expect(decided.json()).toMatchObject({
+    approval: {
+      id: parked.approvalId,
+      taskId: parked.submitted.id,
+      groupId: parked.groupId,
+      status: 'approved',
+      summary: parked.summary,
+      decision: 'approve',
+      decidedAt: expect.any(String),
+    },
+    task: {
+      id: parked.submitted.id,
+      groupId: parked.groupId,
+      status: 'queued',
+      runCount: 2,
+      runs: [{ id: expect.any(String), attempt: 2, status: 'queued' }],
+    },
+    receipt: {
+      requestId: parked.approvalId,
+      runId: expect.any(String),
+      attempt: 2,
+      decidedAt: expect.any(String),
+    },
+  });
+  expect(decided.json().receipt.runId).toBe(decided.json().task.runs[0].id);
+  const audits = (
+    await parked.f.pool.query(
+      "SELECT actor_user_id,occurred_at,metadata FROM audit_events WHERE event_type='task.human.decided' AND metadata->>'taskId'=$1",
+      [parked.submitted.id],
+    )
+  ).rows;
+  expect(audits).toHaveLength(1);
+  expect(audits[0]).toMatchObject({
+    actor_user_id: parked.f.owner.user.id,
+    occurred_at: expect.any(Date),
+  });
+  expect(audits[0].metadata).toMatchObject({
+    taskId: parked.submitted.id,
+    requestId: parked.approvalId,
+    decision: 'approve',
+  });
+  expect(JSON.stringify(audits[0].metadata)).not.toMatch(/Bearer|sk-|secret/i);
+  const ui = await parked.f.sessionApp.inject({
+    url: `/api/v1/workspaces/${parked.f.owner.workspace.id}/conversations/${parked.submitted.conversationId}/tasks/${parked.submitted.id}`,
+    headers: parked.f.headers,
+  });
+  expect(ui.statusCode).toBe(200);
+  expect(ui.json().task).toMatchObject({
+    status: 'queued',
+    runCount: 2,
+  });
+  expect(ui.json().task.humanRequest).toBeUndefined();
+});
+
+it('replays the same approval decision and rejects the opposite with 409', async () => {
+  const parked = await parkPublicApproval(cleanup, 'Need a decision.', 'Ship the release.');
+  const headers = await parked.f.bearer(['tasks:approve']);
+  const first = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...headers, 'idempotency-key': 'approve-once' },
+    payload: { decision: 'approve' },
+  });
+  expect(first.statusCode).toBe(202);
+  const replay = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...headers, 'idempotency-key': 'approve-again' },
+    payload: { decision: 'approve' },
+  });
+  expect(replay.statusCode).toBe(202);
+  expect(replay.json()).toEqual(first.json());
+  const opposite = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...headers, 'idempotency-key': 'reject-instead' },
+    payload: { decision: 'reject' },
+  });
+  expect(opposite.statusCode).toBe(409);
+  expect(opposite.json()).toEqual({ error: { code: 'idempotency_conflict' } });
+  expect(
+    (await parked.f.pool.query('SELECT id FROM task_runs WHERE task_id=$1', [parked.submitted.id]))
+      .rows,
+  ).toHaveLength(2);
+});
+
+it('denies approval resolve without tasks:approve or without group membership', async () => {
+  const parked = await parkPublicApproval(cleanup, 'Protected approval.', 'Hold for review.');
+  const readOnly = await parked.f.bearer(['tasks:read']);
+  const missingScope = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...readOnly, 'idempotency-key': 'denied-approve-scope' },
+    payload: { decision: 'approve' },
+  });
+  expect(missingScope.statusCode).toBe(403);
+  expect(missingScope.json()).toEqual({ error: { code: 'insufficient_scope' } });
+  const outsider = await parked.f.addUser();
+  const outsiderHeaders = await parked.f.bearer(['tasks:approve'], outsider.id);
+  const noGroup = await parked.f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/approvals/${parked.approvalId}/decisions`,
+    headers: { ...outsiderHeaders, 'idempotency-key': 'denied-approve-group' },
+    payload: { decision: 'approve' },
+  });
+  expect(noGroup.statusCode).toBe(403);
+  expect(noGroup.json()).toEqual({ error: { code: 'task_forbidden' } });
+  const ui = await parked.f.sessionApp.inject({
+    url: `/api/v1/workspaces/${parked.f.owner.workspace.id}/conversations/${parked.submitted.conversationId}/tasks/${parked.submitted.id}`,
+    headers: parked.f.headers,
+  });
+  expect(ui.statusCode).toBe(200);
+  expect(ui.json().task).toMatchObject({
+    status: 'waiting_approval',
+    humanRequest: { id: parked.approvalId, kind: 'approval' },
+  });
+});
