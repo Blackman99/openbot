@@ -693,7 +693,7 @@ jobs:
           group_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'groups', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'groups'")"
-          test "$group_update_privileges" = 'created_at:false,created_by_user_id:false,description:true,id:false,name:true,updated_at:true,visibility:true,workspace_id:false'
+          test "$group_update_privileges" = 'created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false'
           group_membership_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'group_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_memberships'")"

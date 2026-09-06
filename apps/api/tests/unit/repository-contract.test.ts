@@ -364,6 +364,9 @@ describe('repository contract', () => {
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'sessions', 'token_digest', 'UPDATE')",
     );
+    expect(workflow).toContain(
+      'created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,name:true,updated_at:true,visibility:true,workspace_id:false',
+    );
     expect(workflow).toContain("UPDATE audit_events SET metadata = '{}'::jsonb");
     expect(workflow).toContain('DELETE FROM audit_events');
     expect(workflow).toContain('TRUNCATE TABLE audit_events');
