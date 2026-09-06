@@ -175,6 +175,50 @@ describe('Task pages', () => {
     expect(html).not.toContain('Cancel task');
     expect(html).not.toContain('Retry failed task');
   });
+  it('renders Interrupted for a worker-interrupted failed Run and keeps the saved prefix', () => {
+    const interrupted: TaskView = {
+      ...task,
+      status: 'failed',
+      runs: [
+        {
+          ...task.runs[0]!,
+          status: 'failed',
+          startedAt: '2026-09-05T00:00:01.000Z',
+          finishedAt: '2026-09-05T00:00:02.000Z',
+          provider: { protocol: 'openai-responses', modelId: 'actual-model' },
+          error: 'worker_interrupted',
+        },
+      ],
+    };
+    const text = 'Interrupted 🌲';
+    const html = render(DetailPage, {
+      props: {
+        data: {
+          ...base,
+          task: interrupted,
+          canRetry: true,
+          idempotencyKey: 'retry-after-interrupt',
+          partialOutput: {
+            conversationId: conversation.id,
+            taskId: task.id,
+            runId: task.runs[0]!.id,
+            partial: {
+              text,
+              endByte: new TextEncoder().encode(text).byteLength,
+              interrupted: true,
+            },
+          },
+        },
+        params: { ...params, taskId: task.id },
+        form: null,
+      },
+    }).body;
+    expect(html).toContain('Interrupted');
+    expect(html).toContain('Interrupted output');
+    expect(html).toContain('This task was interrupted.');
+    expect(html).toContain('Interrupted 🌲');
+    expect(html).toContain('Retry failed task');
+  });
   it('renders saved earlier attempt evidence and bounded navigation alongside the current answer', () => {
     const current: TaskView = {
       ...completed,

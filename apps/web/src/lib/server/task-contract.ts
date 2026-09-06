@@ -25,6 +25,7 @@ export const taskErrorCodes = [
   'output_limit',
   'context_limit',
   'worker_stopped',
+  'worker_interrupted',
 ] as const;
 export type TaskErrorCode = (typeof taskErrorCodes)[number];
 export interface TaskRun {

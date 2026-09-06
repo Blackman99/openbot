@@ -276,13 +276,17 @@ export class TaskService {
     return this.transaction(async (connection) => {
       await ConversationTransaction.lock(connection, access, this.now, 'inspect');
       const run = (
-        await connection.query<{ status: TaskStatus }>(
-          'SELECT r.status FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND t.id=$2 AND t.workspace_id=$3 AND t.conversation_id=$4',
+        await connection.query<{ status: TaskStatus; error_code: TaskFailure | null }>(
+          'SELECT r.status,r.error_code FROM task_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id=$1 AND t.id=$2 AND t.workspace_id=$3 AND t.conversation_id=$4',
           [selectedRunId, id, access.workspaceId, access.conversationId],
         )
       ).rows[0];
       if (!run) throw new TaskAccessError();
-      if (run.status !== 'cancelled' && run.status !== 'paused')
+      if (
+        run.status !== 'cancelled' &&
+        run.status !== 'paused' &&
+        !(run.status === 'failed' && run.error_code === 'worker_interrupted')
+      )
         throw new TaskConflictError('task_partial_state_conflict');
       const row = (
         await connection.query<{ body: string; end_byte: number }>(

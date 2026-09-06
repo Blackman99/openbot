@@ -49,7 +49,11 @@ export async function loadTaskPage(
   let partialOutput: TaskPartialOutput | null = null,
     partialUnavailable = false;
   let interruptedRunId = result.value.runs[0]!.id;
-  if (result.value.status === 'cancelled' || result.value.status === 'paused') {
+  if (
+    result.value.status === 'cancelled' ||
+    result.value.status === 'paused' ||
+    result.value.runs[0]?.error === 'worker_interrupted'
+  ) {
     interruptedRunId = result.value.runs[0]!.id;
   } else if (result.value.olderRunsCursor) {
     const history = await createTaskApiClient(context.fetch, context.request.signal).runs(
@@ -61,11 +65,13 @@ export async function loadTaskPage(
     );
     if (history.status === 'anonymous' || history.status === 'forbidden')
       readFailure(history.status, context);
-    const paused =
+    const interrupted =
       history.status === 'available'
-        ? history.value.runs.find((run) => run.status === 'paused')
+        ? history.value.runs.find(
+            (run) => run.status === 'paused' || run.error === 'worker_interrupted',
+          )
         : undefined;
-    if (paused) interruptedRunId = paused.id;
+    if (interrupted) interruptedRunId = interrupted.id;
     else interruptedRunId = '';
   } else interruptedRunId = '';
   if (interruptedRunId) {
@@ -79,7 +85,11 @@ export async function loadTaskPage(
     if (partial.status === 'anonymous' || partial.status === 'forbidden')
       readFailure(partial.status, context);
     if (partial.status === 'available') partialOutput = partial.value;
-    else if (result.value.status === 'cancelled' || result.value.status === 'paused')
+    else if (
+      result.value.status === 'cancelled' ||
+      result.value.status === 'paused' ||
+      result.value.runs[0]?.error === 'worker_interrupted'
+    )
       partialUnavailable = true;
   }
   const routing = await readTaskRoutingDecision(

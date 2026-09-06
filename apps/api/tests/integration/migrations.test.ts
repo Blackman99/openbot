@@ -68,6 +68,7 @@ describe('database migrations', () => {
       '0032_document_knowledge_locators',
       '0033_task_pause_checkpoints',
       '0034_task_resume_commands',
+      '0035_task_run_recovery',
     ]);
 
     const database: DatabaseClient = {
@@ -156,9 +157,11 @@ describe('database migrations', () => {
       'task_routing_decisions',
       'task_run_cancellations',
       'task_run_delivery_receipts',
+      'task_run_leases',
       'task_run_partial_outputs',
       'task_run_pause_checkpoints',
       'task_run_pauses',
+      'task_run_recovery_receipts',
       'task_run_streams',
       'task_runs',
       'tasks',
@@ -179,7 +182,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0034_task_resume_commands' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0035_task_run_recovery' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {
@@ -278,8 +281,12 @@ describe('database migrations', () => {
     const automaticOverlay = statements.findIndex((statement) =>
       statement.includes("origin' IN ('provider_retry','model_fallback')"),
     );
+    const recoveryOverlay = statements.findLastIndex((statement) =>
+      statement.includes("origin' IN ('provider_retry','model_fallback','worker_recovery')"),
+    );
     expect(automaticOverlay).toBeGreaterThanOrEqual(0);
     expect(pauseOverlay).toBeGreaterThan(automaticOverlay);
+    expect(recoveryOverlay).toBeGreaterThan(pauseOverlay);
     expect(statements.some((statement) => statement.includes("origin'='manual_resume'"))).toBe(
       true,
     );
@@ -325,6 +332,11 @@ describe('database migrations', () => {
         statement.includes("origin' IN ('provider_retry','model_fallback')"),
       ),
     ).toBe(true);
+    expect(
+      statements.some((statement) =>
+        statement.includes("origin' IN ('provider_retry','model_fallback','worker_recovery')"),
+      ),
+    ).toBe(false);
   });
 
   it('does not apply COL-10 automatic-attempt guards before migration 0023', async () => {

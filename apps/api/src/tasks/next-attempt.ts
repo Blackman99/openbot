@@ -94,7 +94,11 @@ export async function readPlannedBinding(
   runId: string,
 ): Promise<BotBinding | undefined> {
   const metadata = await queuedMetadata(connection, runId);
-  if (metadata?.origin !== 'provider_retry' && metadata?.origin !== 'model_fallback')
+  if (
+    metadata?.origin !== 'provider_retry' &&
+    metadata?.origin !== 'model_fallback' &&
+    metadata?.origin !== 'worker_recovery'
+  )
     return undefined;
   return bindingFromMetadata(metadata);
 }

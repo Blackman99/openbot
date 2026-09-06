@@ -49,4 +49,4 @@ Recovery reuses COL-07 durable partial-output and cancellation fences, plus COL-
 
 ## Implementation note
 
-COL-08 is complete. COL-11 is in progress on `feat/openbot-collaboration-system` and must consume the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. The five original acceptance texts stay unchecked until Tester stamps native and Compose evidence.
+COL-11 is in progress on `feat/openbot-collaboration-system`. Recovery consumes the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. Migration 0035 adds `task_run_leases`, `task_run_recovery_receipts`, and the `worker_interrupted` failure code. The five original acceptance texts stay unchecked until Tester stamps native and Compose evidence.

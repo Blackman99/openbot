@@ -27,7 +27,8 @@ export type StreamTaskFailure =
   | 'execution_timeout'
   | 'output_limit'
   | 'context_limit'
-  | 'worker_stopped';
+  | 'worker_stopped'
+  | 'worker_interrupted';
 export interface ExecutionState {
   taskId: string;
   runId: string;
@@ -159,6 +160,7 @@ function failure(value: unknown): value is StreamTaskFailure {
       'output_limit',
       'context_limit',
       'worker_stopped',
+      'worker_interrupted',
     ].includes(value)
   );
 }

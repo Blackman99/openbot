@@ -10,6 +10,7 @@
     output_limit: 'The model response exceeded its size limit.',
     context_limit: 'The conversation exceeded the allowed context size.',
     worker_stopped: 'The worker stopped before this request finished.',
+    worker_interrupted: 'Interrupted',
   };
   const reasons: Record<ContinuationReason, string> = {
     provider_rate_limited: 'the previous model was rate limited',

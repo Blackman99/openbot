@@ -21,7 +21,14 @@ import {
   writeNextAttempt,
 } from './next-attempt.js';
 import { loadRunContinuation, wireContinuation } from './continuation.js';
-import { planNextAttempt, versionListsBinding, type NextAttemptPlan } from './retry-schedule.js';
+import { RECOVERY_CANDIDATE_LIMIT, leaseExpiry } from './lease.js';
+import { planWorkerRecovery } from './recovery.js';
+import {
+  effectiveRetryPolicy,
+  planNextAttempt,
+  versionListsBinding,
+  type NextAttemptPlan,
+} from './retry-schedule.js';
 import {
   appendBotResult,
   appendAssistantDelta,
@@ -63,7 +70,8 @@ export type TaskFailure =
   | 'execution_timeout'
   | 'output_limit'
   | 'context_limit'
-  | 'worker_stopped';
+  | 'worker_stopped'
+  | 'worker_interrupted';
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -240,6 +248,7 @@ export class TaskQueue {
         (
           await connection.query(
             `SELECT r.id FROM task_runs r JOIN tasks t ON t.id=r.task_id
+           JOIN task_run_leases l ON l.run_id=$1 AND l.claim_token=$3 AND l.expires_at>$4
            WHERE r.id=$1 AND r.task_id=$2 AND r.claim_token=$3
              AND r.status='running' AND t.status='running' AND r.deadline_at>$4
              AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2)`,
@@ -438,6 +447,10 @@ export class TaskQueue {
         ],
       );
       if (!claimed.rows.length) return { handled: false };
+      await connection.query(
+        'INSERT INTO task_run_leases(run_id,claim_token,heartbeat_at,expires_at,created_at) VALUES($1,$2,$3,$4,$3)',
+        [task.id, claimToken, startedAt, leaseExpiry(startedAt, deadlineAt)],
+      );
       await connection.query("UPDATE tasks SET status='running' WHERE id=$1", [task.task_id]);
       await persistRunMemoryReferences(connection, memory, this.now);
       await persistRunKnowledgeReferences(connection, knowledge, this.now);
@@ -491,7 +504,11 @@ export class TaskQueue {
           task.bot_version_id,
         );
         const run = await this.lockRun(connection, task);
-        if (run?.status !== 'running' || run.claim_token !== claim.claimToken)
+        if (
+          run?.status !== 'running' ||
+          run.claim_token !== claim.claimToken ||
+          !(await this.liveLease(connection, claim))
+        )
           throw new TaskPublicationError('worker_stopped');
         const binding = runBinding(run, target.configuration.modelBinding);
         await admitUsableModel(
@@ -560,6 +577,11 @@ export class TaskQueue {
       }
       const run = await this.lockRun(connection, task);
       if (run?.status !== 'running' || run.claim_token !== claim.claimToken) return false;
+      if (
+        !(await this.liveLease(connection, claim)) &&
+        !('error' in outcome && outcome.error === 'execution_timeout')
+      )
+        return false;
       if (target && !denied) {
         try {
           const binding = runBinding(run, target.configuration.modelBinding);
@@ -634,6 +656,245 @@ export class TaskQueue {
         throw new PublicationDeadlineElapsed();
       return true;
     });
+  }
+  async renewClaimLease(claim: TaskClaim): Promise<boolean> {
+    return this.transaction(async (connection) => {
+      const run = (
+        await connection.query<LockedRun>(
+          `SELECT r.status,r.claim_token,r.deadline_at,r.connection_id,r.model_id,r.provider_scope_kind,r.provider_scope_id
+           FROM task_runs r JOIN tasks t ON t.id=r.task_id
+           WHERE r.id=$1 AND r.task_id=$2 AND r.claim_token=$3
+             AND r.status='running' AND t.status='running'
+             AND r.attempt=(SELECT MAX(attempt) FROM task_runs WHERE task_id=$2)
+           FOR UPDATE`,
+          [claim.runId, claim.taskId, claim.claimToken],
+        )
+      ).rows[0];
+      if (!run) return false;
+      if (!(await taskAncestryIsActive(connection, claim.taskId))) return false;
+      const lease = (
+        await connection.query<{ expires_at: Date }>(
+          'SELECT expires_at FROM task_run_leases WHERE run_id=$1 AND claim_token=$2 FOR UPDATE',
+          [claim.runId, claim.claimToken],
+        )
+      ).rows[0];
+      const now = this.now();
+      if (!lease || lease.expires_at.getTime() <= now.getTime()) return false;
+      if (run.deadline_at && run.deadline_at.getTime() <= now.getTime()) return false;
+      const renewed = await connection.query<{ run_id: string }>(
+        `UPDATE task_run_leases SET heartbeat_at=$2,expires_at=$3
+         WHERE run_id=$1 AND claim_token=$4 AND expires_at>$2 RETURNING run_id`,
+        [claim.runId, now, leaseExpiry(now, run.deadline_at ?? claim.deadlineAt), claim.claimToken],
+      );
+      return renewed.rows.length === 1;
+    });
+  }
+  async recoverExpiredClaims(): Promise<number> {
+    const ids = await this.expiredRecoveryRunIds();
+    let recovered = 0;
+    for (const runId of ids) {
+      if (await this.recoverExpiredRun(runId)) recovered++;
+    }
+    return recovered;
+  }
+  private async expiredRecoveryRunIds(): Promise<string[]> {
+    const connection = await this.pool.connect();
+    try {
+      return (
+        await connection.query<{ id: string }>(
+          `SELECT r.id FROM task_runs r
+           JOIN tasks t ON t.id=r.task_id AND r.status=t.status
+           JOIN task_run_leases l ON l.run_id=r.id AND l.claim_token=r.claim_token
+           WHERE r.status='running' AND l.expires_at<=$1
+           ORDER BY l.expires_at,r.id
+           LIMIT $2`,
+          [this.now(), RECOVERY_CANDIDATE_LIMIT],
+        )
+      ).rows.map((row) => row.id);
+    } finally {
+      connection.release();
+    }
+  }
+  private async recoverExpiredRun(runId: string): Promise<boolean> {
+    return this.transaction(async (connection) => {
+      const task = await this.candidate(connection, runId);
+      if (!task) return false;
+      await this.lockStructure(connection, task);
+      let denied: TaskFailure | undefined;
+      let target: Awaited<ReturnType<typeof admitTaskTarget>> | undefined;
+      try {
+        target = await admitTaskTarget(
+          connection,
+          this.access(task),
+          task.group_grant_id,
+          this.now,
+          task.bot_version_id,
+        );
+      } catch (error) {
+        denied = admissionFailure(error);
+        if (!denied) throw error;
+      }
+      const run = await this.lockRun(connection, task);
+      if (run?.status !== 'running' || !run.claim_token) return false;
+      const lease = (
+        await connection.query<{ claim_token: string; expires_at: Date }>(
+          'SELECT claim_token,expires_at FROM task_run_leases WHERE run_id=$1 FOR UPDATE',
+          [runId],
+        )
+      ).rows[0];
+      const now = this.now();
+      if (
+        !lease ||
+        lease.claim_token !== run.claim_token ||
+        lease.expires_at.getTime() > now.getTime()
+      )
+        return false;
+      const existing = (
+        await connection.query('SELECT source_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1', [
+          runId,
+        ])
+      ).rows[0];
+      if (existing) return false;
+      if (run.deadline_at && run.deadline_at.getTime() <= now.getTime()) {
+        await this.fail(connection, task, 'execution_timeout');
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: runId,
+          decision: 'stopped',
+          stopReason: 'execution_timeout',
+          now,
+        });
+        return true;
+      }
+      await this.fail(connection, task, 'worker_interrupted');
+      if (denied) {
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: runId,
+          decision: 'stopped',
+          stopReason: denied,
+          now,
+        });
+        return true;
+      }
+      const chain = await loadAttemptChain(connection, task.task_id, task.id);
+      if (chain.attempts.some((attempt) => attempt.origin === 'worker_recovery')) {
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: chain.rootRunId,
+          decision: 'stopped',
+          stopReason: 'recovery_exhausted',
+          now,
+        });
+        return true;
+      }
+      const binding = runBinding(run, target!.configuration.modelBinding);
+      try {
+        await admitUsableModel(
+          connection,
+          { actorUserId: task.execution_user_id, scope: binding.scope },
+          { connectionId: binding.connectionId, expectedModelId: binding.modelId },
+        );
+      } catch (error) {
+        const code = admissionFailure(error);
+        if (!code) throw error;
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: chain.rootRunId,
+          decision: 'stopped',
+          stopReason: code,
+          now,
+        });
+        return true;
+      }
+      const policy = effectiveRetryPolicy(target!.configuration.retryPolicy);
+      if (chain.attempts.length >= policy.maxRunsPerChain) {
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: chain.rootRunId,
+          decision: 'stopped',
+          stopReason: 'budget_exhausted',
+          now,
+        });
+        return true;
+      }
+      const written = await writeNextAttempt(
+        connection,
+        this.nextAttemptInput(
+          task,
+          planWorkerRecovery({
+            binding,
+            sourceRunId: task.id,
+            chainRootRunId: chain.rootRunId,
+            chainAttemptOrdinal: chain.attempts.length + 1,
+            chainLimitSnapshot: policy.maxRunsPerChain,
+            now,
+          }),
+        ),
+      );
+      if (!written.scheduled) {
+        await this.insertRecoveryReceipt(connection, {
+          sourceRunId: runId,
+          taskId: task.task_id,
+          chainRootRunId: chain.rootRunId,
+          decision: 'stopped',
+          stopReason: written.reason === 'cancelled' ? 'cancelled' : 'duplicate',
+          now,
+        });
+        return true;
+      }
+      await this.insertRecoveryReceipt(connection, {
+        sourceRunId: runId,
+        taskId: task.task_id,
+        chainRootRunId: chain.rootRunId,
+        decision: 'queued_successor',
+        successorRunId: written.runId,
+        now,
+      });
+      return true;
+    });
+  }
+  private async insertRecoveryReceipt(
+    connection: SqlConnection,
+    input: {
+      sourceRunId: string;
+      taskId: string;
+      chainRootRunId: string;
+      decision: 'queued_successor' | 'stopped';
+      successorRunId?: string;
+      stopReason?: string;
+      now: Date;
+    },
+  ) {
+    await connection.query(
+      `INSERT INTO task_run_recovery_receipts(
+        source_run_id,task_id,chain_root_run_id,interrupted_at,decision,successor_run_id,stop_reason,created_at
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        input.sourceRunId,
+        input.taskId,
+        input.chainRootRunId,
+        input.now,
+        input.decision,
+        input.successorRunId ?? null,
+        input.stopReason ?? null,
+        input.now,
+      ],
+    );
+  }
+  private async liveLease(connection: SqlConnection, claim: TaskClaim): Promise<boolean> {
+    const lease = (
+      await connection.query<{ expires_at: Date }>(
+        'SELECT expires_at FROM task_run_leases WHERE run_id=$1 AND claim_token=$2',
+        [claim.runId, claim.claimToken],
+      )
+    ).rows[0];
+    return Boolean(lease && lease.expires_at.getTime() > this.now().getTime());
   }
   private async selectedBinding(
     connection: SqlConnection,

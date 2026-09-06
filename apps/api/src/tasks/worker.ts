@@ -3,6 +3,7 @@ import type { ModelAdapter, ProviderProtocol } from '../providers/model-events.j
 import type { ProviderSecretBox } from '../providers/secrets.js';
 import { withAbort } from '../providers/transport.js';
 import type { ObjectStore } from '../objects/store.js';
+import { CLAIM_HEARTBEAT_MS } from './lease.js';
 import { TaskQueue, TaskPublicationError, type TaskFailure, type Usage } from './queue.js';
 import { TaskDeltaPublication } from './delta-publication.js';
 import type { ModelEvent, ModelFailure } from '../providers/model-events.js';
@@ -35,6 +36,7 @@ export class TaskWorker {
   }
   private async runTaskOnce(signal?: AbortSignal): Promise<boolean> {
     if (signal?.aborted) return false;
+    await this.queue.recoverExpiredClaims();
     const selected = await this.queue.claimNext(),
       claim = selected.claim;
     if (!claim) return selected.handled;
@@ -60,7 +62,9 @@ export class TaskWorker {
     // this request without claiming that cancellation committed.
     const observeClaim = async (): Promise<void> => {
       try {
-        claimStopped = !(await this.queue.isClaimActive(claim));
+        const renewed = await this.queue.renewClaimLease(claim);
+        claimStopped = !renewed;
+        if (renewed) await this.queue.recoverExpiredClaims();
       } catch {
         claimStopped = true;
       }
@@ -68,7 +72,7 @@ export class TaskWorker {
       else if (observing && !combined.aborted) {
         observationTimer = setTimeout(() => {
           observation = observeClaim();
-        }, 1000);
+        }, CLAIM_HEARTBEAT_MS);
       }
     };
     const timer = setTimeout(() => {

@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0034_task_resume_commands');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0035_task_run_recovery');
   assert.deepEqual(
     (
       await pool.query(

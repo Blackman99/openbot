@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-08 is complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on [Verify 34002580880](https://github.com/Blackman99/openbot/actions/runs/34002580880), HEAD `a6d24a2`: all 17 jobs green, including `postgres-tasks` and `compose-task-pause`. The five original COL-08 acceptance texts are checked and unchanged. COL-11 is now in progress and consumes the single COL-10 next-attempt writer. COL-12 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-11 is in progress on `feat/openbot-collaboration-system` / draft PR #1. Migration 0035 adds leases, recovery receipts, and `worker_interrupted`. Recovery consumes the single COL-10 `writeNextAttempt` writer with origin `worker_recovery`. Original COL-11 acceptance texts stay unchecked until Tester stamps native and Compose evidence. COL-12 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Thirty-nine of 67 tickets are implemented and independently reviewed, and all 39 are fully complete. All 401 original acceptance texts are preserved. TPL-02 still needs COL-12.
 

@@ -230,6 +230,13 @@ describe('repository contract', () => {
     );
     expect(grants).toContain("to_regclass('task_resume_commands')");
     expect(grants).toContain('GRANT SELECT, INSERT ON task_resume_commands TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_run_leases')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_run_leases, task_run_recovery_receipts TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
+    );
     expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid,boolean)')");
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID, BOOLEAN) TO openbot_runtime',

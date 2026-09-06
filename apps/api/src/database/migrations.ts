@@ -65,6 +65,14 @@ import {
 } from '../conversations/stream-schema.js';
 import { TASK_PAUSE_SCHEMA_STATEMENTS } from '../tasks/pause-schema.js';
 import { TASK_RESUME_SCHEMA_STATEMENTS } from '../tasks/resume-schema.js';
+import {
+  TASK_RECOVERY_POSTGRES_PREFLIGHT,
+  TASK_RECOVERY_SCHEMA_STATEMENTS,
+} from '../tasks/recovery-schema.js';
+import {
+  COL11_RECOVERY_POSTGRES_GUARDS,
+  COL11_RECOVERY_REQUIRES_VERSION,
+} from '../tasks/col11-postgres-guards.js';
 
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
@@ -385,6 +393,12 @@ const MIGRATIONS = [
     statements: TASK_RESUME_SCHEMA_STATEMENTS,
     postgresStatements: [],
   },
+  {
+    version: '0035_task_run_recovery',
+    statements: TASK_RECOVERY_SCHEMA_STATEMENTS,
+    postgresBeforeStatements: TASK_RECOVERY_POSTGRES_PREFLIGHT,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -475,6 +489,14 @@ export async function migrateDatabase(
       targetMigrations.some(({ version }) => version === COL08_PAUSE_REQUIRES_VERSION)
     ) {
       for (const statement of COL08_PAUSE_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL11_RECOVERY_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL11_RECOVERY_POSTGRES_GUARDS) {
         await connection.query(statement);
       }
     }

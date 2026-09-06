@@ -2565,5 +2565,72 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       expect(childResume.task).toMatchObject({ id: child.id, status: 'queued', runCount: 2 });
       expect(childResume.resume).toMatchObject({ sourceRunId: child.runId, attempt: 2 });
     });
+
+    it('recovers an expired native claim once through the shared writer and fences the old token', async () => {
+      const f = await fixture();
+      const queue = new TaskQueue(runtime);
+      const task = await submit(f);
+      const claimed = await queue.claimNext();
+      expect(claimed.claim).toBeDefined();
+      const claim = claimed.claim!;
+      expect(
+        (
+          await runtime.query('SELECT claim_token FROM task_run_leases WHERE run_id=$1', [
+            claim.runId,
+          ])
+        ).rows,
+      ).toEqual([{ claim_token: claim.claimToken }]);
+      await runtime.query('UPDATE task_run_leases SET expires_at=heartbeat_at WHERE run_id=$1', [
+        claim.runId,
+      ]);
+      expect(
+        await queue.finish(claim, {
+          body: 'This late completion must not be published.',
+          usage: { inputTokens: 2, outputTokens: 2 },
+        }),
+      ).toBe(false);
+      expect(await queue.recoverExpiredClaims()).toBe(1);
+      const runs = (
+        await runtime.query(
+          'SELECT id,attempt,status,error_code,claim_token FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows;
+      expect(runs).toMatchObject([
+        {
+          id: claim.runId,
+          attempt: 1,
+          status: 'failed',
+          error_code: 'worker_interrupted',
+          claim_token: claim.claimToken,
+        },
+        { attempt: 2, status: 'queued', error_code: null, claim_token: null },
+      ]);
+      expect(
+        (
+          await runtime.query(
+            'SELECT decision,successor_run_id,stop_reason FROM task_run_recovery_receipts WHERE source_run_id=$1',
+            [claim.runId],
+          )
+        ).rows,
+      ).toEqual([
+        { decision: 'queued_successor', successor_run_id: runs[1]!.id, stop_reason: null },
+      ]);
+      expect(
+        (
+          await runtime.query('SELECT task_queued_audit_metadata($1::uuid) AS metadata', [
+            runs[1]!.id,
+          ])
+        ).rows[0]!.metadata,
+      ).toMatchObject({ origin: 'worker_recovery', sourceRunId: claim.runId });
+      expect(await queue.recoverExpiredClaims()).toBe(0);
+      expect(
+        await queue.finish(claim, { body: 'Still late.', usage: { inputTokens: 1, outputTokens: 1 } }),
+      ).toBe(false);
+      expect(
+        (await runtime.query('SELECT status,error_code FROM task_runs WHERE id=$1', [claim.runId]))
+          .rows,
+      ).toEqual([{ status: 'failed', error_code: 'worker_interrupted' }]);
+    });
   },
 );

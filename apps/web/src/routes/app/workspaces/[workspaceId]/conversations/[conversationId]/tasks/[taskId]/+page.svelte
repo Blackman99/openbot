@@ -54,10 +54,10 @@
       <h2 id="partial-heading">Interrupted output</h2>
       {#if data.partialUnavailable}<p role="alert">Saved partial output is unavailable. Refresh this task to try again.</p>
       {:else if data.partialOutput?.partial}
-        <p>{data.task.status === 'cancelled' ? 'This task was cancelled. The saved output is incomplete.' : 'This task was paused. Resume starts a new attempt from the original task input. The saved output is incomplete.'}</p>
+        <p>{data.task.status === 'cancelled' ? 'This task was cancelled. The saved output is incomplete.' : data.task.status === 'paused' ? 'This task was paused. Resume starts a new attempt from the original task input. The saved output is incomplete.' : 'This task was interrupted. Recovery starts a new attempt from the original task input. The saved output is incomplete.'}</p>
         <p>Checkpoint: restart from the original task input.</p>
         <pre>{data.partialOutput.partial.text}</pre>
-      {:else}<p>{data.task.status === 'cancelled' ? 'No output was saved before cancellation.' : 'No output was saved before the pause.'}</p>{/if}
+      {:else}<p>{data.task.status === 'cancelled' ? 'No output was saved before cancellation.' : data.task.status === 'paused' ? 'No output was saved before the pause.' : 'No output was saved before the interruption.'}</p>{/if}
     </section>
   {/if}
   <TaskCancellation canCancel={data.canCancel} canConfirm={data.canConfirmCancellation} idempotencyKey={data.idempotencyKey} expectedRunId={data.task.runs[0]!.id} actionUrl={`${base}/tasks/${data.task.id}?/cancel`} action={cancellationForm} />
