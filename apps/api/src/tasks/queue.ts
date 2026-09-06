@@ -115,6 +115,9 @@ export class TaskPublicationError extends Error {
     super(code);
   }
 }
+function uniqueViolation(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+}
 function admissionFailure(error: unknown): TaskFailure | undefined {
   if (
     error instanceof ConversationAccessError ||
@@ -240,6 +243,25 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
+  }
+  private async failIfRunning(
+    connection: SqlConnection,
+    task: Candidate,
+    error: TaskFailure,
+    usage: Usage | null = null,
+  ) {
+    const marked = await connection.query<{ id: string }>(
+      `UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5
+       WHERE id=$1 AND status='running' RETURNING id`,
+      [task.id, this.now(), error, usage?.inputTokens ?? null, usage?.outputTokens ?? null],
+    );
+    if (!marked.rows.length) return false;
+    await connection.query("UPDATE tasks SET status='failed' WHERE id=$1 AND status='running'", [
+      task.task_id,
+    ]);
+    await this.audit(connection, task, 'task.failed', { error });
+    await appendFailedRunState(connection, task.id, this.now);
+    return true;
   }
   async isClaimActive(claim: TaskClaim): Promise<boolean> {
     const connection = await this.pool.connect();
@@ -716,6 +738,14 @@ export class TaskQueue {
     }
   }
   private async recoverExpiredRun(runId: string): Promise<boolean> {
+    try {
+      return await this.recoverExpiredRunOnce(runId);
+    } catch (error) {
+      if (uniqueViolation(error)) return false;
+      throw error;
+    }
+  }
+  private async recoverExpiredRunOnce(runId: string): Promise<boolean> {
     return this.transaction(async (connection) => {
       const task = await this.candidate(connection, runId);
       if (!task) return false;
@@ -757,7 +787,7 @@ export class TaskQueue {
       ).rows[0];
       if (existing) return false;
       if (run.deadline_at && run.deadline_at.getTime() <= now.getTime()) {
-        await this.fail(connection, task, 'execution_timeout');
+        if (!(await this.failIfRunning(connection, task, 'execution_timeout'))) return false;
         await this.insertRecoveryReceipt(connection, {
           sourceRunId: runId,
           taskId: task.task_id,
@@ -768,7 +798,7 @@ export class TaskQueue {
         });
         return true;
       }
-      await this.fail(connection, task, 'worker_interrupted');
+      if (!(await this.failIfRunning(connection, task, 'worker_interrupted'))) return false;
       if (denied) {
         await this.insertRecoveryReceipt(connection, {
           sourceRunId: runId,

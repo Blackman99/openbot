@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { TaskQueue } from '../../src/tasks/queue.js';
 import { CLAIM_LEASE_MS } from '../../src/tasks/lease.js';
+import { ConversationStreamService } from '../../src/conversations/stream-service.js';
 import { taskFixture } from '../helpers/task-fixture.js';
 
 type TaskRunRow = {
@@ -140,6 +141,123 @@ describe('COL-11 worker crash recovery', () => {
       error_code: 'worker_interrupted',
       claim_token: claim!.claimToken,
     });
+  });
+
+  it('lets only one of two recoveries commit a successor for the same expired claim', async () => {
+    let now = new Date('2026-09-06T01:30:00.000Z');
+    const f = await taskFixture(cleanup, () => now);
+    const first = new TaskQueue(f.pool, () => now);
+    const second = new TaskQueue(f.pool, () => now);
+    const claim = (await first.claimNext()).claim!;
+    now = new Date(now.getTime() + CLAIM_LEASE_MS + 1);
+    const recovered = await Promise.all([
+      first.recoverExpiredClaims(),
+      second.recoverExpiredClaims(),
+    ]);
+    expect(recovered.sort()).toEqual([0, 1]);
+    const runs = await taskRuns(f.pool, f.task.id);
+    expect(runs).toMatchObject([
+      {
+        id: claim.runId,
+        attempt: 1,
+        status: 'failed',
+        error_code: 'worker_interrupted',
+        claim_token: claim.claimToken,
+      },
+      { attempt: 2, status: 'queued', error_code: null, claim_token: null },
+    ]);
+    expect(
+      (await f.pool.query('SELECT source_run_id FROM task_run_recovery_receipts')).rows,
+    ).toHaveLength(1);
+    expect(
+      await first.finish(claim, {
+        body: 'Late result after a raced recovery.',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    ).toBe(false);
+    const successor = (await first.claimNext()).claim!;
+    expect(successor.runId).toBe(runs[1]!.id);
+    expect(await first.finish(successor, { body: 'Recovered answer.', usage: null })).toBe(true);
+    expect(
+      (
+        await f.pool.query(
+          "SELECT id FROM conversation_events WHERE conversation_id=$1 AND event_type='bot.message.created'",
+          [f.conversation.id],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it('resumed SSE history records interruption, recovery and one final assistant message', async () => {
+    let now = new Date('2026-09-06T04:00:00.000Z');
+    const f = await taskFixture(cleanup, () => now);
+    const token = f.headers.cookie.split('=')[1]!;
+    const scope = { workspaceId: f.owner.workspace.id, conversationId: f.conversation.id };
+    const stream = new ConversationStreamService(f.pool, () => now);
+    const initial = await stream.bootstrap(token, scope);
+    const queue = new TaskQueue(f.pool, () => now);
+    const claim = (await queue.claimNext()).claim!;
+    now = new Date(now.getTime() + CLAIM_LEASE_MS + 1);
+    expect(await queue.recoverExpiredClaims()).toBe(1);
+    const successor = (await queue.claimNext()).claim!;
+    expect(await queue.finish(successor, { body: 'Recovered final answer.', usage: null })).toBe(
+      true,
+    );
+    const frames: Array<{
+      type: string;
+      data: {
+        execution?: { attempt: number; runStatus: string; error: string | null };
+        message?: { runId: string | null };
+      };
+    }> = [];
+    let cursor = initial.cursor;
+    for (let index = 0; index < 12; index++) {
+      const next = await stream.deliver(token, scope, cursor, (frame) => {
+        frames.push(JSON.parse(frame.match(/^data: (.+)$/mu)![1]!));
+      });
+      if (!next.delivered) break;
+      cursor = next.cursor;
+    }
+    expect(
+      frames
+        .filter((frame) => frame.type === 'task.run.updated')
+        .map((frame) => [
+          frame.data.execution?.attempt,
+          frame.data.execution?.runStatus,
+          frame.data.execution?.error,
+        ]),
+    ).toEqual([
+      [1, 'running', null],
+      [1, 'failed', 'worker_interrupted'],
+      [2, 'queued', null],
+      [2, 'running', null],
+      [2, 'completed', null],
+    ]);
+    expect(
+      frames.filter((frame) => frame.type === 'message.changed' && frame.data.message?.runId)
+        .length,
+    ).toBe(1);
+    const current = await stream.bootstrap(token, scope);
+    expect(current.executions).toEqual([
+      expect.objectContaining({
+        taskId: f.task.id,
+        runId: successor.runId,
+        attempt: 2,
+        runStatus: 'completed',
+        error: null,
+      }),
+    ]);
+    expect(current.messages.filter((message) => message.runId === successor.runId)).toHaveLength(1);
+    expect(cursor).toBe(current.cursor);
+    expect(initial.executions[0]).toMatchObject({ attempt: 1, runStatus: 'queued' });
+    expect(
+      (
+        await f.pool.query(
+          "SELECT id FROM conversation_events WHERE conversation_id=$1 AND event_type='bot.message.created'",
+          [f.conversation.id],
+        )
+      ).rows,
+    ).toHaveLength(1);
   });
 
   it('renews an unexpired lease and refuses renewal after expiry', async () => {

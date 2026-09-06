@@ -154,6 +154,23 @@ describe('conversation stream wire contract', () => {
     expect(
       parseExecutionState({
         ...execution(),
+        taskStatus: 'failed',
+        runStatus: 'failed',
+        startedAt: instant,
+        finishedAt: instant,
+        error: 'worker_interrupted',
+      }),
+    ).toEqual({
+      ...execution(),
+      taskStatus: 'failed',
+      runStatus: 'failed',
+      startedAt: instant,
+      finishedAt: instant,
+      error: 'worker_interrupted',
+    });
+    expect(
+      parseExecutionState({
+        ...execution(),
         taskStatus: 'completed',
         runStatus: 'completed',
         finishedAt: instant,

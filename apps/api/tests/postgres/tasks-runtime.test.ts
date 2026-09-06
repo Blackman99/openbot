@@ -2635,5 +2635,65 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           .rows,
       ).toEqual([{ status: 'failed', error_code: 'worker_interrupted' }]);
     });
+
+    it('lets only one of two workers recover an expired lease and commit the successor', async () => {
+      const f = await fixture();
+      const queue = new TaskQueue(runtime);
+      const task = await submit(f);
+      const claim = (await queue.claimNext()).claim!;
+      await runtime.query('UPDATE task_run_leases SET expires_at=heartbeat_at WHERE run_id=$1', [
+        claim.runId,
+      ]);
+      const recovered = await contenders(f, (pool) => new TaskQueue(pool).recoverExpiredClaims());
+      expect(recovered.sort()).toEqual([0, 1]);
+      const runs = (
+        await runtime.query(
+          'SELECT id,attempt,status,error_code FROM task_runs WHERE task_id=$1 ORDER BY attempt',
+          [task.id],
+        )
+      ).rows;
+      expect(runs).toMatchObject([
+        { id: claim.runId, attempt: 1, status: 'failed', error_code: 'worker_interrupted' },
+        { attempt: 2, status: 'queued', error_code: null },
+      ]);
+      expect(
+        (
+          await runtime.query(
+            'SELECT decision,successor_run_id FROM task_run_recovery_receipts WHERE source_run_id=$1',
+            [claim.runId],
+          )
+        ).rows,
+      ).toEqual([{ decision: 'queued_successor', successor_run_id: runs[1]!.id }]);
+      expect(
+        await queue.finish(claim, {
+          body: 'Late result after a raced recovery.',
+          usage: { inputTokens: 2, outputTokens: 2 },
+        }),
+      ).toBe(false);
+      const selected = await contenders(f, (pool) => new TaskQueue(pool).claimNext());
+      const admitted = selected.flatMap((result) => (result.claim ? [result.claim] : []));
+      expect(admitted).toHaveLength(1);
+      expect(admitted[0]!.runId).toBe(runs[1]!.id);
+      const completed = await contenders(f, (pool) =>
+        new TaskQueue(pool).finish(admitted[0]!, {
+          body: 'One recovered answer.',
+          usage: { inputTokens: 3, outputTokens: 4 },
+        }),
+      );
+      expect(completed.sort()).toEqual([false, true]);
+      expect(
+        (
+          await runtime.query(
+            "SELECT id FROM conversation_events WHERE conversation_id=$1 AND event_type='bot.message.created'",
+            [f.conversationId],
+          )
+        ).rows,
+      ).toHaveLength(1);
+      expect(await read(f, task.id)).toMatchObject({
+        status: 'completed',
+        runCount: 2,
+        runs: [{ id: admitted[0]!.runId, attempt: 2, status: 'completed', error: null }],
+      });
+    });
   },
 );
