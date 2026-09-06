@@ -2,7 +2,7 @@
 sequence: 52
 id: API-05
 title: "Retry tasks and resolve approvals through the public API"
-status: blocked
+status: complete
 blocked_by:
   - API-04
   - COL-19
@@ -27,12 +27,12 @@ External clients can retry failed tasks and retrieve, approve, or reject pending
 
 ## Acceptance criteria
 
-- [ ] Retrying a failed task creates a new run under the original task while preserving the prior run, error, and audit history.
-- [ ] Repeated retries with the same Idempotency-Key create only one new run.
-- [ ] Only a token with tasks:approve owned by the assigned approver can approve or reject a request.
-- [ ] Repeating the same decision on a closed approval returns the prior result; submitting the opposite decision returns 409.
-- [ ] The web UI reflects API-driven retries and approval decisions without a page refresh.
-- [ ] Every operation records the actor, timestamp, and task reference without recording token plaintext.
+- [x] Retrying a failed task creates a new run under the original task while preserving the prior run, error, and audit history.
+- [x] Repeated retries with the same Idempotency-Key create only one new run.
+- [x] Only a token with tasks:approve owned by the assigned approver can approve or reject a request.
+- [x] Repeating the same decision on a closed approval returns the prior result; submitting the opposite decision returns 409.
+- [x] The web UI reflects API-driven retries and approval decisions without a page refresh.
+- [x] Every operation records the actor, timestamp, and task reference without recording token plaintext.
 
 ## Non-goals
 

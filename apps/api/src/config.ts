@@ -1,3 +1,5 @@
+import { readObjectStorageConfig, type ObjectStorageConfig } from './objects/config.js';
+import { readOidcConfig, type OidcConfig } from './oidc/config.js';
 import { createHash } from 'node:crypto';
 
 export type Environment = Readonly<Record<string, string | undefined>>;
@@ -13,6 +15,9 @@ export type DatabaseConnectionOptions =
     }>;
 
 export interface ApiConfig {
+  objectStorage: ObjectStorageConfig;
+  attachmentMaxBytes: number;
+  oidc?: OidcConfig;
   database: DatabaseConnectionOptions;
   databaseConnectionTimeoutMs: number;
   databaseQueryTimeoutMs: number;
@@ -126,8 +131,12 @@ export function readApiConfig(environment: Environment): ApiConfig {
   // most actionable configuration error first.
   const webOrigin = readWebOrigin(environment.WEB_ORIGIN ?? 'http://localhost:3000');
 
+  const oidc = readOidcConfig(environment, webOrigin);
   return {
+    ...(oidc ? { oidc } : {}),
     database: readDatabaseConfig(environment),
+    objectStorage: readObjectStorageConfig(environment),
+    attachmentMaxBytes: readInteger(environment, 'ATTACHMENT_MAX_BYTES', 10485760, 67108864),
     databaseConnectionTimeoutMs: readInteger(
       environment,
       'DATABASE_CONNECTION_TIMEOUT_MS',

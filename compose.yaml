@@ -21,7 +21,13 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      # The initdb server accepts only Unix sockets; wait for the final TCP server.
+      test:
+        - CMD-SHELL
+        - >-
+          PGPASSWORD="$${POSTGRES_PASSWORD}" PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000'
+          psql --host postgres --username "$${POSTGRES_USER}" --dbname "$${POSTGRES_DB}"
+          --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null
       interval: 2s
       timeout: 3s
       retries: 20
@@ -65,9 +71,26 @@ services:
     environment:
       API_HOST: 0.0.0.0
       API_PORT: 3001
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-10485760}
+      OBJECT_STORAGE_BACKEND: ${OBJECT_STORAGE_BACKEND:-local}
+      OBJECT_STORAGE_LOCAL_PATH: /var/lib/openbot/objects
+      OBJECT_STORAGE_S3_ENDPOINT: ${OBJECT_STORAGE_S3_ENDPOINT:-}
+      OBJECT_STORAGE_S3_BUCKET: ${OBJECT_STORAGE_S3_BUCKET:-}
+      OBJECT_STORAGE_S3_REGION: ${OBJECT_STORAGE_S3_REGION:-us-east-1}
+      OBJECT_STORAGE_S3_ACCESS_KEY_ID: ${OBJECT_STORAGE_S3_ACCESS_KEY_ID:-}
+      OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_S3_SECRET_ACCESS_KEY:-}
+      OBJECT_STORAGE_S3_SESSION_TOKEN: ${OBJECT_STORAGE_S3_SESSION_TOKEN:-}
       DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-1000}
       DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-1000}
       OPENBOT_SETUP_TOKEN: ${OPENBOT_SETUP_TOKEN:?set OPENBOT_SETUP_TOKEN in .env}
+      OPENBOT_TELEMETRY: ${OPENBOT_TELEMETRY:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: ${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: ${OPENBOT_PROVIDER_ALLOWED_HOSTS:-api.openai.com}
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: ${OPENBOT_PROVIDER_ALLOWED_SCHEMES:-https}
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: ${OPENBOT_PROVIDER_PRIVATE_CIDRS:-}
       PGDATABASE: ${POSTGRES_DB:-openbot}
       PGHOST: postgres
       PGPASSWORD: ${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}
@@ -80,6 +103,8 @@ services:
       migrate:
         condition: service_completed_successfully
     networks: [data, frontend]
+    volumes:
+      - object-data:/var/lib/openbot/objects
     init: true
     read_only: true
     cap_drop: [ALL]
@@ -96,6 +121,57 @@ services:
       timeout: 3s
       retries: 20
 
+  worker:
+    image: openbot-api:local
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: [node, dist/worker.js]
+    environment:
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-10485760}
+      OPENBOT_TELEMETRY: ${OPENBOT_TELEMETRY:-false}
+      OBJECT_STORAGE_BACKEND: ${OBJECT_STORAGE_BACKEND:-local}
+      OBJECT_STORAGE_LOCAL_PATH: /var/lib/openbot/objects
+      OBJECT_STORAGE_S3_ENDPOINT: ${OBJECT_STORAGE_S3_ENDPOINT:-}
+      OBJECT_STORAGE_S3_BUCKET: ${OBJECT_STORAGE_S3_BUCKET:-}
+      OBJECT_STORAGE_S3_REGION: ${OBJECT_STORAGE_S3_REGION:-us-east-1}
+      OBJECT_STORAGE_S3_ACCESS_KEY_ID: ${OBJECT_STORAGE_S3_ACCESS_KEY_ID:-}
+      OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_S3_SECRET_ACCESS_KEY:-}
+      OBJECT_STORAGE_S3_SESSION_TOKEN: ${OBJECT_STORAGE_S3_SESSION_TOKEN:-}
+      DATABASE_CONNECTION_TIMEOUT_MS: ${DATABASE_CONNECTION_TIMEOUT_MS:-1000}
+      DATABASE_QUERY_TIMEOUT_MS: ${DATABASE_QUERY_TIMEOUT_MS:-1000}
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: ${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: ${OPENBOT_PROVIDER_ALLOWED_HOSTS:-api.openai.com}
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: ${OPENBOT_PROVIDER_ALLOWED_SCHEMES:-https}
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: ${OPENBOT_PROVIDER_PRIVATE_CIDRS:-}
+      PGDATABASE: ${POSTGRES_DB:-openbot}
+      PGHOST: postgres
+      PGPASSWORD: ${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}
+      PGPORT: 5432
+      PGUSER: openbot_runtime
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data, frontend]
+    volumes:
+      - object-data:/var/lib/openbot/objects
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pidof node >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
   web:
     image: openbot-web:local
     build:
@@ -104,6 +180,8 @@ services:
     environment:
       API_BASE_URL: http://api:3001
       HOST: 0.0.0.0
+      BODY_SIZE_LIMIT: 65M
+      ATTACHMENT_MAX_BYTES: ${ATTACHMENT_MAX_BYTES:-10485760}
       ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       PORT: 3000
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
@@ -111,7 +189,7 @@ services:
       - ${OPENBOT_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     networks: [frontend]
     init: true
     read_only: true
@@ -130,6 +208,7 @@ services:
       retries: 20
 
 volumes:
+  object-data:
   postgres-data:
 
 networks:

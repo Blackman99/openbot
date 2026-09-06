@@ -14,9 +14,11 @@ describe('readApiConfig', () => {
         WEB_ORIGIN: 'http://localhost:4173',
       }),
     ).toEqual({
+      attachmentMaxBytes: 10485760,
       database: {
         connectionString: 'postgresql://openbot:openbot@localhost:5432/openbot',
       },
+      objectStorage: { backend: 'local', rootDirectory: '/var/lib/openbot/objects' },
       databaseConnectionTimeoutMs: 250,
       databaseQueryTimeoutMs: 1_000,
       host: '127.0.0.1',

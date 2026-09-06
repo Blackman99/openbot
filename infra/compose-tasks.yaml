@@ -1,0 +1,37 @@
+# Isolated CI fixture: the production Compose file retains its public-provider policy.
+services:
+  api:
+    environment:
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: task-provider
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: http
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+  worker:
+    environment:
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: ${OPENBOT_TASK_WORKER_TEST_KEY:-}
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: task-provider
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: http
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+      # Compose-only: lengthen notBefore so a worker restart finishes before due.
+      OPENBOT_COL10_RETRY_DELAY_MS: '60000'
+  task-provider:
+    image: openbot-api:local
+    command: [node, /app/verify-task-provider.mjs]
+    networks: [frontend]
+    volumes:
+      - ./infra/verify-task-provider.mjs:/app/verify-task-provider.mjs:ro
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 1s
+      timeout: 2s
+      retries: 20

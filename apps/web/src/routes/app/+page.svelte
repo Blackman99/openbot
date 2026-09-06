@@ -29,6 +29,9 @@
     </form>
   </header>
 
+  <p><a href="/app/settings/models">Personal models</a></p>
+  <p><a href="/app/security">Security settings</a></p>
+
   <nav aria-label="Workspaces">
     <h2>Your workspaces</h2>
     <ul>
@@ -45,9 +48,17 @@
     <p>Your role: {data.workspace.role}</p>
   </section>
 
+  <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/groups`}>Groups</a></p>
+  <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/bots`}>Bots</a></p>
+  <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/conversations`}>Conversations</a></p>
+
   <section aria-labelledby="settings-heading">
     <h2 id="settings-heading">Workspace settings</h2>
+    <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/models`}>Workspace models</a></p>
+    <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/members`}>Workspace members</a></p>
+    <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/settings/api-tokens`}>API tokens</a></p>
     {#if data.workspace.role === 'owner' || data.workspace.role === 'administrator'}
+      <p><a href={`/app/workspaces/${encodeURIComponent(data.workspace.id)}/invitations`}>Manage invitations</a></p>
       <form method="POST" action="?/updateWorkspace">
         <label for="workspace-name">Workspace name</label>
         <input id="workspace-name" name="name" required maxlength="100" value={data.workspace.name} />

@@ -40,7 +40,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U openbot -d openbot_auth_test"
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_auth_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
           --health-interval 2s
           --health-timeout 3s
           --health-retries 20
@@ -55,6 +55,400 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @openbot/api run test:postgres
+
+  postgres-providers:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_providers_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_providers_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_PROVIDER_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_providers_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api run test:postgres
+
+  postgres-oidc:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_oidc_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_oidc_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_OIDC_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_oidc_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api run test:postgres
+
+  postgres-bots:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_bots_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_bots_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_BOT_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_bots_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bots-runtime.test.ts
+      # Each suite closes its pools before the next one reprovisions the fixed role.
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-acl-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-avatars-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-versions-runtime.test.ts
+      - name: Verify Bot lifecycle with the restricted PostgreSQL role
+        run: |
+          : "${TEST_BOT_DATABASE_URL:?Bot lifecycle PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/bot-lifecycle-runtime.test.ts
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/bot-copy-runtime.test.ts
+      - name: Verify public Bot admission with the restricted PostgreSQL role
+        run: |
+          : "${TEST_BOT_DATABASE_URL:?Public Bot PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/public-bots-runtime.test.ts
+
+  object-storage:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      TEST_S3_BUCKET: openbot-avatars-ci
+      TEST_S3_REGION: us-east-1
+      TEST_S3_ACCESS_KEY_ID: openbot-ci
+      TEST_S3_SECRET_ACCESS_KEY: ci-only-object-password
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start the isolated S3-compatible test service
+        run: |
+          # Fixed upstream image, used only as this disposable loopback CI fixture.
+          docker run --detach --name openbot-s3-ci \
+            --publish 127.0.0.1:9000:9000 \
+            --env MINIO_ROOT_USER="$TEST_S3_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$TEST_S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data --console-address :9001
+          ready=false
+          for attempt in $(seq 1 30); do
+            # This probe checks write quorum; /ready alone only checks liveness.
+            if curl --fail --silent --output /dev/null --connect-timeout 2 --max-time 3 \
+              "$TEST_S3_ENDPOINT/minio/health/cluster"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo 'S3 test service did not become ready.' >&2
+            exit 1
+          fi
+      - name: Create the private test bucket
+        run: |
+          pnpm --filter @openbot/api exec node --input-type=module <<'NODE'
+          import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
+          const client = new S3Client({
+            endpoint: process.env.TEST_S3_ENDPOINT,
+            region: process.env.TEST_S3_REGION,
+            forcePathStyle: true,
+            maxAttempts: 1,
+            credentials: {
+              accessKeyId: process.env.TEST_S3_ACCESS_KEY_ID,
+              secretAccessKey: process.env.TEST_S3_SECRET_ACCESS_KEY,
+            },
+          });
+          const options = { abortSignal: AbortSignal.timeout(10000) };
+          const input = { Bucket: process.env.TEST_S3_BUCKET };
+          try {
+            await client.send(new CreateBucketCommand(input), options);
+            await client.send(new HeadBucketCommand(input), options);
+          } catch {
+            throw new Error('Unable to initialize the private S3 test bucket.');
+          } finally {
+            client.destroy();
+          }
+          NODE
+      - name: Verify local and real S3 object-storage contracts
+        run: pnpm --filter @openbot/api exec vitest run tests/integration/local-object-store.test.ts tests/s3/object-store.test.ts --maxWorkers=1
+      - name: Collect S3 fixture failure logs
+        if: failure()
+        run: docker logs openbot-s3-ci
+      - name: Remove the disposable S3 fixture
+        if: always()
+        run: docker rm --force --volumes openbot-s3-ci
+
+  postgres-conversations:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_conversations_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_conversations_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_CONVERSATION_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_conversations_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/conversations-runtime.test.ts
+
+  postgres-group-bots:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_group_bots_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_group_bots_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_GROUP_BOT_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_group_bots_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/group-bots-runtime.test.ts
+
+  postgres-tasks:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_tasks_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_tasks_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_TASK_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_tasks_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/tasks-runtime.test.ts
+
+  postgres-task-cancellation:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_task_cancellation_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_task_cancellation_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_TASK_CANCELLATION_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_task_cancellation_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify drain upgrade, cancellation races and restricted writes on PostgreSQL
+        run: |
+          : "${TEST_TASK_CANCELLATION_DATABASE_URL:?Task cancellation PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/task-cancellation-runtime.test.ts
+
+  postgres-conversation-streams:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_conversation_streams_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_conversation_streams_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_CONVERSATION_STREAM_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_conversation_streams_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify ordered delivery with real waits and restricted PostgreSQL privileges
+        run: |
+          : "${TEST_CONVERSATION_STREAM_DATABASE_URL:?Conversation stream PostgreSQL URL is required}"
+          pnpm --filter @openbot/api exec vitest run tests/postgres/conversation-stream-runtime.test.ts
+
+  postgres-attachments:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_attachments_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_attachments_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_ATTACHMENT_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_attachments_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/attachments-runtime.test.ts
+
+  postgres-memories:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: openbot_memories_test
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_USER: openbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "PGPASSWORD=ci-only-password PGCONNECT_TIMEOUT=2 PGOPTIONS='-c statement_timeout=2000' psql --host postgres --username openbot --dbname openbot_memories_test --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_MEMORY_DATABASE_URL: postgresql://openbot:ci-only-password@127.0.0.1:5432/openbot_memories_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openbot/api exec vitest run tests/postgres/memories-runtime.test.ts
 
   compose:
     needs: code
@@ -95,7 +489,23 @@ jobs:
           migration_versions="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(version, ',' ORDER BY applied_at, version) FROM openbot_schema_migrations")"
-          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings'
+          test "$migration_versions" = '0001_bootstrap,0002_local_owner_auth,0003_workspace_settings,0004_personal_model_connections,0005_workspace_invitations,0006_workspace_member_provenance,0007_oidc,0008_workspace_model_connections,0009_groups_and_human_memberships,0010_scoped_api_tokens,0011_model_capability_policies,0012_bot_identity,0013_bot_avatar_objects,0014_conversation_ledger,0015_group_bot_grants,0016_bot_lifecycle,0017_single_bot_tasks,0018_conversation_attachments,0019_conversation_delivery,0020_group_source_memories,0021_deterministic_group_routing,0022_failed_task_retries,0023_task_tree_cancellation,0024_bot_private_memories,0025_memory_extraction_jobs,0026_memory_candidates,0027_memory_candidate_review,0028_scoped_knowledge,0029_run_knowledge_references,0030_knowledge_full_text_search,0031_memory_revisions_and_revocations,0032_document_knowledge_locators,0033_task_pause_checkpoints,0034_task_resume_commands,0035_task_run_recovery,0036_task_execution_limit_snapshots,0037_task_execution_limit_enforcement,0038_task_run_concurrency_holds,0039_group_imported_routines,0040_task_delegation,0041_task_token_usage,0042_task_token_budgets,0043_task_parallel_delegations,0044_task_lead_handoffs,0045_model_price_versions,0046_task_cost_budgets,0047_task_human_requests,0048_task_cost_grants,0049_group_archive,0050_workspace_event_stream,0051_routines,0052_routine_occurrences'
+
+          # Exercise the production Alpine Sharp binary and private mounted volume as the API user.
+          docker compose exec -T api node --input-type=module <<'JS'
+          import sharp from 'sharp';
+          import { stat } from 'node:fs/promises';
+          import { randomUUID } from 'node:crypto';
+          import { LocalObjectStore } from './dist/objects/local-store.js';
+          const store = new LocalObjectStore('/var/lib/openbot/objects');
+          const key = { workspaceId: randomUUID(), objectId: randomUUID() };
+          const bytes = await sharp({create:{width:1,height:1,channels:3,background:'red'}}).png().toBuffer();
+          await store.save(key, bytes);
+          if (!(await store.read(key, 2097152)).equals(bytes)) throw new Error('avatar volume roundtrip failed');
+          const info = await stat('/var/lib/openbot/objects');
+          if ((info.mode & 0o777) !== 0o700 || info.uid !== process.getuid()) throw new Error('avatar volume privacy failed');
+          await store.delete(key);
+          JS
 
           docker compose down --volumes
       - name: Seed an existing pre-authentication database volume
@@ -104,8 +514,11 @@ jobs:
 
           database_ready='false'
           for attempt in {1..30}; do
-            if docker compose exec -T postgres pg_isready \
-              --username openbot --dbname openbot >/dev/null; then
+            if docker compose exec -T postgres /bin/sh -ec '
+              PGPASSWORD="$POSTGRES_PASSWORD" PGCONNECT_TIMEOUT=2 PGOPTIONS="-c statement_timeout=2000" \
+                psql --host postgres --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+                --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --command "SELECT 1" >/dev/null
+            '; then
               database_ready='true'
               break
             fi
@@ -257,7 +670,147 @@ jobs:
           application_table_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('instance_claims'), ('local_credentials'), ('sessions'), ('users'), ('workspace_memberships'), ('workspaces')) AS application_tables(table_name)")"
-          test "$application_table_privileges" = 'instance_claims:t,t,f,f,f;local_credentials:t,t,f,f,f;sessions:t,t,f,f,f;users:t,t,f,f,f;workspace_memberships:t,t,f,f,f;workspaces:t,t,f,f,f'
+          test "$application_table_privileges" = 'instance_claims:t,t,f,f,f;local_credentials:t,t,f,f,f;sessions:t,t,f,f,f;users:t,t,f,f,f;workspace_memberships:t,t,f,t,f;workspaces:t,t,f,f,f'
+
+          membership_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_memberships'")"
+          test "$membership_update_privileges" = 'created_at:false,invitation_id:false,role:true,user_id:false,workspace_id:false'
+
+          shared_model_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'workspace_model_connections', 'SELECT'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'INSERT'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'UPDATE'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'DELETE'), has_table_privilege('openbot_runtime', 'workspace_model_connections', 'TRUNCATE'))")"
+          test "$shared_model_table_privileges" = 't,t,f,f,f'
+          shared_model_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_model_connections', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_model_connections'")"
+          test "$shared_model_update_privileges" = 'created_at:false,id:false,metadata:true,policy:true,revision:true,sealed_credentials:true,updated_at:true,workspace_id:false'
+
+          group_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('groups'), ('group_memberships')) AS group_tables(table_name)")"
+          test "$group_table_privileges" = 'group_memberships:t,t,f,t,f;groups:t,t,f,f,f'
+          group_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'groups', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'groups'")"
+          test "$group_update_privileges" = 'archived_at:true,created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,max_concurrent_runs:true,name:true,updated_at:true,visibility:true,workspace_id:false'
+          group_membership_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'group_memberships', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'group_memberships'")"
+          test "$group_membership_update_privileges" = 'created_at:false,group_id:false,role:true,user_id:false'
+
+          snapshot_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_snapshots', 'TRUNCATE'), has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE'))")"
+          test "$snapshot_table_privileges" = 't,t,f,f,f,f'
+          limit_warning_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_warnings', 'TRUNCATE'))")"
+          test "$limit_warning_privileges" = 't,t,f,f,f'
+          limit_grant_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'SELECT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'INSERT'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'DELETE'), has_table_privilege('openbot_runtime', 'task_execution_limit_grants', 'TRUNCATE'))")"
+          test "$limit_grant_privileges" = 't,t,f,f,f'
+          concurrency_hold_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'SELECT'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'INSERT'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'DELETE'), has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'TRUNCATE'))")"
+          test "$concurrency_hold_privileges" = 't,t,f,t,f'
+          imported_routine_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'group_imported_routines', 'SELECT'), has_table_privilege('openbot_runtime', 'group_imported_routines', 'INSERT'), has_table_privilege('openbot_runtime', 'group_imported_routines', 'UPDATE'), has_table_privilege('openbot_runtime', 'group_imported_routines', 'DELETE'), has_table_privilege('openbot_runtime', 'group_imported_routines', 'TRUNCATE'))")"
+          test "$imported_routine_privileges" = 't,t,f,f,f'
+          task_delegation_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_delegations', 'SELECT'), has_table_privilege('openbot_runtime', 'task_delegations', 'INSERT'), has_table_privilege('openbot_runtime', 'task_delegations', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_delegations', 'DELETE'), has_table_privilege('openbot_runtime', 'task_delegations', 'TRUNCATE'))")"
+          test "$task_delegation_privileges" = 't,t,f,f,f'
+          task_handoff_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_handoffs', 'SELECT'), has_table_privilege('openbot_runtime', 'task_handoffs', 'INSERT'), has_table_privilege('openbot_runtime', 'task_handoffs', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_handoffs', 'DELETE'), has_table_privilege('openbot_runtime', 'task_handoffs', 'TRUNCATE'))")"
+          test "$task_handoff_privileges" = 't,t,f,f,f'
+          token_ledger_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_token_ledgers', 'SELECT'), has_table_privilege('openbot_runtime', 'task_token_ledgers', 'INSERT'), has_table_privilege('openbot_runtime', 'task_token_ledgers', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_token_ledgers', 'DELETE'), has_table_privilege('openbot_runtime', 'task_token_ledgers', 'TRUNCATE'))")"
+          test "$token_ledger_privileges" = 't,t,t,f,f'
+          token_reservation_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_token_reservations', 'SELECT'), has_table_privilege('openbot_runtime', 'task_token_reservations', 'INSERT'), has_table_privilege('openbot_runtime', 'task_token_reservations', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_token_reservations', 'DELETE'), has_table_privilege('openbot_runtime', 'task_token_reservations', 'TRUNCATE'))")"
+          test "$token_reservation_privileges" = 't,t,f,t,f'
+          model_price_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'model_price_versions', 'SELECT'), has_table_privilege('openbot_runtime', 'model_price_versions', 'INSERT'), has_table_privilege('openbot_runtime', 'model_price_versions', 'UPDATE'), has_table_privilege('openbot_runtime', 'model_price_versions', 'DELETE'), has_table_privilege('openbot_runtime', 'model_price_versions', 'TRUNCATE'))")"
+          test "$model_price_privileges" = 't,t,t,f,f'
+          cost_ledger_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'SELECT'), has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'INSERT'), has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'DELETE'), has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'TRUNCATE'))")"
+          test "$cost_ledger_privileges" = 't,t,t,f,f'
+          cost_reservation_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_cost_reservations', 'SELECT'), has_table_privilege('openbot_runtime', 'task_cost_reservations', 'INSERT'), has_table_privilege('openbot_runtime', 'task_cost_reservations', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_cost_reservations', 'DELETE'), has_table_privilege('openbot_runtime', 'task_cost_reservations', 'TRUNCATE'))")"
+          test "$cost_reservation_privileges" = 't,t,f,t,f'
+          human_request_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_human_requests', 'SELECT'), has_table_privilege('openbot_runtime', 'task_human_requests', 'INSERT'), has_table_privilege('openbot_runtime', 'task_human_requests', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_human_requests', 'DELETE'), has_table_privilege('openbot_runtime', 'task_human_requests', 'TRUNCATE'))")"
+          test "$human_request_privileges" = 't,t,t,f,f'
+          human_decision_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'task_human_decisions', 'SELECT'), has_table_privilege('openbot_runtime', 'task_human_decisions', 'INSERT'), has_table_privilege('openbot_runtime', 'task_human_decisions', 'UPDATE'), has_table_privilege('openbot_runtime', 'task_human_decisions', 'DELETE'), has_table_privilege('openbot_runtime', 'task_human_decisions', 'TRUNCATE'))")"
+          test "$human_decision_privileges" = 't,t,f,f,f'
+          usage_estimated_update="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')")"
+          test "$usage_estimated_update" = 't'
+          task_policy_update="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT has_column_privilege('openbot_runtime', 'tasks', 'execution_policy', 'UPDATE')")"
+          test "$task_policy_update" = 'f'
+
+          bot_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('bots'), ('bot_versions'), ('bot_acl')) AS bot_tables(table_name)")"
+          test "$bot_table_privileges" = 'bot_acl:t,t,f,t,f;bot_versions:t,t,f,f,f;bots:t,t,f,f,f'
+          bot_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bots', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bots'")"
+          test "$bot_update_privileges" = 'created_at:false,created_by_user_id:false,current_version_id:true,deleted_at:true,id:false,lifecycle_state:true,pre_deleted_state:true,recovery_deadline:true,visibility:true,workspace_id:false'
+          bot_acl_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'bot_acl', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bot_acl'")"
+          test "$bot_acl_update_privileges" = 'bot_id:false,created_at:false,role:true,user_id:false'
+          bot_immutable_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'bot_versions', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_bot_version_mutation()', 'EXECUTE'))")"
+          test "$bot_immutable_update_privileges" = 'f,f'
+
+          conversation_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(table_name || ':' || concat_ws(',', has_table_privilege('openbot_runtime', table_name, 'SELECT'), has_table_privilege('openbot_runtime', table_name, 'INSERT'), has_table_privilege('openbot_runtime', table_name, 'UPDATE'), has_table_privilege('openbot_runtime', table_name, 'DELETE'), has_table_privilege('openbot_runtime', table_name, 'TRUNCATE')), ';' ORDER BY table_name) FROM (VALUES ('conversations'), ('conversation_events')) AS ledger_tables(table_name)")"
+          test "$conversation_table_privileges" = 'conversation_events:t,t,f,f,f;conversations:t,t,f,f,f'
+          conversation_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'conversations', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='conversations'")"
+          test "$conversation_update_privileges" = 'bot_id:false,created_at:false,creator_user_id:false,group_id:false,id:false,last_sequence:true,workspace_id:false'
+          conversation_guard_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_any_column_privilege('openbot_runtime', 'conversation_events', 'UPDATE'), has_function_privilege('openbot_runtime', 'reject_conversation_event_mutation()', 'EXECUTE'), has_function_privilege('openbot_runtime', 'protect_conversation_subject()', 'EXECUTE'))")"
+          test "$conversation_guard_privileges" = 'f,f,f'
+          group_bot_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime','group_bot_grants','SELECT'), has_table_privilege('openbot_runtime','group_bot_grants','INSERT'), has_table_privilege('openbot_runtime','group_bot_grants','UPDATE'), has_table_privilege('openbot_runtime','group_bot_grants','DELETE'), has_table_privilege('openbot_runtime','group_bot_grants','TRUNCATE'), has_function_privilege('openbot_runtime','protect_group_bot_grant()','EXECUTE'))")"
+          test "$group_bot_table_privileges" = 't,t,f,f,f,f'
+          group_bot_update_columns="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name,',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema='public' AND table_name='group_bot_grants' AND has_column_privilege('openbot_runtime',table_name,column_name,'UPDATE')")"
+          test "$group_bot_update_columns" = 'close_event_id,close_sequence,closed_at,closure_reason'
+
+
+          api_token_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'api_tokens', 'SELECT'), has_table_privilege('openbot_runtime', 'api_tokens', 'INSERT'), has_table_privilege('openbot_runtime', 'api_tokens', 'UPDATE'), has_table_privilege('openbot_runtime', 'api_tokens', 'DELETE'), has_table_privilege('openbot_runtime', 'api_tokens', 'TRUNCATE'))")"
+          test "$api_token_table_privileges" = 't,t,f,f,f'
+          api_token_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'api_tokens', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'api_tokens'")"
+          test "$api_token_update_privileges" = 'created_at:false,creator_user_id:false,expires_at:false,id:false,last_used_at:true,name:false,revoked_at:true,scopes:false,token_digest:false,workspace_id:false'
 
           column_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -266,8 +819,17 @@ jobs:
 
           workspace_update_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
-            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'))")"
-          test "$workspace_update_privileges" = 't,t,f'
+            --command "SELECT concat_ws(',', has_column_privilege('openbot_runtime', 'workspaces', 'name', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'description', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'id', 'UPDATE'), has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE'))")"
+          test "$workspace_update_privileges" = 't,t,f,f'
+
+          invitation_table_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', has_table_privilege('openbot_runtime', 'workspace_invitations', 'SELECT'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'INSERT'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'UPDATE'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'DELETE'), has_table_privilege('openbot_runtime', 'workspace_invitations', 'TRUNCATE'))")"
+          test "$invitation_table_privileges" = 't,t,f,f,f'
+          invitation_update_privileges="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(column_name || ':' || has_column_privilege('openbot_runtime', 'workspace_invitations', column_name, 'UPDATE')::text, ',' ORDER BY column_name) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'workspace_invitations'")"
+          test "$invitation_update_privileges" = 'consumed_at:true,consumed_by_user_id:true,created_at:false,created_by_user_id:false,email:false,expires_at:false,id:false,revoked_at:true,role:false,token_digest:false,workspace_id:false'
 
           audit_privileges="$(docker compose exec -T postgres psql \
             --username openbot --dbname openbot --tuples-only --no-align \
@@ -396,6 +958,370 @@ jobs:
             --username openbot --dbname openbot --tuples-only --no-align \
             --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'workspace.%' AND metadata::text ~ '(CI Workspace|private description|Updated Workspace)'")"
           test "$unsafe_workspace_audits" = '0'
+      - name: Verify one-time invitations with the restricted runtime role
+        run: |
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
+          invitation_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"email":"invitee@example.com","role":"member","expiresInDays":1}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")"
+          test "$invitation_code" = '201'
+          jq --exit-status '.token | test("^[A-Za-z0-9_-]{43}$")' /tmp/openbot-invitation.json >/dev/null
+          invitation_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation.json)"
+          invitation_token="$(jq --raw-output '.token' /tmp/openbot-invitation.json)"
+          invitation_digest="$(printf '%s' "$invitation_token" | sha256sum | cut --delimiter=' ' --fields=1)"
+          stored_digest="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT token_digest FROM workspace_invitations WHERE id = '$invitation_id'")"
+          test "$stored_digest" = "$invitation_digest"
+          test "$stored_digest" != "$invitation_token"
+
+          jq --null-input --arg token "$invitation_token" \
+            '{token:$token,email:"invitee@example.com",displayName:"CI Invitee",password:"ci-only-invitee-password"}' \
+            > /tmp/openbot-invitation-accept.json
+          accept_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-accepted.json --write-out '%{http_code}' \
+            --dump-header /tmp/openbot-invitation-accepted.headers \
+            --cookie-jar /tmp/openbot-invitee-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-invitation-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$accept_code" = '201'
+          test "$(jq --raw-output '.user.email' /tmp/openbot-invitation-accepted.json)" = 'invitee@example.com'
+          test "$(jq --raw-output '.workspace.id' /tmp/openbot-invitation-accepted.json)" = "$workspace_id"
+          grep --ignore-case --quiet 'httponly' /tmp/openbot-invitation-accepted.headers
+          grep --ignore-case --quiet 'samesite=lax' /tmp/openbot-invitation-accepted.headers
+          curl --fail --silent --show-error --cookie /tmp/openbot-invitee-cookies.txt \
+            http://localhost:3001/api/v1/workspaces > /tmp/openbot-invitee-workspaces.json
+          jq --exit-status --arg id "$workspace_id" \
+            'any(.workspaces[]; .id == $id and .role == "member")' /tmp/openbot-invitee-workspaces.json >/dev/null
+          test "$(curl --silent --show-error --output /tmp/openbot-invitation-member.json \
+            --write-out '%{http_code}' --cookie /tmp/openbot-invitee-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")" = '403'
+
+          replay_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-replay.json --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-invitation-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$replay_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-invitation-replay.json)" = 'invitation_unavailable'
+
+          revoke_create_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-to-revoke.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"email":"revoked@example.com","role":"administrator","expiresInDays":1}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations")"
+          test "$revoke_create_code" = '201'
+          revoked_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation-to-revoke.json)"
+          test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations/$revoked_id")" = '204'
+          jq '{token:.token,email:"revoked@example.com",displayName:"Revoked",password:"ci-only-revoked-password"}' \
+            /tmp/openbot-invitation-to-revoke.json > /tmp/openbot-revoked-accept.json
+          revoked_code="$(curl --silent --show-error \
+            --output /tmp/openbot-invitation-revoked.json --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data-binary @/tmp/openbot-revoked-accept.json \
+            http://localhost:3001/api/v1/invitations/accept)"
+          test "$revoked_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-invitation-revoked.json)" = 'invitation_unavailable'
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/invitations" > /tmp/openbot-invitations.json
+          jq --exit-status '(.invitations | length) == 2 and all(.invitations[]; (has("token") | not) and (has("tokenDigest") | not) and (has("token_digest") | not))' \
+            /tmp/openbot-invitations.json >/dev/null
+
+          invitation_state="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', COUNT(*), COUNT(*) FILTER (WHERE consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL), COUNT(*) FILTER (WHERE revoked_at IS NOT NULL AND consumed_at IS NULL)) FROM workspace_invitations WHERE workspace_id = '$workspace_id'")"
+          test "$invitation_state" = '2,1,1'
+          revoked_accounts="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM users WHERE normalized_email = 'revoked@example.com'")"
+          test "$revoked_accounts" = '0'
+          invitation_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE event_type LIKE 'invitation.%'")"
+          test "$invitation_audits" = 'invitation.accepted,invitation.created,invitation.created,invitation.revoked'
+          unsafe_invitation_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE event_type LIKE 'invitation.%' AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com|revoked@example.com)'")"
+          test "$unsafe_invitation_audits" = '0'
+      - name: Verify member roles and access removal with the restricted runtime role
+        run: |
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            http://localhost:3001/api/v1/me > /tmp/openbot-owner-me.json
+          curl --fail --silent --show-error --cookie /tmp/openbot-invitee-cookies.txt \
+            http://localhost:3001/api/v1/me > /tmp/openbot-member-me.json
+          owner_id="$(jq --raw-output '.user.id' /tmp/openbot-owner-me.json)"
+          member_id="$(jq --raw-output '.user.id' /tmp/openbot-member-me.json)"
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-member-me.json)"
+          invitation_id="$(jq --raw-output '.invitation.id' /tmp/openbot-invitation.json)"
+          curl --fail --silent --show-error --cookie /tmp/openbot-workspace-cookies.txt \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members" > /tmp/openbot-members.json
+          jq --exit-status --arg user "$member_id" --arg inviter "$owner_id" --arg invitation "$invitation_id" \
+            'any(.members[]; .user.id == $user and .role == "member" and .invitation.id == $invitation and .invitation.invitedBy.id == $inviter)' \
+            /tmp/openbot-members.json >/dev/null
+
+          promote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-promoted.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"administrator"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$promote_code" = '200'
+          test "$(jq --raw-output '.member.role' /tmp/openbot-member-promoted.json)" = 'administrator'
+          escalation_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-escalation.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-invitee-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"owner"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$escalation_code" = '403'
+          owner_attack_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-owner-attack.json --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-invitee-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$owner_attack_code" = '403'
+
+          last_owner_demote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-last-owner-demote.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"member"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$last_owner_demote_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-last-owner-demote.json)" = 'last_owner_required'
+          last_owner_remove_code="$(curl --silent --show-error \
+            --output /tmp/openbot-last-owner-remove.json --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$owner_id")"
+          test "$last_owner_remove_code" = '409'
+          test "$(jq --raw-output '.error.code' /tmp/openbot-last-owner-remove.json)" = 'last_owner_required'
+
+          demote_code="$(curl --silent --show-error \
+            --output /tmp/openbot-member-demoted.json --write-out '%{http_code}' \
+            --request PATCH --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Content-Type: application/json' --header 'Origin: http://localhost:3000' \
+            --data '{"role":"member"}' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$demote_code" = '200'
+          test "$(jq --raw-output '.member.role' /tmp/openbot-member-demoted.json)" = 'member'
+          remove_code="$(curl --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --request DELETE --cookie /tmp/openbot-workspace-cookies.txt \
+            --header 'Origin: http://localhost:3000' \
+            "http://localhost:3001/api/v1/workspaces/$workspace_id/members/$member_id")"
+          test "$remove_code" = '204'
+          retained_session_code="$(curl --silent --show-error \
+            --output /tmp/openbot-removed-member-me.json --write-out '%{http_code}' \
+            --cookie /tmp/openbot-invitee-cookies.txt http://localhost:3001/api/v1/me)"
+          test "$retained_session_code" = '200'
+          jq --exit-status --arg user "$member_id" '.user.id == $user and .workspace == null' \
+            /tmp/openbot-removed-member-me.json >/dev/null
+          for suffix in '' /members /invitations; do
+            test "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --cookie /tmp/openbot-invitee-cookies.txt \
+              "http://localhost:3001/api/v1/workspaces/$workspace_id$suffix")" = '403'
+          done
+
+          retained_member_state="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT concat_ws(',', (SELECT COUNT(*) FROM workspace_memberships WHERE user_id = '$member_id'), (SELECT COUNT(*) FROM users WHERE id = '$member_id'), (SELECT COUNT(*) FROM local_credentials WHERE user_id = '$member_id'), (SELECT COUNT(*) FROM sessions WHERE user_id = '$member_id' AND revoked_at IS NULL AND expires_at > NOW()), (SELECT COUNT(*) FROM workspace_invitations WHERE id = '$invitation_id' AND consumed_by_user_id = '$member_id' AND consumed_at IS NOT NULL), (SELECT COUNT(*) FROM audit_events WHERE event_type = 'invitation.accepted' AND actor_user_id = '$member_id'))")"
+          test "$retained_member_state" = '0,1,1,1,1,1'
+          member_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE event_type IN ('workspace.member_removed', 'workspace.member_role_changed')")"
+          test "$member_audits" = 'workspace.member_removed,workspace.member_role_changed,workspace.member_role_changed'
+          unsafe_member_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --command "SELECT COUNT(*) FROM audit_events WHERE event_type IN ('workspace.member_removed', 'workspace.member_role_changed') AND metadata::text ~* '(password|cookie|token|secret|invitee@example.com)'")"
+          test "$unsafe_member_audits" = '0'
+      - name: Verify groups and human membership with the restricted runtime role
+        run: |
+          set -Eeuo pipefail
+          group_stage=initialize
+          trap 'code=$?; printf "Group smoke failed at stage %s (line %s, exit %s)\n" "$group_stage" "$LINENO" "$code" >&2; exit "$code"' ERR
+          workspace_id="$(jq --raw-output '.workspace.id' /tmp/openbot-workspace.json)"
+          owner_cookies=/tmp/openbot-workspace-cookies.txt
+          response=/tmp/openbot-group-response.json
+          group_request() {
+            local method="$1" cookies="$2" path="$3" expected="$4" code
+            local -a args=(--silent --show-error --request "$method"
+              --cookie "$cookies" --cookie-jar "$cookies"
+              --header 'Origin: http://localhost:3000'
+              --output "$response" --write-out '%{http_code}')
+            if [ "$#" -eq 5 ]; then
+              args+=(--header 'Content-Type: application/json' --data "$5")
+            fi
+            code="$(curl "${args[@]}" "http://localhost:3001$path")"
+            if [ "$code" != "$expected" ]; then
+              echo "$method $path returned $code; expected $expected" >&2
+              exit 1
+            fi
+          }
+          group_sql() {
+            docker compose exec -T postgres psql \
+              --username openbot --dbname openbot --tuples-only --no-align \
+              --set=ON_ERROR_STOP=1 --command "$1"
+          }
+          declare -A group_users group_cookies
+          for person in b c d; do
+            group_stage="invite-member-$person"
+            email="group-$person@example.com"
+            group_cookies[$person]="/tmp/openbot-group-$person-cookies.txt"
+            touch "${group_cookies[$person]}"
+            group_request POST "$owner_cookies" "/api/v1/workspaces/$workspace_id/invitations" 201 \
+              "$(jq --null-input --arg email "$email" '{email:$email,role:"member",expiresInDays:1}')"
+            token="$(jq --raw-output '.token' "$response")"
+            group_request POST "${group_cookies[$person]}" /api/v1/invitations/accept 201 \
+              "$(jq --null-input --arg token "$token" --arg email "$email" \
+                '{token:$token,email:$email,displayName:"CI Group Member",password:"ci-only-group-password"}')"
+            group_users[$person]="$(jq --raw-output '.user.id' "$response")"
+            jq --exit-status --arg workspace "$workspace_id" \
+              '.workspace.id == $workspace' "$response" >/dev/null
+            group_request GET "$owner_cookies" "/api/v1/workspaces/$workspace_id/members" 200
+            jq --exit-status --arg user "${group_users[$person]}" \
+              'any(.members[]; .user.id == $user and .role == "member")' "$response" >/dev/null
+          done
+          b="${group_users[b]}" c="${group_users[c]}" d="${group_users[d]}"
+          b_cookies="${group_cookies[b]}" c_cookies="${group_cookies[c]}" d_cookies="${group_cookies[d]}"
+          base="/api/v1/workspaces/$workspace_id/groups"
+          group_stage=private-creation
+          group_request POST "$b_cookies" "$base" 201 '{"name":"Compose group"}'
+          jq --exit-status '.group.visibility == "private" and .group.description == "" and .group.role == "owner"' "$response" >/dev/null
+          group_id="$(jq --raw-output '.group.id' "$response")"
+          group_path="$base/$group_id"
+          for suffix in '' /members; do
+            group_request GET "$owner_cookies" "$group_path$suffix" 403
+            test "$(jq --raw-output '.error.code' "$response")" = 'group_forbidden'
+          done
+          group_stage=discoverable-metadata
+          group_request PATCH "$b_cookies" "$group_path" 200 \
+            '{"description":"Runtime membership smoke","visibility":"workspace"}'
+          jq --exit-status '.group.name == "Compose group" and .group.visibility == "workspace" and .group.description == "Runtime membership smoke"' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$group_path" 200
+          jq --exit-status '.group.role == null' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$base" 200
+          jq --exit-status --arg group "$group_id" 'any(.groups[]; .id == $group and .role == null)' "$response" >/dev/null
+          group_request GET "$owner_cookies" "$group_path/members" 403
+
+          group_stage=human-membership-authority
+          group_request POST "$b_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$c" '{userId:$user,role:"admin"}')"
+          group_request POST "$c_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          group_request PATCH "$d_cookies" "$group_path" 403 '{"name":"Forbidden"}'
+          group_request POST "$d_cookies" "$group_path/members" 403 \
+            "$(jq --null-input --arg user "$b" '{userId:$user,role:"member"}')"
+          group_request PATCH "$c_cookies" "$group_path/members/$d" 403 '{"role":"owner"}'
+          group_request PATCH "$c_cookies" "$group_path/members/$b" 403 '{"role":"member"}'
+          group_request DELETE "$c_cookies" "$group_path/members/$d" 204
+          group_request GET "$d_cookies" "$group_path/members" 403
+          group_request GET "$d_cookies" "$group_path" 200
+          jq --exit-status '.group.role == null' "$response" >/dev/null
+          group_request POST "$c_cookies" "$group_path/members" 201 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          group_request POST "$c_cookies" "$group_path/members" 409 \
+            "$(jq --null-input --arg user "$d" '{userId:$user,role:"member"}')"
+          test "$(jq --raw-output '.error.code' "$response")" = 'group_member_conflict'
+          group_request GET "$d_cookies" "$group_path" 200
+          test "$(jq --raw-output '.group.role' "$response")" = 'member'
+
+          group_stage=workspace-removal-and-eligible-owner
+          group_request PATCH "$b_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
+          group_request DELETE "$owner_cookies" "/api/v1/workspaces/$workspace_id/members/$b" 204
+          group_request GET "$b_cookies" /api/v1/me 200
+          jq --exit-status --arg user "$b" '.user.id == $user and .workspace == null' "$response" >/dev/null
+          for path in "$base" "$group_path" "$group_path/members"; do
+            group_request GET "$b_cookies" "$path" 403
+          done
+          retained_grant="$(group_sql "SELECT concat_ws(',', (SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id = '$workspace_id' AND user_id = '$b'), (SELECT COUNT(*) FROM group_memberships WHERE group_id = '$group_id' AND user_id = '$b' AND role = 'owner'), (SELECT COUNT(*) FROM groups WHERE id = '$group_id' AND created_by_user_id = '$b'))")"
+          test "$retained_grant" = '0,1,1'
+          group_request PATCH "$c_cookies" "$group_path/members/$c" 409 '{"role":"member"}'
+          test "$(jq --raw-output '.error.code' "$response")" = 'last_group_owner_required'
+          group_request DELETE "$c_cookies" "$group_path/members/$c" 409
+          test "$(jq --raw-output '.error.code' "$response")" = 'last_group_owner_required'
+
+          group_stage=workspace-rejoin-and-group-removal
+          group_request POST "$owner_cookies" "/api/v1/workspaces/$workspace_id/invitations" 201 \
+            '{"email":"group-b@example.com","role":"member","expiresInDays":1}'
+          token="$(jq --raw-output '.token' "$response")"
+          group_request POST "$b_cookies" /api/v1/invitations/accept 200 \
+            "$(jq --null-input --arg token "$token" '{token:$token}')"
+          jq --exit-status --arg user "$b" --arg workspace "$workspace_id" \
+            '.user.id == $user and .workspace.id == $workspace' "$response" >/dev/null
+          group_request GET "$b_cookies" "$group_path" 200
+          test "$(jq --raw-output '.group.role' "$response")" = 'owner'
+          group_request GET "$b_cookies" "$group_path/members" 200
+          group_request DELETE "$c_cookies" "$group_path/members/$b" 204
+          group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
+          for suffix in '' /members; do
+            group_request GET "$b_cookies" "$group_path$suffix" 403
+          done
+          group_request GET "$owner_cookies" "$group_path" 403
+          group_stage=retained-authorship-and-audits
+          retained_author="$(group_sql "SELECT concat_ws(',', (SELECT COUNT(*) FROM users WHERE id = '$b'), (SELECT COUNT(*) FROM local_credentials WHERE user_id = '$b'), (SELECT COUNT(*) FROM sessions WHERE user_id = '$b' AND revoked_at IS NULL AND expires_at > NOW()), (SELECT COUNT(*) FROM groups WHERE id = '$group_id' AND created_by_user_id = '$b'), (SELECT COUNT(*) FROM group_memberships WHERE group_id = '$group_id' AND user_id = '$b'), (SELECT COUNT(*) FROM workspace_memberships WHERE workspace_id = '$workspace_id' AND user_id = '$b'), (SELECT COUNT(*) FROM audit_events WHERE event_type = 'group.created' AND actor_user_id = '$b' AND metadata->>'groupId' = '$group_id'))")"
+          test "$retained_author" = '1,1,1,1,0,1,1'
+          group_audits="$(group_sql "SELECT string_agg(event_type, ',' ORDER BY event_type) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
+          test "$group_audits" = 'group.created,group.member_added,group.member_added,group.member_added,group.member_removed,group.member_removed,group.member_role_changed,group.metadata_changed,group.metadata_changed'
+          unsafe_group_audits="$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id' AND (metadata::text ~* '(credential|cookie|password|email|token|secret|@)' OR metadata->>'workspaceId' IS DISTINCT FROM '$workspace_id' OR EXISTS (SELECT 1 FROM jsonb_each_text(metadata) AS field(key, value) WHERE key IN ('groupId', 'workspaceId', 'targetUserId') AND value !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))")"
+          test "$unsafe_group_audits" = '0'
+          audit_count="$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")"
+          test "$audit_count" = '9'
+          group_stage=no-op-audits
+          group_request PATCH "$c_cookies" "$group_path" 200 '{"visibility":"private"}'
+          group_request PATCH "$c_cookies" "$group_path/members/$c" 200 '{"role":"owner"}'
+          test "$(group_sql "SELECT COUNT(*) FROM audit_events WHERE metadata->>'groupId' = '$group_id'")" = "$audit_count"
+      - name: Verify attachments with the restricted runtime role and private volume
+        run: docker compose exec -T api node --input-type=module < infra/verify-attachments.mjs
+      - name: Verify scoped source memories through the running API
+        run: |
+          set -Eeuo pipefail
+          memory_report="$(mktemp)"
+          trap 'rm -f "$memory_report"' EXIT
+          if ! docker compose exec -T api node --input-type=module < infra/verify-memories.mjs > "$memory_report"; then
+            echo 'Memory Compose script failed' >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
+          if ! jq --exit-status --slurp '
+            def uuid: type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
+            length == 1 and (.[0] |
+              keys == ["actorUserId", "expectedAudits"] and (.actorUserId | uuid) and
+              (.expectedAudits | type == "array" and length == 1) and
+              (.expectedAudits[0] | keys == ["metadata"]) and
+              (.expectedAudits[0].metadata | keys == ["groupId", "operation", "workspaceId"] and
+                .operation == "search" and (.workspaceId | uuid) and (.groupId | uuid)))
+          ' "$memory_report" > /dev/null; then
+            echo 'Memory Compose observer report was not a single expected search-denial object' >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
+          memory_actor="$(jq --exit-status --raw-output '.actorUserId' "$memory_report")"
+          memory_audits="$(docker compose exec -T postgres psql \
+            --username openbot --dbname openbot --tuples-only --no-align \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --set=memory_actor="$memory_actor" <<'SQL'
+          SELECT COALESCE(jsonb_agg(jsonb_build_object('metadata', metadata) ORDER BY id), '[]'::jsonb)
+          FROM audit_events
+          WHERE actor_user_id = :'memory_actor'::uuid AND event_type = 'memory.access_denied';
+          SQL
+          )"
+          if ! jq --exit-status --argjson actual "$memory_audits" '$actual == .expectedAudits' "$memory_report" > /dev/null; then
+            echo 'Memory Compose independently observed audits did not match the report' >&2
+            printf '%s\n' "$memory_audits" >&2
+            cat "$memory_report" >&2 || true
+            exit 1
+          fi
+          echo 'Memory Compose save, provenance, source revocation and independently observed scope denial audit passed'
+      - name: Verify scoped API tokens with the restricted runtime role
+        run: docker compose exec -T api node --input-type=module < infra/verify-api-tokens.mjs
       - name: Verify the real unavailable state after database outage
         run: |
           docker compose stop postgres
@@ -419,6 +1345,406 @@ jobs:
           done
           grep --fixed-strings --quiet 'data-state="unavailable"' <<<"$page"
           grep --fixed-strings --quiet '>Unavailable<' <<<"$page"
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-tasks:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-tasks.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Start configured API and explicitly unconfigured worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T task-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=seed api node --input-type=module < infra/verify-tasks.mjs
+      - name: Resume the durable queue with the API stopped
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T task-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for (let attempt=0; attempt<100; attempt++) {
+            stats=await (await fetch('http://127.0.0.1:3100/stats')).json();
+            if (stats.pending===1) break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.equal(stats.calls.length,1);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=running api node --input-type=module < infra/verify-conversation-stream.mjs
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=running api node --input-type=module < infra/verify-tasks.mjs
+      - name: Verify reloaded Task history after API and worker restart
+        run: |
+          docker compose restart worker api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-tasks.mjs
+          docker compose exec -T -e OPENBOT_STREAM_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-conversation-stream.mjs
+      - name: Persist a waiting fallback and restart the worker before it is due
+        run: |
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-seed api node --input-type=module < infra/verify-tasks.mjs
+          before=$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)
+          docker compose restart worker
+          ready=false
+          for attempt in {1..60}; do
+            now=$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)
+            if [ "${now:-0}" -gt "${before:-0}" ]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-waiting api node --input-type=module < infra/verify-tasks.mjs
+      - name: Claim the persisted fallback only after its due time
+        run: |
+          docker compose exec -T -e OPENBOT_TASK_SMOKE_STAGE=retry-due api node --input-type=module < infra/verify-tasks.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-cancellation:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-cancellation.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Cancel queued work before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T cancel-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-cancellation.mjs
+      - name: Observe independent worker HTTP abort for streaming and silent requests
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T cancel-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for(let attempt=0;attempt<100;attempt++) {
+            stats=await(await fetch('http://127.0.0.1:3100/stats')).json();
+            if(stats.pending===1)break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.deepEqual(stats.calls,[{prompt:'cancel-running',modelId:'cancel-compose-model'}]);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=cancel api node --input-type=module < infra/verify-task-cancellation.mjs
+      - name: Retain interrupted output after process restart and stream reclamation
+        run: |
+          docker compose restart worker api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_CANCELLATION_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-task-cancellation.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-pause:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-pause.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Pause queued work before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T pause-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-pause.mjs
+      - name: Observe independent worker HTTP abort for a running pause and resume
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T pause-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for(let attempt=0;attempt<100;attempt++) {
+            stats=await(await fetch('http://127.0.0.1:3100/stats')).json();
+            if(stats.pending===1)break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.deepEqual(stats.calls,[{prompt:'pause-running',modelId:'pause-compose-model'}]);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=pause api node --input-type=module < infra/verify-task-pause.mjs
+      - name: Retain interrupted output after resume, process restart and stream reclamation
+        run: |
+          docker compose restart worker api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_PAUSE_SMOKE_STAGE=reloaded api node --input-type=module < infra/verify-task-pause.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-recovery:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-recovery.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Queue recovery work before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T recovery-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_RECOVERY_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-recovery.mjs
+      - name: Kill the worker during a held model call and expire the lease
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          docker compose stop api web
+          docker compose up --no-deps --detach worker
+          docker compose exec -T recovery-provider node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { setTimeout } from 'node:timers/promises';
+          let stats;
+          for(let attempt=0;attempt<100;attempt++) {
+            stats=await(await fetch('http://127.0.0.1:3100/stats')).json();
+            if(stats.pending===1)break;
+            await setTimeout(100);
+          }
+          assert.equal(stats.pending,1);
+          assert.deepEqual(stats.calls,[{prompt:'recover-running',modelId:'recovery-compose-model'}]);
+          JS
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_ready
+          docker compose kill --signal SIGKILL worker
+          sleep 16
+          docker compose start api web
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && curl --fail --silent http://localhost:3000/ >/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_RECOVERY_SMOKE_STAGE=killed api node --input-type=module < infra/verify-task-recovery.mjs
+      - name: Restart the worker and recover one successor without a second provider result
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          before="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+          docker compose up --no-deps --detach worker
+          ready=false
+          for attempt in {1..60}; do
+            after="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+            if [ "${after:-0}" -gt "${before:-0}" ]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_RECOVERY_SMOKE_STAGE=recovered api node --input-type=module < infra/verify-task-recovery.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-concurrency:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-limits.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Keep a default group from running a fifth concurrent Bot
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T limits-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=concurrency api node --input-type=module < infra/verify-task-limits.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
+  compose-task-limits:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-limits.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Snapshot starting limits before enabling the separate worker
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T limits-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=seed api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Keep a snapshotted duration timeout failed, then hold waiting_budget
+        run: |
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=timeout api node --input-type=module < infra/verify-task-limits.mjs
+      - name: Grant the selected duration cap and resume with the separate worker
+        env:
+          OPENBOT_TASK_WORKER_TEST_KEY: BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+        run: |
+          before="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+          docker compose up --no-deps --detach worker
+          ready=false
+          for attempt in {1..60}; do
+            after="$(docker compose logs --no-color worker | grep --fixed-strings --count task_worker_ready || true)"
+            if [ "${after:-0}" -gt "${before:-0}" ]; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=grant api node --input-type=module < infra/verify-task-limits.mjs
       - if: always()
         run: |
           docker compose logs

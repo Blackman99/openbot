@@ -1,16 +1,27 @@
-# OpenBot local implementation checkpoint
+# OpenBot implementation checkpoint
+
+## Current frontier (supersedes historical notes)
+
+**Frontier (2026-09-06):** ROUT-01 is complete on `feat/openbot-collaboration-system` / draft PR #1. DEPLOY-01 is in progress: AC5–6 Tester-PASS at `f8ebc51` / [Verify 34036429806](https://github.com/Blackman99/openbot/actions/runs/34036429806). The second TDD slice contracts and lands worker healthcheck, web-waits-for-healthy-API, migrate-once/advisory-lock documentation, named-volume restart durability, and private-network model wiring/docs for AC1–4; those four ACs stay unchecked until Tester proves the live stack. ROUT-02 is ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
+
+Fifty-four of 67 tickets are implemented and independently reviewed, and all 54 are fully complete. All 401 original acceptance texts are preserved.
+
+Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
+
+Continue all remaining tickets; do not end at this checkpoint. Publication remains limited to `feat/openbot-collaboration-system` and unified draft PR1. Main remains `ecc586a8d3b528728af2308e247c4c3c4fb75ffa`; the separate CI automation stays paused.
 
 ## User constraints
 
 - Implement the approved 67-ticket backlog with TDD; no cloud-computer feature.
-- On 2026-09-05 the user paused implementation and authorized pushing the verified integration. Publish `feat/openbot-collaboration-system` to the initially empty remote `main`; keep the development branch available. The earlier no-push instruction is superseded for this push.
+- On2026-09-05, after the first publication and green CI, the user instructed "continue implementing all tickets". Implementation is active again. Progress continuously through all unblocked tickets; do not treat an automation turn as cancellation.
+- The initial verified baseline was published after user authorization. Subsequent accepted snapshots are published only to the development branch feat/openbot-collaboration-system and unified draft PR1; main remains unchanged during the full backlog implementation.
 - Repository tickets remain authoritative. The latest attempt to create GitHub issues was rejected with `403 Resource not accessible by integration`, despite repository read/admin access. No issue was created.
 
 ## First push status
 
 The first authorized push on 2026-09-05 was blocked before any ref update: the Git CLI lacked GitHub credentials and the GitHub app returned `403 Resource not accessible by integration`. The user subsequently installed ChatGPT Codex Connector on Blackman99. The installation now appears in the connection and the write API reaches the empty repository without a permission error.
 
-Publication uses the authenticated GitHub API because the shell still lacks GitHub credentials. It publishes the verified file tree after initializing the empty repository. Remote commits will have different IDs from the original local history; the original commits remain available locally. Compare Git tree hashes to verify the published contents. Implementation remains paused and unfinished PROV-01 work is excluded.
+Publication uses the authenticated GitHub API because the shell still lacks GitHub credentials. It publishes the verified file tree after initializing the empty repository. Remote commits will have different IDs from the original local history; the original commits remain available locally. Compare Git tree hashes to verify the published contents. The first published snapshot excluded unfinished PROV-01 work. The user has now resumed implementation.
 
 The first full snapshot was published on 2026-09-05 as remote commit `8759f449b189f6cbafeca1021db1deb45c194f3c` on both `main` and `feat/openbot-collaboration-system`. Its tree `550293dc706ac52e30de4798595d38ba8e32b655` exactly matches local commit `82f933ff71267baaf761577a5f65cb851a8cfc0a`: all 155 tracked files, including the 67 repository tickets. The original `b29e5f5` commit ID is absent from remote history.
 
@@ -24,18 +35,35 @@ Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` pa
 
 ## Completed implementation
 
-- FND-01: deployable application foundation. Docker execution remains external gate `FND-01-E1`.
-- AUTH-01: local-owner setup, persistent sessions, password protection, Origin checks, append-only audit schema, migration ledger, and runtime-role separation. Real PostgreSQL/Compose evidence remains external gate `AUTH-01-E1`.
-- AUTH-01 final `pnpm verify` passed on 2026-09-05 with 112 unit/integration tests, 4 browser tests, strict types, formatting, and production builds. Independent final review found no deterministic blockers.
-- WS-01: membership-scoped workspace creation, navigation, settings, and safe audits. Feature commit `4a7b47a` merged locally as `982fe52`; root review found no deterministic blocker.
-- WS-01 integration `pnpm verify` passed on 2026-09-05: API unit 46/46, Web unit 7/7, API integration 41/41, Web integration 25/25, browser 5/5, formatting, strict types, and both production builds. Real PostgreSQL/Compose evidence remains external gate `WS-01-E1`.
+- FND-01, AUTH-01, WS-01 are complete with all original external evidence closed.
+- PROV-01 implementation integrated as `af206cf`; local145 unit/integration +6 browser tests pass. Provider PostgreSQL/Compose gate `PROV-01-E1` is closed by Verify33941168646.
+- WS-02 integrated as `62b0ab6`; combined 186 unit/integration tests and 7 browser scenarios pass, with formatting, types and builds. Both independent review axes passed. Invitation-specific real PostgreSQL/Compose gate `WS-02-E1` is closed by Verify33941168646.
+- Provider CI run `33940612309` passed code, authentication PostgreSQL and Compose. The provider PostgreSQL job exposed a missing root `pg` dependency in the infrastructure command. Commit `ff6ec6a` fixes the dependency after a witnessed failing regression, and the three targeted command tests pass; actual CI retry passed on the integrated invitation revision.
+- Latest published baseline: `ecc586a8d3b528728af2308e247c4c3c4fb75ffa`; equivalent local commit `2ebd76fbdf7df14e09f94168432f7e7dc1a327b4`, tree `376fc917ab281c6e38fe928603a146a32d87027b`.
+- [Verify33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) completed successfully on2026-09-05 at02:17 UTC:119 unit/integration tests,5 browser scenarios,2 real PostgreSQL tests, formatting/types/builds, and all fresh/upgrade/runtime-role/auth/workspace/outage Compose checks.
+- First-publication CI fixes install pnpm before cache initialization, wait for workspace navigation in browser tests, use authenticated TCP for password-rotation checks, and supply the jq identity filter for outage assertions.
 
-## Next frontier
+Latest feature CI: [Verify33941168646](https://github.com/Blackman99/openbot/actions/runs/33941168646) passed all four jobs on remote `98f15fc88cdc44bc6cd14ac5542a9aad3fb58166` (tree matches local `014320d`), completed on 2026-09-05 at 03:13:55 UTC. Five real PostgreSQL tests passed across the isolated authentication/invitation and provider jobs, alongside the restricted-role Compose smoke. PROV-01 and WS-02 are now fully complete.
 
-- Implementation is paused at the user's request. PROV-01's unfinished code and reviews are retained in its isolated local worktree; they are not included in the verified integration being pushed.
-- WS-02: one-time invitations for new and existing users; unlocked by WS-01 with `WS-01-E1` retained in REL-01.
-- PROV-01: personal OpenAI Chat-compatible connections.
+PROV-03 integrated as `b689e0e`: 213 unit/integration tests and 7 browser scenarios, formatting, types and production builds pass. Both independent review axes are clean at code revision `271aa4a`; Responses protocol, general live generation, bounded diagnostic capture and SSE framing are covered. Actual PostgreSQL/Compose gate `PROV-03-E1` is closed by [Verify33941574408](https://github.com/Blackman99/openbot/actions/runs/33941574408), all four jobs successful on remote `8f7e47f50a935cffc849e29c73b48a89d75ee449`, completed on 2026-09-05 at 03:22:16 UTC.
+
+## Active frontier
+
+- AUTH-02 integrated as `84f05b2`: 352 unit/integration tests, 9 ordinary browser scenarios and one real Fastify/signed-IdP journey pass, alongside formatting, types and builds. Both independent reviews are clean; root also reviewed three narrow integration fixes for configuration-first startup, deterministic body-deadline testing and bounded API test workers. Migration0007 follows0006. Real PostgreSQL/Compose gate `AUTH-02-E1` closed by all-five-jobs-green [Verify33943166881](https://github.com/Blackman99/openbot/actions/runs/33943166881), completed 2026-09-05 at 03:57:50 UTC on remote `20b0618c84dc2a3e2e582bf6e9de10f260e3de3f` (exact tree match to local `8081ae9`).
+- PROV-04 integrated as `87632a1`: 249 unit/integration tests and 8 browser scenarios, formatting, types and builds pass. Both independent reviews completed; the standards P3 protocol-switch issue was fixed and rechecked at `b58ec82`. Actual PostgreSQL/Compose gate `PROV-04-E1` closed by all-green [Verify33942334386](https://github.com/Blackman99/openbot/actions/runs/33942334386) on remote `6fb668702377ba18fd39c2c7439f4112887f77fa`, completed on 2026-09-05 at 03:39:21 UTC.
+- WS-03 integrated as `faea29a`: 284 tests and 9 browser scenarios, formatting, types and builds pass. Both review axes are clear, including real HTTP regressions for member/invitation DELETE headers and response-body deadlines. PROV-02, COL-01 and API-01 are unblocked.
+- WS-03-E1 closed by all-green [Verify33942927588](https://github.com/Blackman99/openbot/actions/runs/33942927588), completed 2026-09-05 at 03:52:14 UTC on remote `027afbfb71e29d7f27d8249d5a72ddaa39adb332`, tree `50dbae9c4a730854e72ccd08935bb53459175485`, exactly matching local `2baa188`. Seven real authentication/invitation/member PostgreSQL tests, the separate provider suite and deployed-role Compose member smoke passed.
+- PROV-02 integrated as `3c515b6`: 400 unit/integration tests, 10 ordinary browser scenarios and one real OIDC journey, types/lint/builds all pass. Both independent reviews clean at73a4434, including the UUID/AAD correction. Ordered migration0008 and exact shared connection Compose privileges are verified locally; PROV-02-E1 closed by [Verify33943840316](https://github.com/Blackman99/openbot/actions/runs/33943840316), all five jobs successful on remote `3f4e39145b4b3af53ed49c182eacaadb0144740c`, completed on 2026-09-05 at 04:12:53 UTC.
+- PROV-05 integrated075a191: all539 unit/integration tests,14 ordinary browsers and one real signed-IdP journey, formatting/types/builds pass. Both independent reviews clean3468fa8; authorfinalefc8bd0. All7AC covered, ordered0011 policy migration and exact narrow grants preserved. PROV-05-E1 remains an explicit REL-01 PostgreSQL/Compose gate; BOT-01 is now ready, with BOT-CONTRACT and migration0012 reserved.
+- COL-01 integratedb7dc8fe: 445 unit/integration tests, 11 ordinary browsers and one real OIDC journey, formatting/types/builds pass. Both review axes clean, new Compose group smoke independently reviewed; actual COL-01-E1 remains pending. Migration0009 follows0007/0008; throughVersion historical fixture is now integrated.
+- API-01 integrated47a6008: all478 unit/integration tests,12 ordinary browsers and one real signed-IdP journey, formatting/types/builds pass. Both reviews clean at96ab273, with root review of integration-only deltas. Canonical member-removal token audit followup498fdec is independently reviewed and integrated3c7783d. Migration0010 follows groups0009; actual API-01-E1 PostgreSQL/Compose evidence remains open.
+- COL-01 publication c547c6c exactly matches local1413698 tree2d959c6. Verify33944259379 passed code and all three PostgreSQL jobs but Compose failed before the group smoke: socket readiness observed the temporary PostgreSQL initialization server, then seed psql raced its shutdown. Readiness fix2ed018e was independently reviewed and integrated4943df0: Compose, the seed loop and all three native services now require an authenticated target-database TCP query with bounded connection/query time. Behavioral regressions witnessed the old temporary-server admission and prevent seed execution on exhausted probes. COL-01-E1 remains open until the complete retry succeeds.
+- Only unpublished migrations may be renumbered during integration if completion order requires it. Never insert an earlier migration into a deployed ledger.
+- PROV-01 is integrated; migration0004 is `personal_model_connections`.
+- WS-02 is integrated; migration0005 is `workspace_invitations`. AUTH-02 research and transaction handoff are in `OIDC-NOTES.md` and the WS-02 ticket.
 - Use a separate worktree and ticket branch for each implementation. Merge and verify one completed ticket at a time. Keep API/Web build commands serial within each worktree.
+- E2E ports4399/4173 are serialized by root; No browser lease is held after PROV-05 integration. Confirm current ownership with root before use. Each real PostgreSQL suite must use its own disposable database or schema. Local PG provisioning was blocked by unavailable build tools/download403; real PG gates run in GitHub CI.
+- GitHub main remains the verified published baseline while the complete backlog is developed on the feature branch; unified draft PR: https://github.com/Blackman99/openbot/pull/1.
 
 ## Integration handoffs
 
@@ -46,8 +74,76 @@ Verify run `33938409265` on remote `27aff5f278430744a9c18740e9bada62cf2e08c8` pa
 
 ## Continuity
 
-The CI monitoring request is separate from implementation. An empty remote repository or unchanged CI state does not complete or cancel the local backlog. Respect the explicit implementation pause above; use this checkpoint and the issue index when the user resumes work.
+The CI monitoring request is separate from implementation. An empty remote repository or unchanged CI state does not complete or cancel the local backlog. The explicit user resume is active; continue using this checkpoint and the issue index.
 
 ## External release evidence
 
-`REL-01` must not complete until actual Docker Compose and PostgreSQL runs close the explicitly unchecked evidence on FND-01, AUTH-01, and WS-01. Fixture-based browser tests and pg-mem do not prove PostgreSQL transaction/concurrency or trigger behavior.
+FND-01-E1, AUTH-01-E1, and WS-01-E1 are closed by the successful baseline CI above. Record any new unexecuted evidence in REL-01. Fixture-based browser tests and pg-mem do not substitute for real PostgreSQL or Compose execution on later changes.
+
+## BFF HTTP handoff
+
+Send JSON Content-Type only with an actual JSON body; Fastify rejects empty JSON DELETE requests. Keep AbortController deadlines active through response-body parsing. WS-03 adds real client-to-Fastify and stalled-HTTP regressions for both member and invitation clients; browser fixtures alone had masked these defects. Preserve these contracts in subsequent API clients.
+
+## Current publication and retry
+
+Feature remote76b18b9 exactly matches local e0213a5 and treefb907743b3b3c3ce3ccfd49b502e13d5c4fca8b5. Verify33944859922 completed2026-09-05 at04:35:37 UTC: code and all three PostgreSQL jobs passed, including the new token native cases. Authenticated TCP readiness fixed the previous initialization failure. Compose now reaches the group lifecycle step and fails an assertion before token smoke; group/token external gates remain open. Investigation is isolated in `.worktrees/ci-group-smoke`; no product failure is inferred from the silent shell assertion.
+
+Group CI correction85f8686 is included in075a191. It verifies invitation workspace identity and separately checks the member role through the actual member-list API. The exact workflow HTTP commands were witnessed red then green, preserving all group authorization checks and nine audits. Native Compose SQL remains pending; no product response was expanded to satisfy a test.
+
+## Latest verified frontier
+
+Thirteen tickets are fully complete: FND-01, AUTH-01/02, WS-01/02/03, PROV-01/02/03/04/05, COL-01 and API-01. COL-01-E1, API-01-E1 and PROV-05-E1 closed by [Verify33945439831](https://github.com/Blackman99/openbot/actions/runs/33945439831), all five jobs successful on remote `4429ccdc8a61d6771b954c70dc0d6a1ab7b43873`, completed2026-09-05 at04:49:16 UTC. Published tree514ec8f9b70b5a760154171957ba566b0bf28242 exactly matches localf3d3671. The run passed539 code tests,14 ordinary browser scenarios plus one signed-IdP journey,16 auth/invitation/member/OIDC/group/token PostgreSQL cases,5 restricted provider cases, the separate OIDC privilege case and the complete fresh/upgrade/runtime-role/application/outage Compose flow.
+
+BOT-01 is active in `.worktrees/bot-01`, basef3d3671, authorws_02. All6AC use BOT-CONTRACT, fresh viewer-specific bindingStatus and immutable current-version rules; migration0012 reserved. First creation TDD tracer is in progress, with one optional isolated UI child after a fixed API contract. Root currently holds no browser lease. The CI automation remains paused; this verification was part of active implementation.
+
+Ledger preflight records an explicit COL-02→COL-03 prerequisite: group joins/history grants use the reviewed conversation ledger and sequence allocator. No cycle or acceptance change; sequence IDs stay stable. BOT-01 completion will unlock BOT-02, BOT-04 and COL-03 in parallel. Contracts are in CONVERSATION-LEDGER-CONTRACT and BOT-CONTRACT. BOT-01 now has firstAPIcheckpoint5b2b351, isolatedUIchildbots_ui, and a separate one-file nativePostgreSQL helper in `.worktrees/bot-01-pg`; parent retains schema/guards/grants/API ownership.
+
+## BOT-01 integration and next frontier
+
+BOT-01 is integrated as `ccda8d5ce10527e71ad0fd7c879d29b862589cb7`, tree `83b4549995ebc60c6ad93ac1db5de1cb0b9c7590`. All6AC are implemented; Standards and Spec are clean at cdeff01, final author ce54b78 is documentation-only. The dedicated merger's full `pnpm verify` exited0 with594 tests (API77unit+217integration, Web30unit+270integration),15 ordinary browsers and one real signed-OIDC journey, formatting/types/builds. No source integration fix was required. Native8cases and ordered0012 Compose privileges remain explicit BOT-01-E1 in REL-01 pending actual CI. Thirteen earlier tickets remain fully complete.
+
+The next ready frontier is BOT-02, BOT-04 and COL-03, each in an isolated worktree. BOT-02 uses AVATAR-STORAGE-CONTRACT and the shared version-append rules; BOT-04 uses BOT-CONTRACT; COL-03 uses CONVERSATION-LEDGER-CONTRACT. The dedicated merger has released root and browser leases. CI publication follows this verified snapshot; main remains the baseline and PR1 remains draft.
+
+## Latest accepted snapshot
+
+BOT-01-E1 closed by [Verify33947013084](https://github.com/Blackman99/openbot/actions/runs/33947013084), all six jobs successful on remote `6d5f6fc6be367546591228681fd975fb94448c5c`, completed2026-09-05 at05:24:36 UTC. The published tree `88d4a39ad4ff129d7ff032ea7e64c90a075d23af` exactly matches local `47553b1e5331aeaa869d44e96537b38d53d9fd2b`, verified by fetch and tree diff. The dedicated `postgres-bots` job101255004109 executed all8 cases successfully against PostgreSQL17 with the real restricted role. Compose job101255004094 passed fresh/upgrade migration0012, exact Bot table/column/function privileges and every prior application/outage check. Code, postgres-auth, postgres-providers and postgres-oidc also passed. This actual evidence supersedes earlier pending notes; no skipped test is counted as passed.
+
+Fourteen tickets are now fully complete. BOT-02 is active in .worktrees/bot-02 with an isolated storage helper; BOT-04 is active in .worktrees/bot-04 with an isolated UI helper; COL-03 is active in .worktrees/col-03. All start from47553b1. Root currently holds no browser lease. The next publication includes completed feature work rather than rerunning unchanged code for documentation alone.
+
+## BOT-04 accepted integration
+
+BOT-04 is integrated as `8d1933f51ff43c1c01616e8d885cf9ae75e41995`, with no conflicts or source fixes. Both independent review axes are clean at `bd3ba9db5a0463fb52ff4711144c6db235142ca4`; final author `ee7adb1aaa062d37cf676421d17a9b75c41d7da3` only updates evidence. Dedicated merger full `pnpm verify` exited0 with651 unit/integration tests,17 ordinary browser scenarios and one signed-OIDC journey,formatting/types/builds. Source,CI,infra and manifests exactly match the reviewed candidate. BOT-04-E1 remains the explicit nine-case native PostgreSQL and Compose gate; fourteen prior tickets are fully complete, fifteen are implemented and independently reviewed.
+
+BOT-02 is frozen at `1a99a55662f805d470d5dddae156bf9b682c7772` for independent Standards and Spec reviews. Its local full gate passed645 tests and17 browser scenarios; eight native PostgreSQL and six real-S3 cases are explicitly pending CI. COL-03 core `3544eca1fb32b3c9a0b1501f70c957b4d30fcd41` passed623 tests/types/lint/builds; independent review found mutable exported transaction metadata and its author is adding a regression/fix while the UI helper completes the user flow. These candidates are not yet integrated or published. Browser leases remain serialized by root; main stays unchanged and PR1 stays draft.
+
+## Avatar integration and continued frontier
+
+BOT-04-E1 closed by [Verify33948405362](https://github.com/Blackman99/openbot/actions/runs/33948405362), all six jobs successful on remote `fa79a3dd85baf0dd2acf888d5f39a2a071d83fd8`, completed2026-09-05 at05:57:03 UTC. The published tree `040312fdf38cea26574dddc06a343b46d417d977` exactly matches local `86bdf75fa7b5b392f41af85e856b01e775991185`, verified by fetch and pinned diff. The dedicated postgres-bots job101258691651 executed the eight identity and nine ACL cases in separate successful commands. Compose job101258691734 passed fresh/upgrade startup, precise visibility and ACL role/delete privileges, and all prior application/outage checks; code, postgres-auth, postgres-providers and postgres-oidc also passed. This closes the external gate without counting local skips as execution; fifteen tickets are fully complete.
+
+BOT-02 integrated as `9eb8f89c78afdca995280f2cbbb53784e2901027`, tree `4c1c7aaca906a9c0122c75bb6ee229b8c6473b26`. Both independent review axes are CLEAN at final `7466346f3b45ff1857f3d7d5de6fdebd2af22265`; the sole P3 unknown-outcome message was fixed and independently rechecked. The dedicated merged full `pnpm verify` exited0:704 unit/integration tests (API88unit+260integration, Web35unit+321integration),18 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the three-file additive integration delta preserving both route families, exact BOT-04 grants, three serial Bot native commands and the S3 job. Frozen install, YAML/34 Bash steps/two embedded JS blocks/MJS syntax passed. Native PostgreSQL eight cases, actual S3 six cases and Compose remain the explicit BOT-02-E1 release gate; local skips are not execution evidence.
+
+Sixteen tickets are implemented and reviewed; fifteen have all external evidence closed. BOT-03 is ready and uses the shared version append plus current provider/asset admission contracts. COL-03 is ready for dedicated integration at final `3a3511e342978dfe9f607d33a77062202e6fd7e7`, reviewed source `e599f4ca96474a47c59dfe140bb9e29f2b7547fa`: both axes clean,645 code tests,18 ordinary browsers and one signed-OIDC journey passed. Migration0014 follows avatar0013; ten actual PostgreSQL cases and Compose remain its later CI gate. Main remains unchanged; publish verified snapshots to the development branch and keep PR1 draft.
+
+## Conversation integration and group-Bot frontier
+
+COL-03 integrated as `d559da23b4ae19429304f3a124f93f187025df42`, tree `26dc19629b52d56076128aeb7b64538a7fb6c396`. Both independent review axes are CLEAN at source `e599f4ca96474a47c59dfe140bb9e29f2b7547fa`; final author `3a3511e342978dfe9f607d33a77062202e6fd7e7` adds only evidence. Dedicated integrated full `pnpm verify` exited0:755 unit/integration tests (API88unit+275integration, Web40unit+352integration),21 ordinary browsers and one signed-OIDC journey,formatting/types/builds. Root independently reviewed the seven-file additive integration delta; conversation core/source tests match the reviewed candidate exactly. YAML/36 Bash steps/two embedded JS/three MJS syntax checks passed. Native PostgreSQL ten cases and actual Compose remain the explicit COL-03-E1 release gate.
+
+BOT-02 Verify33948926135 on remote `1d46acbeafea4df02ecb72b071955bedc68f69cf` completed2026-09-05 at06:09:49 UTC with the object-storage job failing. Code and all four PostgreSQL jobs passed; postgres-bots executed identity8,ACL9,avatar8 cases successfully. Compose passed migration0013, actual Alpine Sharp loading and the private runtime-volume roundtrip/ownership checks plus prior application/outage checks. Real S3 passed five of six cases; the shared concurrent-save case confirmed exactly one successful save and one object-already-exists result, then its following GET failed with safe object_store_unavailable at contract line57. No overwrite assertion failed. BOT-02-E1 remains open; isolated diagnosis is in .worktrees/ci-s3-contract. Do not count the partial S3 run as a passed storage gate.
+
+Seventeen tickets are implemented and independently reviewed; fifteen have every external evidence gate closed. BOT-03 is active from f0f9383 and has API first tracer fffc1fe2, with isolated UI helper. COL-02 is ready to implement typed group Bot membership, explicit history scopes and permanent grant closure on the shared ledger. The CI retry will retain all source checks and actual service contracts. Main and PR draft status remain unchanged.
+
+## Actual conversation evidence and continued frontier
+
+COL-03-E1 closed by [Verify33949842135](https://github.com/Blackman99/openbot/actions/runs/33949842135), completed2026-09-05 at06:30:19 UTC on remote `990895839c34523aea53e80b8cd007925f785aa3`. Its tree `46791daf51c6b6b91e357cf120978b7e182129c9` exactly matches accepted local `2279a31eb7e23708ae464a2ec1e73e11e1adca73`, verified by fetch and pinned diff. Code passed764 unit/integration tests and22 browser scenarios. Dedicated postgres-conversations job101262649188 executed all10 cases successfully using the deployed restricted role. Compose job101262649137 passed fresh/upgrade through0014, last_sequence-only UPDATE, append-only event/subject guard privileges and all prior runtime/application/outage checks. All five PostgreSQL jobs succeeded. The overall workflow failed only its separate object-storage job, so this closes the scoped conversation gate but does not close BOT-02-E1 or claim a green overall workflow.
+
+Sixteen tickets are fully complete and seventeen are implemented and independently reviewed. BOT-03 source a49413b has three new Chromium journeys passing and independent Standards CLEAN; full integrated author verification and Spec review are active. COL-02 invitation/history/context/removal/reinvitation and permanent grant closure are implemented in its isolated branch, with UI/native evidence in progress. S3 safe diagnostics identified the subsequent GET failing before HTTP headers with TimeoutError/ECONNRESET. Candidate981ddc9 disables idle HTTP/HTTPS pooling, preserves maxAttempts=1 and all original S3 assertions, removes temporary probes, and passes the witnessed retired-connection regressions plus existing local/avatar tests. Independent review and actual S3 retry remain required. Main stays unchanged and PR1 stays draft.
+
+## S3 correction accepted for service retry
+
+S3 transport fix981ddc9 is independently CLEAN and integrated as `a9f0719204b3eaa0b1d378f5ee1449f36b58fd91`, tree `0e32462c7ddbb120183e9326d4b954876df8283a`. The dedicated merger's complete pnpm verify passed758 unit/integration tests (API88+278,Web40+352),21 ordinary browsers and one signed-OIDC journey,formatting/types/builds. All seven candidate files match exactly; no integration correction was needed. Independent review ran15 S3 wire tests and verified the pinned SDK honors HTTP/HTTPS keepAlive=false with the existing socket limit, unchanged deadlines/maxAttempts=1/checksum validation, removed diagnostics and byte-identical original real-S3 assertions. The actual MinIO retry remains mandatory for BOT-02-E1.
+
+## Avatar gate closure and version integration
+
+BOT-02-E1 closed by [Verify33950565666](https://github.com/Blackman99/openbot/actions/runs/33950565666), all eight jobs successful on remote `6a611f9b0fe78b666fe63ab3c601a376c415fddd`, completed2026-09-05 at06:45:58 UTC. Published tree `065c73a6fe52d5f88cfd2abe520e94fb2d1c9fb2` exactly matches accepted local `3351d411a316652c7d698be1583ffa23d6050da5`, verified by fetch and pinned diff. The object-storage job101264648438 executed all six original real-S3 cases and seven private local-store cases successfully after the connection-pooling correction; temporary diagnostics and automatic retries are absent. The postgres-bots job101264648426 passed identity8,ACL9,avatar8 in three separate commands. Compose job101264648429 passed fresh/upgrade through0014, exact object/reference and conversation grants, actual Alpine Sharp loading, private runtime-volume roundtrip/ownership and all previous application/outage checks. Code and all five PostgreSQL jobs also passed. This closes the avatar release gate on actual services; seventeen tickets are now fully complete.
+
+BOT-03 integrated as `82d5d911fdcf1e7a9f17b62023f776fd694246af`, tree `ddd5bea851c863d1f95718da5b363ac399f0f4de`. Both independent review axes are CLEAN at source `a49413b010498a2309304c9a4798374bbf1fa46f`; author final `6192dd3585e730192081de4bcde4174941d81f6c` changes only ticket/evidence documents. Dedicated merged pnpm verify exited0 with813 unit/integration tests (API88+289,Web47+389),24 ordinary browsers and one signed-OIDC journey,formatting,zero-error/zero-warning types and both builds. Root independently reviewed the four shared integration files: additive version service/routes, fourth serial native command and browser fixture;26 other candidate paths match exactly. No new domain correction was required. The11 actual PostgreSQL version cases remain BOT-03-E1 in REL-01 pending CI; local skips are not execution.

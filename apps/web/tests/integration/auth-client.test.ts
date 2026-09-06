@@ -225,4 +225,14 @@ describe('server-side authentication API client', () => {
       vi.useRealTimers();
     }
   });
+  it('recognizes an authenticated account with no accessible workspace', async () => {
+    const request = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ user: identity.user, workspace: null }),
+    );
+    const client = new AuthApiClient(request, 'http://api.internal:3001', 'http://localhost:3000');
+    await expect(client.getIdentity('valid_token')).resolves.toEqual({
+      status: 'authenticated',
+      identity: { user: identity.user, workspace: null },
+    });
+  });
 });

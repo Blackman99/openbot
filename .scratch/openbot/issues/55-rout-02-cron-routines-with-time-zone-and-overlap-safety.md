@@ -2,7 +2,7 @@
 sequence: 55
 id: ROUT-02
 title: "Cron routines with time-zone and overlap safety"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - ROUT-01
 labels:

@@ -9,7 +9,7 @@ export interface AuthIdentity {
   workspace: {
     id: string;
     name: string;
-  };
+  } | null;
 }
 
 export interface SessionCookie {
@@ -66,7 +66,7 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
   );
 }
 
-function parseIdentity(value: unknown): AuthIdentity | undefined {
+export function parseIdentity(value: unknown): AuthIdentity | undefined {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ['user', 'workspace']) ||
@@ -74,26 +74,27 @@ function parseIdentity(value: unknown): AuthIdentity | undefined {
     !hasOnlyKeys(value.user, ['displayName', 'email', 'id']) ||
     typeof value.user.displayName !== 'string' ||
     typeof value.user.email !== 'string' ||
-    typeof value.user.id !== 'string' ||
-    !isRecord(value.workspace) ||
-    !hasOnlyKeys(value.workspace, ['id', 'name']) ||
-    typeof value.workspace.id !== 'string' ||
-    typeof value.workspace.name !== 'string'
-  ) {
+    typeof value.user.id !== 'string'
+  )
     return undefined;
+  let workspace: AuthIdentity['workspace'] = null;
+  if (value.workspace !== null) {
+    if (
+      !isRecord(value.workspace) ||
+      !hasOnlyKeys(value.workspace, ['id', 'name']) ||
+      typeof value.workspace.id !== 'string' ||
+      typeof value.workspace.name !== 'string'
+    )
+      return undefined;
+    workspace = { id: value.workspace.id, name: value.workspace.name };
   }
-
   return {
-    user: {
-      displayName: value.user.displayName,
-      email: value.user.email,
-      id: value.user.id,
-    },
-    workspace: { id: value.workspace.id, name: value.workspace.name },
+    user: { displayName: value.user.displayName, email: value.user.email, id: value.user.id },
+    workspace,
   };
 }
 
-function parseSessionCookie(
+export function parseSessionCookie(
   header: string | null,
   expectedSecure: boolean,
 ): SessionCookie | undefined {
@@ -157,7 +158,7 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function parseRetryAfterSeconds(value: string | null): number | undefined {
+export function parseRetryAfterSeconds(value: string | null): number | undefined {
   if (!value || !/^(?:0|[1-9]\d{0,4})$/u.test(value)) {
     return undefined;
   }

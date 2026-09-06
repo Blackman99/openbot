@@ -1,0 +1,29 @@
+# Conversation attachment handoff
+
+ATT-01 is ready after accepted COL-02, COL-03 and BOT-02. This read-only seam inspection is planning, not implemented behavior. Follow all six original ticket criteria; later knowledge/vision and DATA-03→04→05 remain separate.
+
+## Existing seams and bounds
+
+- ObjectStore already provides private immutable UUID-keyed save/read/delete, per-call read bounds, stable backend identity, explicit configured maxObjectBytes and operation deadlines. Its default is2MiB for avatars. An attachment storage instance needs its own explicit configured bound; do not widen the independent avatar decoder/API2MiB limit. Web adapter BODY_SIZE_LIMIT is currently3M and must be reconciled with attachment multipart overhead.
+- Reuse the private configured backend and UUID workspace/object namespaces without exposing object keys/paths, unsigned URLs or credentials. Keep the independently verified S3 maxAttempts1/checksums/no-idle-pooling behavior. An attachment is a distinct persisted object family; do not misuse Bot avatar ownership or references.
+- Recommended default attachment limit10MiB, operator-configurable with a finite maximum64MiB. Begin with bounded UTF-8 text/Markdown/CSV, static PNG/JPEG, PDF and OOXML DOCX/XLSX to support later ticket prerequisites. Reject active HTML/SVG, executable/unknown types, MIME/signature disagreement and unbounded archive expansion; OOXML inspection must identify the declared document family rather than accepting every ZIP. Validate checksum, declared/actual byte count, normalized filename and actual bytes before publication. No document execution or automatic extraction.
+
+## Atomic message reference and current access
+
+- Use durable staged intent with server-generated object ID, canonical workspace/conversation/actor identity, expected bytes/hash, immutable backend identity, lease and retryable cleanup. Client input never picks an object key. Validate before storage where possible; after storage, freshly authorize and publish the one message reference atomically with its typed ledger event and required audit. Failed validation/cancel/revocation/persistence must leave no untracked object; an unavailable store may require durable cleanup retry, never a falsely successful rollback claim.
+- Recommended UI is one compose/send flow. Publish exactly one immutable message reference and the human message in one transaction; include attachment identity/content fingerprint in command idempotency semantics. Retrying the same publish command returns its original receipt. Changed attachment/body under an existing key conflicts. Do not send an ordinary text message first and then ambiguously attach to it.
+- ConversationTransaction holds private current authority and canonical identity. Extend a narrow typed attachment publication/read operation rather than duplicating or widening allocator access. Existing human context/projection and COL-04's Bot-author union must remain compatible. Coordinate shared conversation API/BFF/rendering with COL-04.
+- Human reads require current workspace/conversation membership (direct conversations remain creator-private) and current non-tombstoned message eligibility. Public Bot IDs are never an identity assertion. Internal group-Bot reads require the exact active GroupBotTransaction, original message creation sequence at/above its retained lower bound, current grantor authority and no permanent closure. Neither a cursor nor re-invitation combines old grants. A narrow same-transaction message-eligibility method avoids scanning an arbitrary context page to authorize an object.
+- Metadata, previews and downloads share the same message authorization; check before I/O and again before returning bytes where membership/tombstone/purge may change during I/O. Return same-origin private/no-store/nosniff responses with safe disposition/filename, exact validated media type and bounded body. Never trust the MIME header to render active content.
+
+## Purge and downstream artifacts
+
+- Message tombstones and object purge are separate states. Current public reads must deny tombstoned/purging messages even while bytes await cleanup. ATT-01 must implement and verify a narrowly authorized message-attachment purge operation, with a defined product/internal entry point and content-free audit, not merely declare that a future ticket will delete bytes.
+- Register every original/derived object under immutable workspace/conversation/message provenance. Use retryable claimed cleanup that records progress and cannot expand to a neighboring workspace. Delete the original and every registered derivative; only after all deletes succeed report completion and remove content-bearing attachment metadata such as filenames/hashes. A retry cannot re-publish a purging object.
+- This ticket supplies message-level attachment handlers and tests; DATA-03/04 later integrate them into the versioned workspace purge manifest, and DATA-05 alone activates final workspace retention purge. Do not rewrite published append-only ledger migrations or introduce early workspace purge.
+
+## Verification and integration
+
+Actual API RED→GREEN must cover valid attach/reload/download, idempotency/payload conflict, current human/direct/group-grant history authorization, before/after removal and re-invitation boundaries, MIME/size/checksum/interruption failures, audit rollback, storage-unavailable cleanup retry and two-workspace purge isolation. Preserve browser upload/download journeys and service reconstruction evidence. Register dedicated actual PostgreSQL/S3/Compose gates as needed; local skips are not service success.
+
+Migration0015 is accepted, BOT-06 owns provisional0016 and COL-04 provisional0017. Coordinate the next unpublished number with root before final gate; never create placeholder predecessor migrations. Do not change root progress/index or publish independently.

@@ -23,6 +23,7 @@ export interface WorkspaceRepository {
 }
 export class InvalidWorkspaceInputError extends Error {}
 export class WorkspaceAccessError extends Error {}
+export class WorkspaceNotFoundError extends WorkspaceAccessError {}
 
 function readSettings(input: unknown): { name: string; description: string } {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -63,7 +64,7 @@ export class WorkspaceService {
 
   async get(userId: string, workspaceId: string): Promise<Workspace> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(workspaceId))
-      throw new WorkspaceAccessError();
+      throw new WorkspaceNotFoundError();
     const workspace = await this.repository.find(userId, workspaceId);
     if (!workspace) throw new WorkspaceAccessError();
     return workspace;

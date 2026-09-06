@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { newDb } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../../src/app.js';
@@ -20,7 +20,7 @@ describe('workspace boundaries', () => {
   });
 
   async function fixture() {
-    const database = newDb({ noAstCoverageCheck: true });
+    const database = newMemDatabase();
     const pool = new (database.adapters.createPg().Pool)();
     cleanup.push(() => pool.end());
     await migrateDatabase(pool, { installPostgresGuards: false });
@@ -135,7 +135,7 @@ describe('workspace boundaries', () => {
         url: `/api/v1/workspaces/${workspaceId}`,
         headers: { ...requestHeaders, 'x-workspace-role': 'owner' },
       });
-      expect(rejected.statusCode).toBe(404);
+      expect(rejected.statusCode).toBe(403);
       expect(rejected.body).not.toMatch(/private content/);
       const rejectedWrite = await app.inject({
         method: 'PATCH',
@@ -143,7 +143,7 @@ describe('workspace boundaries', () => {
         headers: requestHeaders,
         payload: { name: 'Hacked', description: 'Hacked', role: 'owner' },
       });
-      expect(rejectedWrite.statusCode).toBe(404);
+      expect(rejectedWrite.statusCode).toBe(403);
     }
     const own = await app.inject({
       url: `/api/v1/workspaces/${first.json().workspace.id}`,
@@ -162,7 +162,7 @@ describe('workspace boundaries', () => {
     expect(
       (await app.inject({ url: `/api/v1/workspaces/${first.json().workspace.id}`, headers }))
         .statusCode,
-    ).toBe(404);
+    ).toBe(403);
   });
 
   it('updates material settings only for workspace owners or administrators and audits changed fields without content', async () => {
@@ -201,7 +201,7 @@ describe('workspace boundaries', () => {
         headers,
         payload: { name: 'Hacked', description: 'Hacked', role: 'owner' },
       });
-      expect([401, 404]).toContain(denied.statusCode);
+      expect(denied.statusCode).toBe(403);
       expect(
         (
           await pool.query('SELECT name, description FROM workspaces WHERE id = $1', [

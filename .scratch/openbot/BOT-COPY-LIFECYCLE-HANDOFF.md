@@ -1,0 +1,24 @@
+# Bot copy and lifecycle handoff
+
+Recommended decisions for BOT-05 and BOT-06. Their six acceptance criteria each remain authoritative; implementation starts only after BOT-03 and BOT-04 are accepted.
+
+## BOT-05 copy
+
+- Preview is read-only and requires current explicit Bot user access or higher plus workspace membership. Show exactly the included identity, instructions, execution limits, permitted avatar and model binding; explicitly exclude credentials, ACLs, history, memory, file contents and prior audits. A group grant/discovery alone never opens it.
+- Preview records the current source version. Confirmation reauthorizes the source and validates that precondition before creating anything; if it changed, return a conflict and reload the preview. Perform fresh actual-actor provider admission for the retained binding or an explicitly selected accessible replacement. An unavailable source binding needs a replacement, never a silent fallback.
+- In one transaction create a fresh stable Bot ID, version1, current pointer, private visibility and the actor's sole owner ACL. Use fresh actor/time and safe copy provenance (source Bot/version and destination IDs); do not duplicate source audits. Validation, admission or mandatory-audit failure rolls back every new record. Cancellation does not mutate.
+- Prefer an authorized reference to the source version's same-workspace live avatar, rather than duplicating bytes outside the atomic copy transaction. Validate the source's retained reference under its fresh Bot authorization and the live object row lock. Insert the new version's reference atomically. The existing schema/read path supports this and cleanup already counts references across all Bots.
+- Coordinate with the reviewed BOT-03 guard: for configuration edits/restoration, a same-Bot retained version reference plus same-workspace live object is the authority. The object's originating bot_id is provenance and can differ after an explicitly authorized copy. New upload/avatar-kind writes still require the object's owning Bot. Public edit/create forms continue rejecting arbitrary object IDs; only this narrow copy operation can admit a new cross-Bot reference.
+- Regressions must cover copied avatar reads, later edit/restore/replacement/removal, source changes and cleanup retaining other Bots' references. Concurrent source changes/revocation and audit rollback need real PostgreSQL evidence. No model credentials, storage keys or sensitive headers enter copies/receipts/audits.
+
+## BOT-06 lifecycle
+
+- Use explicit active, archived and deleted state outside immutable BotConfiguration versions. Only current owners intersected with workspace membership can archive, activate, delete or undo. Configuration restoration cannot change lifecycle.
+- Archive rejects every fresh use admission through the shared lockAuthorizedBot(use) seam, including indirect grantor use, while authorized configuration/history remains readable. Use selectors exclude archived/deleted Bots; default lists exclude deleted Bots.
+- Provide an explicit owner-authorized deleted recovery view so undo is reachable. Historical references keep stable IDs and a deleted-identity marker. Retain all configuration/avatar references; this ticket performs no physical erasure.
+- Recommended grace period is30 days, using injected clock/duration for tests. Record the deletion time and recovery deadline once for that deletion cycle; repeating deletion cannot extend it. Preserve whether the prior state was active or archived. Undo-to-active and archived-to-active require fresh enabled/use/verified Basic/exact-model admission for the actual owner performing the transition.
+- Lock before sampling time/state. Effective repeated lifecycle requests return the persisted state without duplicate audits; concurrent requests cannot create contradictory states. Undo after the deadline is denied. Record only content-free state/provenance audit metadata in the mutation transaction.
+- Group grants remain stored when a Bot is archived and continue counting toward the8 unclosed-grant cap; their use is denied until the Bot is active again. Permanent grant closure is reserved for grantor ACL/workspace loss or explicit removal, as defined by COL-02.
+- Add an ordered unpublished migration with precise runtime column grants, adapting strict API/BFF DTOs and selectors without weakening existing admission. Coordinate numbering with the active COL-02 migration0015 and never rewrite published0014. Test all owner/non-owner transitions, deadline/no-op behavior, current provider admission, queued authorization, rollback and historical references.
+
+Both tickets preserve exact Origin, bounded transport and response deadlines, safe errors, current CAS/authority, and neutral unknown-mutation-result handling. Keep main unchanged and merge only reviewed, verified candidates through the dedicated merger.

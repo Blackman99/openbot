@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { newDb } from 'pg-mem';
+import { newMemDatabase } from '../helpers/provider-database.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PostgresAuthRepository } from '../../src/auth/postgres-auth-repository.js';
@@ -23,7 +23,7 @@ describe('local authentication service', () => {
   });
 
   it('atomically claims an owner, default workspace, owner membership, session, and safe audits', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -100,7 +100,7 @@ describe('local authentication service', () => {
   });
 
   it('rejects an already claimed instance before performing another expensive password hash', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -130,7 +130,7 @@ describe('local authentication service', () => {
   });
 
   it('signs the local owner in with a fresh digest-only session and rejects invalid credentials', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -185,7 +185,7 @@ describe('local authentication service', () => {
   });
 
   it('authenticates only a known, unexpired, unrevoked digest-backed session', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -219,7 +219,7 @@ describe('local authentication service', () => {
   });
 
   it('atomically revokes a session and appends exactly one safe sign-out audit event', async () => {
-    const memoryDatabase = newDb({ noAstCoverageCheck: true });
+    const memoryDatabase = newMemDatabase();
     const adapter = memoryDatabase.adapters.createPg();
     const pool = new adapter.Pool();
     pools.push(pool);
@@ -248,5 +248,28 @@ describe('local authentication service', () => {
     );
     expect(audits.rows).toEqual([{ actor_user_id: ids[0], metadata: {} }]);
     expect(JSON.stringify(audits.rows)).not.toMatch(/cookie|secret|session|token/iu);
+  });
+  it('keeps sessions and password sign-in valid after losing the final workspace membership', async () => {
+    const memoryDatabase = newMemDatabase();
+    const pool = new (memoryDatabase.adapters.createPg().Pool)();
+    pools.push(pool);
+    await migrateDatabase(pool, { installPostgresGuards: false });
+    const auth = new LocalAuthService(new PostgresAuthRepository(pool), {
+      hashPassword: async () => '$argon2id$test-only',
+      verifyPassword: async () => true,
+    });
+    const owner = await auth.setup({
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      password: 'correct horse battery staple',
+    });
+    await pool.query('DELETE FROM workspace_memberships WHERE user_id = $1', [owner.user.id]);
+    await expect(auth.getSession(owner.sessionToken)).resolves.toEqual({
+      user: owner.user,
+      workspace: null,
+    });
+    await expect(
+      auth.signIn({ email: 'ada@example.com', password: 'correct horse battery staple' }),
+    ).resolves.toMatchObject({ user: owner.user, workspace: null });
   });
 });

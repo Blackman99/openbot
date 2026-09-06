@@ -2,7 +2,7 @@
 sequence: 3
 id: WS-01
 title: "Create and switch isolated workspaces"
-status: complete-with-external-verification
+status: complete
 blocked_by:
   - AUTH-01
 labels:
@@ -55,11 +55,15 @@ Authenticated users can create and switch workspaces while the server enforces w
 
 The local criteria above have API/pg-mem/SSR/browser evidence. Actual PostgreSQL transaction rollback and the deployed runtime role remain external release evidence, extending the existing FND-01-E1/AUTH-01-E1 gate:
 
-- [ ] Run the added real PostgreSQL workspace isolation and failed-audit rollback test in `apps/api/tests/postgres/auth-runtime.test.ts`.
-- [ ] Run the Compose workspace create/update smoke using `openbot_runtime`; verify UPDATE is granted only on workspace name/description and audit content is safe.
+- [x] Run the added real PostgreSQL workspace isolation and failed-audit rollback test in `apps/api/tests/postgres/auth-runtime.test.ts`.
+- [x] Run the Compose workspace create/update smoke using `openbot_runtime`; verify UPDATE is granted only on workspace name/description and audit content is safe.
 
 These tests are wired into Verify and were not executed locally because PostgreSQL/Docker are unavailable. `REL-01` must close this external evidence before release.
 
 ## Downstream handoff
 
 WS-03 must separate authenticated identity from workspace membership: the inherited AUTH query currently joins memberships, so losing the last membership makes the session resolve as anonymous. Member/role mutation must also share the workspace row-lock protocol used by settings updates. This ticket does not add member removal or role-management endpoints.
+
+## External evidence closed — 2026-09-05
+
+Verify [33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) on published commit `ecc586a8d3b528728af2308e247c4c3c4fb75ffa` passed `code`, `postgres-auth`, and `compose` at 02:17 UTC. This closes the previously documented external verification exception. The complete gate includes real PostgreSQL atomicity/rollback, workspace isolation, append-only audit enforcement, fresh and upgrade Compose startup, runtime-role/password/session checks, workspace changes, and database outage behavior. Earlier unavailable-runtime notes above describe the local implementation stage; they no longer block this ticket.

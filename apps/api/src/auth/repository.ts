@@ -35,8 +35,8 @@ export interface LocalCredentialRecord {
   userDisplayName: string;
   userEmail: string;
   userId: string;
-  workspaceId: string;
-  workspaceName: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
 }
 
 export interface CreateSessionRecord {
@@ -51,8 +51,8 @@ export interface SessionIdentityRecord {
   userDisplayName: string;
   userEmail: string;
   userId: string;
-  workspaceId: string;
-  workspaceName: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
 }
 
 export interface RevokeSessionRecord {

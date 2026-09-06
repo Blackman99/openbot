@@ -115,4 +115,23 @@ describe('production status composition', () => {
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: { code: 'authentication_required' } });
   });
+  it('composes scoped API token management and public authentication independently of sessions', async () => {
+    const app = buildProductionApp({
+      database: { connectionString: 'postgresql://openbot:openbot@127.0.0.1:1/openbot' },
+      databaseConnectionTimeoutMs: 100,
+      databaseQueryTimeoutMs: 100,
+      logger: false,
+      setupTokenDigest: 'a'.repeat(64),
+      webOrigin: 'http://localhost:3000',
+    });
+    apps.push(app);
+    expect((await app.inject({ url: '/v1/me' })).statusCode).toBe(401);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/workspaces/11111111-1111-1111-1111-111111111111/api-tokens',
+        })
+      ).statusCode,
+    ).toBe(401);
+  });
 });

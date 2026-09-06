@@ -1,3 +1,116 @@
+import { ATTACHMENT_SCHEMA_STATEMENTS, ATTACHMENT_POSTGRES_GUARDS } from '../attachments/schema.js';
+import { MEMORY_SCHEMA_STATEMENTS, MEMORY_POSTGRES_GUARDS } from '../memories/schema.js';
+import {
+  PRIVATE_MEMORY_SCHEMA_STATEMENTS,
+  PRIVATE_MEMORY_POSTGRES_GUARDS,
+} from '../memories/promotion-schema.js';
+import {
+  EXTRACTION_SCHEMA_STATEMENTS,
+  EXTRACTION_POSTGRES_GUARDS,
+} from '../memories/extraction-schema.js';
+import {
+  CANDIDATE_SCHEMA_STATEMENTS,
+  CANDIDATE_POSTGRES_GUARDS,
+} from '../memories/candidate-schema.js';
+import { REVIEW_SCHEMA_STATEMENTS, REVIEW_POSTGRES_GUARDS } from '../memories/review-schema.js';
+import {
+  MEMORY_LIFECYCLE_SCHEMA_STATEMENTS,
+  MEMORY_LIFECYCLE_POSTGRES_GUARDS,
+} from '../memories/lifecycle-schema.js';
+import {
+  KNOWLEDGE_SCHEMA_STATEMENTS,
+  KNOWLEDGE_POSTGRES_GUARDS,
+  RUN_KNOWLEDGE_SCHEMA_STATEMENTS,
+  RUN_KNOWLEDGE_POSTGRES_GUARDS,
+  KNOWLEDGE_FTS_SCHEMA_STATEMENTS,
+  KNOWLEDGE_FTS_POSTGRES_STATEMENTS,
+} from '../knowledge/schema.js';
+import {
+  DOCUMENT_KNOWLEDGE_SCHEMA_STATEMENTS,
+  DOCUMENT_KNOWLEDGE_POSTGRES_GUARDS,
+} from '../knowledge/document-schema.js';
+import { ROUTING_SCHEMA_STATEMENTS, ROUTING_POSTGRES_GUARDS } from '../routing/schema.js';
+import { BOT_POSTGRES_GUARD_STATEMENTS, BOT_SCHEMA_STATEMENTS } from '../bots/schema.js';
+import { BOT_LIFECYCLE_SCHEMA_STATEMENTS } from '../bots/lifecycle-schema.js';
+import { AVATAR_SCHEMA_STATEMENTS, AVATAR_POSTGRES_GUARDS } from '../bots/avatar-schema.js';
+import {
+  CONVERSATION_SCHEMA_STATEMENTS,
+  CONVERSATION_POSTGRES_GUARDS,
+} from '../conversations/schema.js';
+import { OIDC_SCHEMA_STATEMENTS } from '../oidc/schema.js';
+import {
+  PERSONAL_MODEL_CONNECTION_STATEMENTS,
+  WORKSPACE_MODEL_CONNECTION_STATEMENTS,
+} from '../providers/schema.js';
+import { GROUP_SCHEMA_STATEMENTS } from '../groups/schema.js';
+import { GROUP_BOT_SCHEMA_STATEMENTS, GROUP_BOT_POSTGRES_GUARDS } from '../group-bots/schema.js';
+import { TASK_SCHEMA_STATEMENTS, TASK_POSTGRES_GUARDS } from '../tasks/schema.js';
+import { TASK_RETRY_SCHEMA_STATEMENTS, TASK_RETRY_POSTGRES_GUARDS } from '../tasks/retry-schema.js';
+import {
+  TASK_CANCELLATION_SCHEMA_STATEMENTS,
+  TASK_CANCELLATION_POSTGRES_PREFLIGHT,
+} from '../tasks/cancellation-schema.js';
+import { TASK_CANCELLATION_POSTGRES_GUARDS } from '../tasks/cancellation-postgres.js';
+import {
+  COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS,
+  COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION,
+} from '../tasks/col10-postgres-guards.js';
+import {
+  COL08_PAUSE_POSTGRES_GUARDS,
+  COL08_PAUSE_REQUIRES_VERSION,
+} from '../tasks/col08-postgres-guards.js';
+import {
+  CONVERSATION_STREAM_SCHEMA_STATEMENTS,
+  CONVERSATION_STREAM_POSTGRES_GUARDS,
+} from '../conversations/stream-schema.js';
+import { TASK_PAUSE_SCHEMA_STATEMENTS } from '../tasks/pause-schema.js';
+import { TASK_RESUME_SCHEMA_STATEMENTS } from '../tasks/resume-schema.js';
+import {
+  TASK_RECOVERY_POSTGRES_PREFLIGHT,
+  TASK_RECOVERY_SCHEMA_STATEMENTS,
+} from '../tasks/recovery-schema.js';
+import {
+  COL11_RECOVERY_POSTGRES_GUARDS,
+  COL11_RECOVERY_REQUIRES_VERSION,
+} from '../tasks/col11-postgres-guards.js';
+import { TASK_EXECUTION_LIMIT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-schema.js';
+import { TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS } from '../tasks/execution-limit-enforcement-schema.js';
+import { TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS } from '../tasks/execution-concurrency-schema.js';
+import { TEAM_TEMPLATE_SCHEMA_STATEMENTS } from '../groups/team-template-schema.js';
+import { TASK_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/delegate-schema.js';
+import { TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS } from '../tasks/parallel-delegation-schema.js';
+import { TASK_HANDOFF_SCHEMA_STATEMENTS } from '../tasks/handoff-schema.js';
+import { TASK_TOKEN_USAGE_SCHEMA_STATEMENTS } from '../tasks/token-usage-schema.js';
+import { TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS } from '../tasks/token-budget-schema.js';
+import { MODEL_PRICE_SCHEMA_STATEMENTS } from '../tasks/model-price-schema.js';
+import { TASK_COST_BUDGET_SCHEMA_STATEMENTS } from '../tasks/cost-budget-schema.js';
+import { TASK_COST_GRANT_SCHEMA_STATEMENTS } from '../tasks/cost-grant-schema.js';
+import { TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS } from '../tasks/human-request-schema.js';
+import { GROUP_ARCHIVE_SCHEMA_STATEMENTS } from '../groups/archive-schema.js';
+import { WORKSPACE_EVENT_STREAM_SCHEMA_STATEMENTS } from '../events/schema.js';
+import {
+  ROUTINE_OCCURRENCE_SCHEMA_STATEMENTS,
+  ROUTINE_SCHEMA_STATEMENTS,
+} from '../routines/schema.js';
+import {
+  COL12_ENFORCEMENT_POSTGRES_GUARDS,
+  COL12_ENFORCEMENT_REQUIRES_VERSION,
+  COL12_LIMITS_POSTGRES_GUARDS,
+  COL12_LIMITS_REQUIRES_VERSION,
+} from '../tasks/col12-postgres-guards.js';
+import {
+  COL14_DELEGATION_POSTGRES_GUARDS,
+  COL14_DELEGATION_REQUIRES_VERSION,
+} from '../tasks/col14-postgres-guards.js';
+import {
+  COL16_HANDOFF_POSTGRES_GUARDS,
+  COL16_HANDOFF_REQUIRES_VERSION,
+} from '../tasks/col16-postgres-guards.js';
+import {
+  COL19_HUMAN_REQUEST_POSTGRES_GUARDS,
+  COL19_HUMAN_REQUEST_REQUIRES_VERSION,
+} from '../tasks/col19-postgres-guards.js';
+
 interface MigrationConnection {
   query(statement: string, parameters?: unknown[]): Promise<unknown>;
   release(): void;
@@ -9,6 +122,7 @@ export interface MigrationPool {
 
 export interface MigrationOptions {
   installPostgresGuards?: boolean;
+  throughVersion?: string;
 }
 
 export const POSTGRES_AUDIT_APPEND_ONLY_STATEMENTS = [
@@ -124,6 +238,289 @@ const MIGRATIONS = [
     ],
     postgresStatements: [],
   },
+  {
+    version: '0004_personal_model_connections',
+    statements: PERSONAL_MODEL_CONNECTION_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0005_workspace_invitations',
+    statements: [
+      `CREATE TABLE workspace_invitations (
+      id UUID PRIMARY KEY,
+      workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('administrator', 'member')),
+      token_digest CHAR(64) NOT NULL UNIQUE,
+      created_by_user_id UUID NOT NULL REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL CHECK (expires_at > created_at),
+      revoked_at TIMESTAMPTZ,
+      consumed_at TIMESTAMPTZ,
+      consumed_by_user_id UUID REFERENCES users(id),
+      CHECK ((consumed_at IS NULL AND consumed_by_user_id IS NULL) OR (consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL)),
+      CHECK (consumed_at IS NULL OR revoked_at IS NULL)
+    )`,
+      'CREATE INDEX workspace_invitations_workspace_idx ON workspace_invitations(workspace_id)',
+    ],
+    postgresStatements: [],
+  },
+  {
+    version: '0006_workspace_member_provenance',
+    statements: [
+      'ALTER TABLE workspace_memberships ADD COLUMN invitation_id UUID REFERENCES workspace_invitations(id)',
+      `UPDATE workspace_memberships SET invitation_id = workspace_invitations.id FROM workspace_invitations WHERE workspace_invitations.workspace_id = workspace_memberships.workspace_id AND workspace_invitations.consumed_by_user_id = workspace_memberships.user_id AND workspace_invitations.consumed_at = workspace_memberships.created_at`,
+    ],
+    postgresStatements: [],
+  },
+  { version: '0007_oidc', statements: OIDC_SCHEMA_STATEMENTS, postgresStatements: [] },
+  {
+    version: '0008_workspace_model_connections',
+    statements: WORKSPACE_MODEL_CONNECTION_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0009_groups_and_human_memberships',
+    statements: GROUP_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0010_scoped_api_tokens',
+    statements: [
+      `CREATE TABLE api_tokens (
+        id UUID PRIMARY KEY,
+        creator_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL CHECK (name <> ''),
+        scopes TEXT[] NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL CHECK (expires_at > created_at),
+        last_used_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        token_digest CHAR(64) NOT NULL UNIQUE
+      )`,
+      'CREATE INDEX api_tokens_creator_workspace_idx ON api_tokens(creator_user_id, workspace_id)',
+    ],
+    postgresStatements: [],
+  },
+  {
+    version: '0011_model_capability_policies',
+    statements: [
+      "ALTER TABLE personal_model_connections ADD COLUMN policy JSONB NOT NULL DEFAULT '{}'::jsonb",
+      "ALTER TABLE workspace_model_connections ADD COLUMN policy JSONB NOT NULL DEFAULT '{}'::jsonb",
+    ],
+    postgresStatements: [],
+  },
+  {
+    version: '0012_bot_identity',
+    statements: BOT_SCHEMA_STATEMENTS,
+    postgresStatements: BOT_POSTGRES_GUARD_STATEMENTS,
+  },
+  {
+    version: '0013_bot_avatar_objects',
+    statements: AVATAR_SCHEMA_STATEMENTS,
+    postgresStatements: AVATAR_POSTGRES_GUARDS,
+  },
+  {
+    version: '0014_conversation_ledger',
+    statements: CONVERSATION_SCHEMA_STATEMENTS,
+    postgresStatements: CONVERSATION_POSTGRES_GUARDS,
+  },
+  {
+    version: '0015_group_bot_grants',
+    statements: GROUP_BOT_SCHEMA_STATEMENTS,
+    postgresStatements: GROUP_BOT_POSTGRES_GUARDS,
+  },
+  {
+    version: '0016_bot_lifecycle',
+    statements: BOT_LIFECYCLE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0017_single_bot_tasks',
+    statements: TASK_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_POSTGRES_GUARDS,
+  },
+  {
+    version: '0018_conversation_attachments',
+    statements: ATTACHMENT_SCHEMA_STATEMENTS,
+    postgresStatements: ATTACHMENT_POSTGRES_GUARDS,
+  },
+  {
+    version: '0019_conversation_delivery',
+    statements: CONVERSATION_STREAM_SCHEMA_STATEMENTS,
+    postgresStatements: CONVERSATION_STREAM_POSTGRES_GUARDS,
+  },
+  {
+    version: '0020_group_source_memories',
+    statements: MEMORY_SCHEMA_STATEMENTS,
+    postgresStatements: MEMORY_POSTGRES_GUARDS,
+  },
+  {
+    version: '0021_deterministic_group_routing',
+    statements: ROUTING_SCHEMA_STATEMENTS,
+    postgresStatements: ROUTING_POSTGRES_GUARDS,
+  },
+  {
+    version: '0022_failed_task_retries',
+    statements: TASK_RETRY_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_RETRY_POSTGRES_GUARDS,
+  },
+  {
+    version: '0023_task_tree_cancellation',
+    postgresBeforeStatements: TASK_CANCELLATION_POSTGRES_PREFLIGHT,
+    // The retained current-Run constraint must validate the legacy root
+    // backfill immediately, before its following ALTER TABLE statements.
+    postgresImmediateConstraints: ['tasks_current_run_required'],
+    statements: TASK_CANCELLATION_SCHEMA_STATEMENTS,
+    postgresStatements: TASK_CANCELLATION_POSTGRES_GUARDS,
+  },
+  {
+    version: '0024_bot_private_memories',
+    statements: PRIVATE_MEMORY_SCHEMA_STATEMENTS,
+    postgresStatements: PRIVATE_MEMORY_POSTGRES_GUARDS,
+  },
+  {
+    version: '0025_memory_extraction_jobs',
+    statements: EXTRACTION_SCHEMA_STATEMENTS,
+    postgresStatements: EXTRACTION_POSTGRES_GUARDS,
+  },
+  {
+    version: '0026_memory_candidates',
+    statements: CANDIDATE_SCHEMA_STATEMENTS,
+    postgresStatements: CANDIDATE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0027_memory_candidate_review',
+    statements: REVIEW_SCHEMA_STATEMENTS,
+    postgresStatements: REVIEW_POSTGRES_GUARDS,
+  },
+  {
+    version: '0028_scoped_knowledge',
+    statements: KNOWLEDGE_SCHEMA_STATEMENTS,
+    postgresStatements: KNOWLEDGE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0029_run_knowledge_references',
+    statements: RUN_KNOWLEDGE_SCHEMA_STATEMENTS,
+    postgresStatements: RUN_KNOWLEDGE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0030_knowledge_full_text_search',
+    statements: KNOWLEDGE_FTS_SCHEMA_STATEMENTS,
+    postgresStatements: KNOWLEDGE_FTS_POSTGRES_STATEMENTS,
+  },
+  {
+    version: '0031_memory_revisions_and_revocations',
+    statements: MEMORY_LIFECYCLE_SCHEMA_STATEMENTS,
+    postgresStatements: MEMORY_LIFECYCLE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0032_document_knowledge_locators',
+    statements: DOCUMENT_KNOWLEDGE_SCHEMA_STATEMENTS,
+    postgresStatements: DOCUMENT_KNOWLEDGE_POSTGRES_GUARDS,
+  },
+  {
+    version: '0033_task_pause_checkpoints',
+    statements: TASK_PAUSE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0034_task_resume_commands',
+    statements: TASK_RESUME_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0035_task_run_recovery',
+    statements: TASK_RECOVERY_SCHEMA_STATEMENTS,
+    postgresBeforeStatements: TASK_RECOVERY_POSTGRES_PREFLIGHT,
+    postgresStatements: [],
+  },
+  {
+    version: '0036_task_execution_limit_snapshots',
+    statements: TASK_EXECUTION_LIMIT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0037_task_execution_limit_enforcement',
+    statements: TASK_EXECUTION_LIMIT_ENFORCEMENT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0038_task_run_concurrency_holds',
+    statements: TASK_RUN_CONCURRENCY_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0039_group_imported_routines',
+    statements: TEAM_TEMPLATE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0040_task_delegation',
+    statements: TASK_DELEGATION_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0041_task_token_usage',
+    statements: TASK_TOKEN_USAGE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0042_task_token_budgets',
+    statements: TASK_TOKEN_BUDGET_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0043_task_parallel_delegations',
+    statements: TASK_PARALLEL_DELEGATION_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0044_task_lead_handoffs',
+    statements: TASK_HANDOFF_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0045_model_price_versions',
+    statements: MODEL_PRICE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0046_task_cost_budgets',
+    statements: TASK_COST_BUDGET_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0047_task_human_requests',
+    statements: TASK_HUMAN_REQUEST_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0048_task_cost_grants',
+    statements: TASK_COST_GRANT_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0049_group_archive',
+    statements: GROUP_ARCHIVE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0050_workspace_event_stream',
+    statements: WORKSPACE_EVENT_STREAM_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0051_routines',
+    statements: ROUTINE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
+  {
+    version: '0052_routine_occurrences',
+    statements: ROUTINE_OCCURRENCE_SCHEMA_STATEMENTS,
+    postgresStatements: [],
+  },
 ] as const;
 
 export const MIGRATION_VERSIONS = MIGRATIONS.map(({ version }) => version);
@@ -140,8 +537,14 @@ function assertOrderedMigrationPrefix(appliedVersions: readonly string[]): void 
 
 export async function migrateDatabase(
   database: MigrationPool,
-  { installPostgresGuards = true }: MigrationOptions = {},
+  { installPostgresGuards = true, throughVersion }: MigrationOptions = {},
 ): Promise<void> {
+  const targetIndex =
+    throughVersion === undefined
+      ? MIGRATIONS.length - 1
+      : MIGRATIONS.findIndex(({ version }) => version === throughVersion);
+  if (targetIndex < 0) throw new Error('Unknown migration target');
+  const targetMigrations = MIGRATIONS.slice(0, targetIndex + 1);
   const connection = await database.connect();
 
   try {
@@ -162,16 +565,30 @@ export async function migrateDatabase(
     )) as { rows: Array<{ version: string }> };
     const appliedVersionList = appliedResult.rows.map(({ version }) => version);
     assertOrderedMigrationPrefix(appliedVersionList);
+    if (appliedVersionList.length > targetMigrations.length)
+      throw new Error('Database is newer than the requested migration target');
     const appliedVersions = new Set(appliedVersionList);
 
-    for (const migration of MIGRATIONS) {
+    for (const migration of targetMigrations) {
       if (appliedVersions.has(migration.version)) {
         continue;
       }
 
+      if (installPostgresGuards && 'postgresBeforeStatements' in migration) {
+        for (const statement of migration.postgresBeforeStatements)
+          await connection.query(statement);
+      }
+      const immediateConstraints =
+        installPostgresGuards && 'postgresImmediateConstraints' in migration
+          ? migration.postgresImmediateConstraints.map((name) => `"${name}"`).join(',')
+          : undefined;
+      if (immediateConstraints)
+        await connection.query(`SET CONSTRAINTS ${immediateConstraints} IMMEDIATE`);
       for (const statement of migration.statements) {
         await connection.query(statement);
       }
+      if (immediateConstraints)
+        await connection.query(`SET CONSTRAINTS ${immediateConstraints} DEFERRED`);
       if (installPostgresGuards) {
         for (const statement of migration.postgresStatements) {
           await connection.query(statement);
@@ -180,6 +597,70 @@ export async function migrateDatabase(
       await connection.query('INSERT INTO openbot_schema_migrations (version) VALUES ($1)', [
         migration.version,
       ]);
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL10_AUTOMATIC_ATTEMPT_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL10_AUTOMATIC_ATTEMPT_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL08_PAUSE_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL08_PAUSE_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL11_RECOVERY_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL11_RECOVERY_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL12_LIMITS_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL12_LIMITS_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL12_ENFORCEMENT_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL12_ENFORCEMENT_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL14_DELEGATION_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL14_DELEGATION_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL16_HANDOFF_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL16_HANDOFF_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
+    }
+    if (
+      installPostgresGuards &&
+      targetMigrations.some(({ version }) => version === COL19_HUMAN_REQUEST_REQUIRES_VERSION)
+    ) {
+      for (const statement of COL19_HUMAN_REQUEST_POSTGRES_GUARDS) {
+        await connection.query(statement);
+      }
     }
     await connection.query('COMMIT');
   } catch (error) {

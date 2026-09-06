@@ -152,6 +152,80 @@ try {
     REVOKE ALL ON audit_events FROM openbot_runtime;
     REVOKE ALL ON FUNCTION reject_audit_event_mutation() FROM PUBLIC;
     REVOKE ALL ON FUNCTION reject_audit_event_mutation() FROM openbot_runtime;
+    REVOKE ALL ON FUNCTION reject_bot_version_mutation() FROM PUBLIC;
+    REVOKE ALL ON FUNCTION reject_bot_version_mutation() FROM openbot_runtime;
+    REVOKE ALL ON FUNCTION reject_conversation_event_mutation() FROM PUBLIC;
+    REVOKE ALL ON FUNCTION reject_conversation_event_mutation() FROM openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_conversation_subject() FROM PUBLIC;
+    REVOKE ALL ON FUNCTION protect_conversation_subject() FROM openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_group_bot_grant() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_run() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_bot_output() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_group_memory() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_version() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_memory_reference() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_bot_private_memory() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_promotion_confirmation() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_private_memory_reference() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_source_manifest() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_source_manifest_item() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_extraction_job() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate_revision() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate_update() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_approved_memory_fact() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate_decision() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_memory_candidate_review_confirmation() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_approved_fact_reference() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_knowledge_document() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_knowledge_chunk() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_run_knowledge_reference() FROM PUBLIC, openbot_runtime;
+    DO $revoke_optional_knowledge_fts$
+    BEGIN
+      IF to_regprocedure('knowledge_fts_match(text,text)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION knowledge_fts_match(TEXT, TEXT) FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('knowledge_fts_rank(text,text)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION knowledge_fts_rank(TEXT, TEXT) FROM PUBLIC, openbot_runtime;
+      END IF;
+    END
+    $revoke_optional_knowledge_fts$;
+    REVOKE ALL ON FUNCTION protect_group_routing_setting() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_routing_decision() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION protect_task_retry_command() FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION require_current_task_run() FROM PUBLIC, openbot_runtime;
+    DO $revoke_optional_task_tree$
+    BEGIN
+      IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION lock_task_ancestry(UUID) FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_tree()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_tree() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_cancel_command()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_cancel_command() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_run_cancellation()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_run_cancellation() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('require_cancelled_task_tree()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION require_cancelled_task_tree() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_partial_output()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_partial_output() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('require_task_partial_checkpoint()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION require_task_partial_checkpoint() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('fence_cancelled_task_publication()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION fence_cancelled_task_publication() FROM PUBLIC, openbot_runtime;
+      END IF;
+      IF to_regprocedure('protect_task_execution_limit_snapshot()') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION protect_task_execution_limit_snapshot() FROM PUBLIC, openbot_runtime;
+      END IF;
+    END
+    $revoke_optional_task_tree$;
 
     GRANT USAGE ON SCHEMA public TO openbot_runtime;
     GRANT SELECT ON openbot_schema_migrations TO openbot_runtime;
@@ -160,13 +234,252 @@ try {
       local_credentials,
       workspaces,
       workspace_memberships,
+      workspace_invitations,
+      groups,
+      group_memberships,
+      bots,
+      bot_versions,
+      bot_acl,
+      conversations,
+      conversation_events,
+      group_bot_grants,
+      tasks,
+      task_runs,
+      task_retry_commands,
       instance_claims,
       sessions
     TO openbot_runtime;
+    DO $grant_optional_task_tree$
+    BEGIN
+      IF to_regclass('task_cancel_commands') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_cancel_commands, task_run_cancellations TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_pause_commands') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_pause_commands, task_run_pauses, task_run_pause_checkpoints TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_resume_commands') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_resume_commands TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_run_leases') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_run_leases, task_run_recovery_receipts TO openbot_runtime;
+        GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_execution_limit_snapshots') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_execution_limit_snapshots TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_execution_limit_warnings') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_execution_limit_warnings TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_execution_limit_grants') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_execution_limit_grants TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_run_concurrency_holds') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON task_run_concurrency_holds TO openbot_runtime;
+      END IF;
+      IF to_regclass('group_imported_routines') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON group_imported_routines TO openbot_runtime;
+      END IF;
+      IF to_regclass('routines') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON routines TO openbot_runtime;
+      END IF;
+      IF to_regclass('routine_occurrences') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON routine_occurrences TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_delegations') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_delegations TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_handoffs') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_handoffs TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('task_has_handoff_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('task_has_human_decision_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('task_has_handoff_lead_change(uuid,uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_handoff_lead_change(uuid,uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_handoff_lead_change(uuid,uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_token_ledgers') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_token_reservations') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime;
+      END IF;
+      IF to_regclass('model_price_versions') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON model_price_versions TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_cost_ledgers') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_cost_reservations') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_human_requests') IS NOT NULL THEN
+        GRANT SELECT, INSERT, UPDATE ON task_human_requests TO openbot_runtime;
+      END IF;
+      IF to_regclass('task_human_decisions') IS NOT NULL THEN
+        GRANT SELECT, INSERT ON task_human_decisions TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('task_has_child_result_receipt(uuid,uuid,uuid)') IS NOT NULL THEN
+        REVOKE ALL ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+        GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('lock_task_ancestry(uuid)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('lock_task_ancestry(uuid,boolean)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID, BOOLEAN) TO openbot_runtime;
+      END IF;
+    END
+    $grant_optional_task_tree$;
     GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime;
     GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime;
     GRANT UPDATE (name, description) ON workspaces TO openbot_runtime;
+    GRANT UPDATE (current_version_id, visibility, lifecycle_state, deleted_at, recovery_deadline, pre_deleted_state) ON bots TO openbot_runtime;
+    GRANT UPDATE (role) ON bot_acl TO openbot_runtime;
+    GRANT DELETE ON bot_acl TO openbot_runtime;
+    GRANT UPDATE (last_sequence) ON conversations TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON conversation_delivery_events TO openbot_runtime;
+    GRANT SELECT, INSERT, UPDATE ON workspace_event_streams TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON workspace_events TO openbot_runtime;
+    GRANT SELECT, INSERT ON conversation_delivery_state, task_run_streams, task_run_delivery_receipts TO openbot_runtime;
+    GRANT UPDATE (floor, retained_count, retained_bytes) ON conversation_delivery_state TO openbot_runtime;
+    GRANT UPDATE (delivered_bytes) ON task_run_streams TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON task_run_partial_outputs TO openbot_runtime;
+    GRANT UPDATE (body, end_byte, updated_at) ON task_run_partial_outputs TO openbot_runtime;
+    GRANT UPDATE (status) ON tasks TO openbot_runtime;
+    GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
+      provider_scope_id, connection_id, connection_revision, protocol, model_id, price_version_id, input_tokens,
+      output_tokens, usage_estimated, error_code, output_event_id) ON task_runs TO openbot_runtime;
+    GRANT UPDATE (close_event_id, close_sequence, closed_at, closure_reason) ON group_bot_grants TO openbot_runtime;
+    GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
+    GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;
+    GRANT UPDATE (role) ON group_memberships TO openbot_runtime;
+    GRANT UPDATE (name, description, visibility, updated_at, archived_at, max_concurrent_runs) ON groups TO openbot_runtime;
+    GRANT DELETE ON workspace_memberships TO openbot_runtime;
+    GRANT SELECT, INSERT, DELETE ON oidc_identities, oidc_transactions TO openbot_runtime;
+    GRANT UPDATE (consumed_at) ON oidc_transactions TO openbot_runtime;
+    GRANT DELETE ON group_memberships TO openbot_runtime;
+    GRANT SELECT, INSERT ON attachment_objects, message_purges TO openbot_runtime;
+    GRANT SELECT, INSERT ON group_memories, memory_versions, run_memory_references,
+      memory_promotion_intents, bot_private_memories, memory_promotion_confirmations,
+      run_private_memory_references, run_source_manifests, run_source_manifest_items,
+      memory_extraction_jobs, memory_candidates, memory_candidate_revisions,
+      memory_candidate_sources, approved_memory_facts, memory_candidate_decisions,
+      memory_candidate_review_intents, memory_candidate_review_confirmations,
+      run_approved_fact_references, knowledge_documents, knowledge_chunks, run_knowledge_references,
+      memory_revisions, memory_revocation_events TO openbot_runtime;
+    DO $grant_optional_knowledge_fts$
+    BEGIN
+      IF to_regprocedure('knowledge_fts_match(text,text)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION knowledge_fts_match(TEXT, TEXT) TO openbot_runtime;
+      END IF;
+      IF to_regprocedure('knowledge_fts_rank(text,text)') IS NOT NULL THEN
+        GRANT EXECUTE ON FUNCTION knowledge_fts_rank(TEXT, TEXT) TO openbot_runtime;
+      END IF;
+    END
+    $grant_optional_knowledge_fts$;
+    GRANT UPDATE (status, attempt_count, available_at, claim_token, lease_expires_at, last_error_code, updated_at)
+      ON memory_extraction_jobs TO openbot_runtime;
+    GRANT UPDATE (status, current_revision) ON memory_candidates TO openbot_runtime;
+    GRANT SELECT, INSERT ON group_routing_settings, task_routing_decisions TO openbot_runtime;
+    GRANT UPDATE (default_grant_id,revision,updated_by_user_id,updated_at) ON group_routing_settings TO openbot_runtime;
+    GRANT UPDATE (state, message_id, filename, media_type, bytes, sha256, lease_until, cleanup_after, attempts, cleanup_token) ON attachment_objects TO openbot_runtime;
+    GRANT UPDATE (state, completed_at) ON message_purges TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION purge_conversation_message(UUID,UUID,UUID) TO openbot_runtime;
+    GRANT SELECT, INSERT ON avatar_objects, bot_avatar_references TO openbot_runtime;
+    GRANT UPDATE (state, lease_until, cleanup_after, attempts, cleanup_token) ON avatar_objects TO openbot_runtime;
+    CREATE OR REPLACE FUNCTION task_has_automatic_continuation_receipt(target uuid, run_id uuid, actor uuid)
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM audit_events a
+        JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+        JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+        WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+          AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+          AND a.metadata->>'origin' IN ('provider_retry','model_fallback','worker_recovery')
+          AND previous.status='failed' AND previous.attempt::bigint+1=next_run.attempt
+      )
+    $$;
+    CREATE OR REPLACE FUNCTION task_queued_audit_metadata(run_id uuid)
+    RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT a.metadata FROM audit_events a
+      WHERE a.event_type='task.queued' AND a.metadata->>'runId'=run_id::text
+      ORDER BY a.occurred_at DESC LIMIT 1
+    $$;
+    CREATE OR REPLACE FUNCTION task_queued_audit_metadata_for_task(target uuid)
+    RETURNS SETOF jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT a.metadata FROM audit_events a
+      WHERE a.event_type='task.queued' AND a.metadata->>'taskId'=target::text
+    $$;
+    CREATE OR REPLACE FUNCTION task_run_has_listed_continuation_binding(target uuid, run_id uuid, scope_kind text, scope_id uuid, connection_id uuid, model_id text)
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM tasks t
+        JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+        JOIN audit_events a ON a.event_type='task.queued'
+          AND a.metadata->>'runId'=run_id::text AND a.metadata->>'taskId'=t.id::text
+          AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+        WHERE t.id=target
+          AND a.metadata->'binding'->'scope'->>'kind'=scope_kind
+          AND a.metadata->'binding'->'scope'->>'id'=scope_id::text
+          AND a.metadata->'binding'->>'connectionId'=connection_id::text
+          AND a.metadata->'binding'->>'modelId'=model_id
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(COALESCE(v.configuration->'fallbackBindings','[]'::jsonb)) fb
+            WHERE fb->'scope'->>'kind'=scope_kind AND fb->'scope'->>'id'=scope_id::text
+              AND fb->>'connectionId'=connection_id::text AND fb->>'modelId'=model_id
+          )
+      )
+    $$;
+    REVOKE ALL ON FUNCTION task_has_automatic_continuation_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_queued_audit_metadata(uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_queued_audit_metadata_for_task(uuid) FROM PUBLIC, openbot_runtime;
+    REVOKE ALL ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) FROM PUBLIC, openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_has_automatic_continuation_receipt(uuid,uuid,uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_queued_audit_metadata_for_task(uuid) TO openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_run_has_listed_continuation_binding(uuid,uuid,text,uuid,uuid,text) TO openbot_runtime;
+    CREATE OR REPLACE FUNCTION task_has_manual_resume_receipt(target uuid, run_id uuid, actor uuid)
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM audit_events a
+        JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+        JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+        WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+          AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+          AND a.metadata->>'origin'='manual_resume'
+          AND previous.status='paused' AND previous.attempt::bigint+1=next_run.attempt
+      )
+    $$;
+    REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) TO openbot_runtime;
+    CREATE OR REPLACE FUNCTION task_has_budget_grant_receipt(target uuid, run_id uuid, actor uuid)
+    RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
+      SELECT EXISTS (
+        SELECT 1 FROM audit_events a
+        JOIN task_runs previous ON previous.task_id=target AND previous.id::text=a.metadata->>'sourceRunId'
+        JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
+        JOIN task_execution_limit_grants g ON g.task_id=target AND g.actor_user_id=actor
+        WHERE a.event_type='task.queued' AND a.actor_user_id=actor
+          AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
+          AND a.metadata->>'origin'='budget_grant'
+          AND previous.status IN ('failed','paused')
+          AND previous.attempt::bigint+1=next_run.attempt
+      )
+    $$;
+    REVOKE ALL ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime;
+    GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime;
     GRANT INSERT ON audit_events TO openbot_runtime;
+    GRANT SELECT, INSERT ON api_tokens TO openbot_runtime;
+    GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON personal_model_connections TO openbot_runtime;
+    GRANT SELECT, INSERT ON workspace_model_connections TO openbot_runtime;
+    GRANT UPDATE (metadata, sealed_credentials, revision, updated_at, policy) ON workspace_model_connections TO openbot_runtime;
   `);
   await client.query('COMMIT');
   transactionOpen = false;

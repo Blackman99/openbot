@@ -1,0 +1,76 @@
+export const observedAt = '2030-01-02T00:00:00.000Z';
+const supported = {
+  status: 'supported' as const,
+  source: 'probe' as const,
+  evidence: 'passed',
+  actorUserId: 'owner-1',
+  observedAt,
+  lastProbedAt: observedAt,
+  manualBadge: false,
+};
+const unknown = {
+  status: 'unknown' as const,
+  source: 'unknown' as const,
+  evidence: 'not_probed',
+  actorUserId: null,
+  observedAt: null,
+  lastProbedAt: null,
+  manualBadge: false,
+};
+export const catalog = {
+  id: 'model-1',
+  name: 'Chat model',
+  protocol: 'openai-responses' as const,
+  modelId: 'model',
+  enabled: true,
+  canManage: true,
+  revision: 4,
+  generation: 0,
+  basic: true,
+  collaboration: false,
+  enhanced: { visionInput: false },
+  flags: {
+    text: supported,
+    streaming: supported,
+    toolCalling: {
+      ...supported,
+      status: 'unsupported' as const,
+      evidence: 'provider_action_unsupported',
+    },
+    structuredOutput: unknown,
+    visionInput: unknown,
+  },
+  lastProbedAt: observedAt,
+  fallbacks: { requiredCapability: 'collaboration' as const, connectionIds: ['model-2'] },
+};
+export const preview = {
+  primaryId: 'model-1',
+  requiredCapability: 'collaboration' as const,
+  selectedId: 'model-2',
+  order: ['model-2'],
+  candidates: [
+    {
+      id: 'model-1',
+      eligible: false,
+      reason: 'capability_unknown' as const,
+      name: 'Chat model',
+      protocol: 'openai-responses' as const,
+      modelId: 'model',
+      revision: 4,
+      basic: true,
+      collaboration: false,
+    },
+    {
+      id: 'model-2',
+      eligible: true,
+      reason: null,
+      name: 'Team model',
+      protocol: 'anthropic-messages' as const,
+      modelId: 'other',
+      revision: 2,
+      basic: true,
+      collaboration: true,
+    },
+    { id: 'deleted-model', eligible: false, reason: 'not_accessible' as const },
+  ],
+};

@@ -2,7 +2,7 @@
 sequence: 63
 id: DEPLOY-01
 title: "Single-host Docker Compose baseline"
-status: blocked
+status: in-progress
 blocked_by:
   - FND-01
   - WS-03
@@ -34,11 +34,17 @@ A clean single host can start the web/API, worker, PostgreSQL, and durable file 
 - [ ] Startup runs database migrations once, and a migration failure prevents readiness.
 - [ ] Restarting every container preserves users, workspaces, task state, and attachments.
 - [ ] Without public services configured, the deployment can use a model endpoint on its private network.
-- [ ] Telemetry is disabled by default, and an idle smoke test makes no unnecessary outbound request.
-- [ ] The default Compose configuration does not expose PostgreSQL or worker-only ports on the public host interface.
+- [x] Telemetry is disabled by default, and an idle smoke test makes no unnecessary outbound request.
+- [x] The default Compose configuration does not expose PostgreSQL or worker-only ports on the public host interface.
 
 ## Non-goals
 
 - Kubernetes
 - High-availability cluster
 - Multi-region deployment
+
+
+## Verification
+
+- Tester direction PASS on AC5–6 at tip `f8ebc51` / Verify `34036429806` (20/20 green).
+- Second TDD slice contracts AC1–4 Compose/README behavior (worker healthcheck, migrate-once gate, named-volume durability, private-network model wiring). Leave AC1–4 unchecked until Tester proves the live stack.

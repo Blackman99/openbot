@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -30,6 +31,19 @@ describe('repository contract', () => {
     );
 
     expect(environment).toEqual({
+      OBJECT_STORAGE_BACKEND: 'local',
+      OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
+      OBJECT_STORAGE_S3_ENDPOINT: '',
+      OBJECT_STORAGE_S3_BUCKET: '',
+      OBJECT_STORAGE_S3_REGION: 'us-east-1',
+      OBJECT_STORAGE_S3_ACCESS_KEY_ID: '',
+      OBJECT_STORAGE_S3_SECRET_ACCESS_KEY: '',
+      OBJECT_STORAGE_S3_SESSION_TOKEN: '',
+      BODY_SIZE_LIMIT: '65M',
+      ATTACHMENT_MAX_BYTES: '10485760',
+      OIDC_ISSUER_URL: '',
+      OIDC_CLIENT_ID: '',
+      OIDC_CLIENT_SECRET: '',
       API_BASE_URL: 'http://localhost:3001',
       API_HOST: '127.0.0.1',
       API_PORT: '3001',
@@ -39,7 +53,12 @@ describe('repository contract', () => {
       OPENBOT_ALLOW_INSECURE_LOCAL_PASSWORD: 'true',
       OPENBOT_BIND_ADDRESS: '127.0.0.1',
       OPENBOT_DATABASE_PASSWORD: 'replace-runtime-me',
+      OPENBOT_PROVIDER_ALLOWED_HOSTS: 'api.openai.com',
+      OPENBOT_PROVIDER_ALLOWED_SCHEMES: 'https',
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: '',
+      OPENBOT_PROVIDER_PRIVATE_CIDRS: '',
       OPENBOT_SETUP_TOKEN: 'local-only-openbot-setup-token-change-me',
+      OPENBOT_TELEMETRY: 'false',
       POSTGRES_DB: 'openbot',
       POSTGRES_PASSWORD: 'replace-me',
       POSTGRES_PORT: '5432',
@@ -50,7 +69,7 @@ describe('repository contract', () => {
     });
   });
 
-  it('defines dependency-ordered PostgreSQL, migration, API, and web services', () => {
+  it('defines dependency-ordered PostgreSQL, migration, API, worker, and web services', () => {
     const compose = parse(readFileSync(`${repositoryRoot}/compose.yaml`, 'utf8')) as {
       networks?: Record<string, { internal?: boolean } | null>;
       services: Record<
@@ -74,14 +93,30 @@ describe('repository contract', () => {
       >;
     };
 
-    expect(Object.keys(compose.services)).toEqual(['postgres', 'migrate', 'api', 'web']);
+    expect(Object.keys(compose.services)).toEqual(['postgres', 'migrate', 'api', 'worker', 'web']);
     expect(compose.services.postgres?.image).toBe('postgres:17.11-alpine');
-    expect(compose.services.postgres?.healthcheck?.test.join(' ')).toContain('pg_isready');
+    expect(compose.services.postgres?.healthcheck?.test[0]).toBe('CMD-SHELL');
     expect(compose.services.migrate?.depends_on?.postgres?.condition).toBe('service_healthy');
     expect(compose.services.api?.depends_on).toEqual({
       migrate: { condition: 'service_completed_successfully' },
     });
-    expect(compose.services.web?.depends_on?.api?.condition).toBe('service_started');
+    expect(compose.services.worker?.depends_on).toEqual({
+      migrate: { condition: 'service_completed_successfully' },
+    });
+    expect(compose.services.worker?.command).toEqual(['node', 'dist/worker.js']);
+    expect(compose.services.worker?.ports).toBeUndefined();
+    expect(compose.services.api?.volumes).toEqual(['object-data:/var/lib/openbot/objects']);
+    expect(compose.services.worker?.volumes).toEqual(['object-data:/var/lib/openbot/objects']);
+    expect(compose.services.worker?.environment).not.toHaveProperty('OPENBOT_SETUP_TOKEN');
+    expect(compose.services.worker?.environment).toMatchObject({
+      PGUSER: 'openbot_runtime',
+      PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',
+      OPENBOT_PROVIDER_ENCRYPTION_KEY: '${OPENBOT_PROVIDER_ENCRYPTION_KEY:-}',
+      OPENBOT_TELEMETRY: '${OPENBOT_TELEMETRY:-false}',
+      OBJECT_STORAGE_BACKEND: '${OBJECT_STORAGE_BACKEND:-local}',
+      OBJECT_STORAGE_LOCAL_PATH: '/var/lib/openbot/objects',
+    });
+    expect(compose.services.web?.depends_on?.api?.condition).toBe('service_healthy');
     expect(compose.services.web?.environment).toMatchObject({
       ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
       WEB_ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
@@ -102,6 +137,7 @@ describe('repository contract', () => {
     expect(compose.services.postgres?.networks).toEqual(['data']);
     expect(compose.services.migrate?.networks).toEqual(['data']);
     expect(compose.services.api?.networks).toEqual(['data', 'frontend']);
+    expect(compose.services.worker?.networks).toEqual(['data', 'frontend']);
     expect(compose.services.web?.networks).toEqual(['frontend']);
     expect(compose.networks?.data).toEqual({ internal: true });
     expect(compose.networks?.frontend).toBeNull();
@@ -118,6 +154,7 @@ describe('repository contract', () => {
     expect(compose.services.api?.environment).toMatchObject({
       API_HOST: '0.0.0.0',
       OPENBOT_SETUP_TOKEN: '${OPENBOT_SETUP_TOKEN:?set OPENBOT_SETUP_TOKEN in .env}',
+      OPENBOT_TELEMETRY: '${OPENBOT_TELEMETRY:-false}',
       PGDATABASE: '${POSTGRES_DB:-openbot}',
       PGHOST: 'postgres',
       PGPASSWORD: '${OPENBOT_DATABASE_PASSWORD:?set OPENBOT_DATABASE_PASSWORD in .env}',
@@ -129,7 +166,7 @@ describe('repository contract', () => {
       ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
       WEB_ORIGIN: '${WEB_ORIGIN:-http://localhost:3000}',
     });
-    for (const serviceName of ['migrate', 'api']) {
+    for (const serviceName of ['migrate', 'api', 'worker']) {
       expect(compose.services[serviceName]?.environment).not.toHaveProperty('DATABASE_URL');
     }
     expect(compose.services.migrate?.command).toEqual([
@@ -141,7 +178,7 @@ describe('repository contract', () => {
       './infra/postgres/grant-runtime-privileges.mjs:/app/grant-runtime-privileges.mjs:ro',
     );
 
-    for (const serviceName of ['migrate', 'api', 'web']) {
+    for (const serviceName of ['migrate', 'api', 'worker', 'web']) {
       expect(compose.services[serviceName]?.read_only).toBe(true);
       expect(compose.services[serviceName]?.cap_drop).toEqual(['ALL']);
       expect(compose.services[serviceName]?.security_opt).toContain('no-new-privileges:true');
@@ -175,6 +212,120 @@ describe('repository contract', () => {
     expect(grants).toContain('Runtime database privilege provisioning failed');
     expect(grants).not.toContain('throw error');
     expect(grants).toContain('GRANT INSERT ON audit_events TO openbot_runtime');
+    expect(grants).not.toContain('GRANT SELECT, INSERT ON audit_events TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_queued_audit_metadata(uuid) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'REVOKE ALL ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) FROM PUBLIC, openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_manual_resume_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid)')");
+    expect(grants).toContain("to_regclass('task_cancel_commands')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_cancel_commands, task_run_cancellations TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_pause_commands')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_pause_commands, task_run_pauses, task_run_pause_checkpoints TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_resume_commands')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_resume_commands TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_run_leases')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_run_leases, task_run_recovery_receipts TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_execution_limit_snapshots')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_execution_limit_snapshots TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regprocedure('protect_task_execution_limit_snapshot()')");
+    expect(grants).toContain(
+      'REVOKE ALL ON FUNCTION protect_task_execution_limit_snapshot() FROM PUBLIC, openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_execution_limit_warnings')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_execution_limit_warnings TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_execution_limit_grants')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT ON task_execution_limit_grants TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_run_concurrency_holds')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_run_concurrency_holds TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_delegations')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_delegations TO openbot_runtime');
+    expect(grants).toContain("to_regclass('task_handoffs')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_handoffs TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_handoff_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_human_decision_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_token_ledgers')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_token_ledgers TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_token_reservations')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_token_reservations TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('model_price_versions')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON model_price_versions TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_cost_ledgers')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_cost_reservations')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_human_requests')");
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_human_requests TO openbot_runtime',
+    );
+    expect(grants).toContain("to_regclass('task_human_decisions')");
+    expect(grants).toContain('GRANT SELECT, INSERT ON task_human_decisions TO openbot_runtime');
+    expect(grants).toContain('price_version_id');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_child_result_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
+    expect(grants).not.toContain('GRANT UPDATE (execution_policy)');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION task_has_budget_grant_receipt(uuid,uuid,uuid) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
+    );
+    expect(grants).toContain("origin' IN ('provider_retry','model_fallback','worker_recovery')");
+    expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid,boolean)')");
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID, BOOLEAN) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID) TO openbot_runtime',
+    );
+    expect(grants).toContain('$revoke_optional_knowledge_fts$');
+    expect(grants).toContain('$grant_optional_knowledge_fts$');
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION knowledge_fts_match(TEXT, TEXT) TO openbot_runtime',
+    );
+    expect(grants).toContain(
+      'GRANT EXECUTE ON FUNCTION knowledge_fts_rank(TEXT, TEXT) TO openbot_runtime',
+    );
+    expect(grants).toContain('GRANT SELECT, INSERT ON api_tokens TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT UPDATE (last_used_at, revoked_at) ON api_tokens TO openbot_runtime',
+    );
+    expect(grants).not.toContain('GRANT UPDATE ON api_tokens');
+    expect(grants).not.toContain('GRANT DELETE ON api_tokens');
     expect(grants).toContain('GRANT UPDATE (name, description) ON workspaces TO openbot_runtime');
     expect(grants).toContain('GRANT UPDATE (owner_user_id) ON instance_claims TO openbot_runtime');
     expect(grants).toContain('GRANT UPDATE (revoked_at) ON sessions TO openbot_runtime');
@@ -276,17 +427,93 @@ describe('repository contract', () => {
     expect(workflow).toContain(
       "has_column_privilege('openbot_runtime', 'sessions', 'token_digest', 'UPDATE')",
     );
+    expect(workflow).toContain(
+      'archived_at:true,created_at:false,created_by_user_id:false,description:true,execution_policy:false,id:false,max_concurrent_runs:true,name:true,updated_at:true,visibility:true,workspace_id:false',
+    );
     expect(workflow).toContain("UPDATE audit_events SET metadata = '{}'::jsonb");
     expect(workflow).toContain('DELETE FROM audit_events');
     expect(workflow).toContain('TRUNCATE TABLE audit_events');
     expect(workflow).toContain("has_table_privilege('openbot_runtime', 'audit_events', 'UPDATE')");
     expect(workflow).toContain("has_database_privilege('openbot_runtime', current_database()");
     expect(workflow).toContain("has_function_privilege('openbot_runtime'");
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'workspaces', 'execution_policy', 'UPDATE')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_run_concurrency_holds', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'tasks', 'execution_policy', 'UPDATE')",
+    );
+    expect(workflow).toContain('0038_task_run_concurrency_holds');
+    expect(workflow).toContain('0039_group_imported_routines');
+    expect(workflow).toContain('0040_task_delegation');
+    expect(workflow).toContain('0041_task_token_usage');
+    expect(workflow).toContain('0042_task_token_budgets');
+    expect(workflow).toContain('0043_task_parallel_delegations');
+    expect(workflow).toContain('0044_task_lead_handoffs');
+    expect(workflow).toContain('0045_model_price_versions');
+    expect(workflow).toContain('0046_task_cost_budgets');
+    expect(workflow).toContain('0047_task_human_requests');
+    expect(workflow).toContain('0048_task_cost_grants');
+    expect(workflow).toContain('0049_group_archive');
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'group_imported_routines', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_delegations', 'SELECT')",
+    );
+    expect(workflow).toContain("has_table_privilege('openbot_runtime', 'task_handoffs', 'SELECT')");
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_token_ledgers', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_token_reservations', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'model_price_versions', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_cost_ledgers', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_cost_reservations', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_human_requests', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_table_privilege('openbot_runtime', 'task_human_decisions', 'SELECT')",
+    );
+    expect(workflow).toContain(
+      "has_function_privilege('openbot_runtime', 'protect_task_execution_limit_snapshot()', 'EXECUTE')",
+    );
     expect(workflow).toContain('DROP TRIGGER audit_events_append_only ON audit_events');
     expect(workflow).toContain('docker compose stop postgres');
     expect(workflow).toContain('503');
     expect(workflow).toContain('"status":"unavailable"');
     expect(workflow).toContain('data-state="unavailable"');
     expect(workflow).toContain('docker compose down --volumes');
+    expect(workflow).toContain('compose-task-concurrency:');
+    expect(workflow).toContain('OPENBOT_LIMITS_SMOKE_STAGE=concurrency');
+    expect(() =>
+      execFileSync(process.execPath, ['--check', '--input-type=module'], {
+        input: readFileSync(`${repositoryRoot}/infra/verify-task-limits.mjs`),
+      }),
+    ).not.toThrow();
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-seed');
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-waiting');
+    expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-due');
+    expect(readFileSync(`${repositoryRoot}/infra/compose-tasks.yaml`, 'utf8')).toContain(
+      "OPENBOT_COL10_RETRY_DELAY_MS: '60000'",
+    );
+    expect(() =>
+      execFileSync(process.execPath, ['--check', '--input-type=module'], {
+        input: readFileSync(`${repositoryRoot}/infra/verify-tasks.mjs`),
+      }),
+    ).not.toThrow();
   });
 });

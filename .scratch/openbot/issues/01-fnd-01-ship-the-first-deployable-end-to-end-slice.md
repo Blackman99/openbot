@@ -2,14 +2,12 @@
 sequence: 1
 id: FND-01
 title: "Ship the first deployable end-to-end slice"
-status: complete-with-external-verification
+status: complete
 blocked_by: []
 labels:
   - foundation
   - vertical-slice
   - mvp
-  - in-review
-  - external-verification
 ---
 
 # FND-01 — Ship the first deployable end-to-end slice
@@ -24,7 +22,7 @@ None. This ticket is ready for implementation.
 
 ## Acceptance criteria
 
-- [ ] After copying the required values from .env.example, docker compose up --build starts the web app, API, and PostgreSQL.
+- [x] After copying the required values from .env.example, docker compose up --build starts the web app, API, and PostgreSQL.
 - [x] GET /api/v1/status returns HTTP 200 and a stable, versioned payload when the database is reachable and migrations are current.
 - [x] The status API returns HTTP 503 when the database is unavailable or migrations are stale, and the UI shows an unavailable state.
 - [x] The status page calls the live HTTP API, with Playwright coverage for ready and unavailable states.
@@ -43,3 +41,7 @@ None. This ticket is ready for implementation.
 - Background workers or scheduling
 - Kubernetes, high availability, or multi-region deployment
 - A general-purpose UI component library
+
+## External evidence closed — 2026-09-05
+
+Verify [33938570768](https://github.com/Blackman99/openbot/actions/runs/33938570768) on published commit `ecc586a8d3b528728af2308e247c4c3c4fb75ffa` passed `code`, `postgres-auth`, and `compose` at 02:17 UTC. This closes the previously documented external verification exception. The complete gate includes real PostgreSQL atomicity/rollback, workspace isolation, append-only audit enforcement, fresh and upgrade Compose startup, runtime-role/password/session checks, workspace changes, and database outage behavior. Earlier unavailable-runtime notes above describe the local implementation stage; they no longer block this ticket.
