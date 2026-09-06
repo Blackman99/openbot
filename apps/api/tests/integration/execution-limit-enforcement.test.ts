@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { modelFailure } from '../../src/providers/failure-taxonomy.js';
 import { TaskAccessError, TaskConflictError } from '../../src/tasks/errors.js';
+import { writeNextAttempt } from '../../src/tasks/next-attempt.js';
 import { taskFixture } from '../helpers/task-fixture.js';
 
 describe('COL-12 soft warnings and hard waiting_budget', () => {
@@ -109,7 +110,7 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
     ).toHaveLength(1);
   });
 
-  it('aborts the provider stream at the snapshotted duration and holds waiting_budget', async () => {
+  it('aborts the provider stream at the snapshotted duration and keeps a failed timeout', async () => {
     let current = new Date('2026-09-06T03:00:00.000Z');
     const { f, task } = await budgetTask(
       () => current,
@@ -129,14 +130,14 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
         })
         .runOnce(),
     ).toBe(true);
-    const held = await f.tasks.get(
+    const timedOut = await f.tasks.get(
       f.owner.user.id,
       f.owner.workspace.id,
       f.conversation.id,
       task.id,
     );
-    expect(held).toMatchObject({
-      status: 'waiting_budget',
+    expect(timedOut).toMatchObject({
+      status: 'failed',
       runCount: 1,
       runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
     });
@@ -160,21 +161,49 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
         await f.pool.query(
           `SELECT event_type, metadata->>'error' AS error
            FROM audit_events
-           WHERE metadata->>'taskId'=$1 AND event_type IN ('task.failed','task.waiting_budget')
+           WHERE metadata->>'taskId'=$1 AND event_type IN ('task.failed','task.waiting_budget','task.limit.warning')
            ORDER BY occurred_at, event_type`,
           [task.id],
         )
       ).rows,
-    ).toEqual([
-      { event_type: 'task.failed', error: 'execution_timeout' },
-      { event_type: 'task.waiting_budget', error: null },
-    ]);
-    expect((await warnings(f.pool, task.id)).map((row) => row.dimension)).toEqual(['duration']);
+    ).toEqual([{ event_type: 'task.failed', error: 'execution_timeout' }]);
+    expect(await warnings(f.pool, task.id)).toEqual([]);
     expect(
       (await f.pool.query('SELECT count(*)::int AS n FROM task_runs WHERE task_id=$1', [task.id]))
         .rows[0],
     ).toEqual({ n: 1 });
     expect(await f.worker(async () => ({ events: [], raw: '' })).runOnce()).toBe(false);
+  });
+
+  it('keeps claim and execution timeouts failed without a waiting_budget warning', async () => {
+    let current = new Date('2026-09-06T03:30:00.000Z');
+    const { f, task } = await budgetTask(() => current, { maxDurationSeconds: 1 });
+    expect(
+      await f
+        .worker(async () => {
+          current = new Date(current.getTime() + 1_000);
+          return {
+            events: [{ type: 'text', text: 'Late draft.' }],
+            raw: '',
+          };
+        })
+        .runOnce(),
+    ).toBe(true);
+    expect(
+      await f.tasks.get(f.owner.user.id, f.owner.workspace.id, f.conversation.id, task.id),
+    ).toMatchObject({
+      status: 'failed',
+      runs: [{ status: 'failed', error: 'execution_timeout' }],
+    });
+    expect(await warnings(f.pool, task.id)).toEqual([]);
+    expect(
+      (
+        await f.pool.query(
+          "SELECT event_type FROM audit_events WHERE metadata->>'taskId'=$1 AND event_type IN ('task.waiting_budget','task.limit.warning')",
+          [task.id],
+        )
+      ).rows,
+    ).toEqual([]);
   });
 
   it('grants one selected cap idempotently, resumes waiting_budget, and leaves snapshot plus usage unchanged', async () => {
@@ -197,6 +226,53 @@ describe('COL-12 soft warnings and hard waiting_budget', () => {
         })
         .runOnce(),
     ).toBe(true);
+    const timedOut = await f.tasks.get(
+      f.owner.user.id,
+      f.owner.workspace.id,
+      f.conversation.id,
+      task.id,
+    );
+    expect(timedOut).toMatchObject({
+      status: 'failed',
+      runs: [{ status: 'failed', error: 'execution_timeout' }],
+    });
+    const binding = {
+      scope: { kind: 'personal' as const, id: f.owner.user.id },
+      connectionId: f.model.id,
+      modelId: f.model.modelId,
+    };
+    const connection = await f.pool.connect();
+    try {
+      await connection.query('BEGIN');
+      expect(
+        await writeNextAttempt(connection, {
+          taskId: task.id,
+          sourceRunId: timedOut.runs[0]!.id,
+          workspaceId: f.owner.workspace.id,
+          conversationId: f.conversation.id,
+          executionUserId: f.owner.user.id,
+          sourceAttempt: timedOut.runs[0]!.attempt,
+          plan: {
+            origin: 'provider_retry',
+            reason: 'provider_rate_limited',
+            binding,
+            previousBinding: binding,
+            notBefore: current,
+            delayMs: 0,
+            jitterMs: 0,
+            chainRootRunId: timedOut.runs[0]!.id,
+            previousRunId: timedOut.runs[0]!.id,
+            chainAttemptOrdinal: 2,
+            chainLimitSnapshot: 4,
+            modelAttemptOrdinal: 1,
+          },
+          now: current,
+        }),
+      ).toEqual({ scheduled: false, reason: 'budget' });
+      await connection.query('COMMIT');
+    } finally {
+      connection.release();
+    }
     const held = await f.tasks.get(
       f.owner.user.id,
       f.owner.workspace.id,

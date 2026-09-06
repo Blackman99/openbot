@@ -70,7 +70,7 @@ describe('publication deadline sampled after mandatory writes', () => {
         expect(await queue.finish(claim, { body: 'Late final.', usage: null })).toBe(true);
         expect(transactions).toEqual(['BEGIN', 'ROLLBACK', 'BEGIN', 'COMMIT']);
         expect(await f.read()).toMatchObject({
-          status: 'waiting_budget',
+          status: 'failed',
           runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
         });
         expect(
@@ -98,10 +98,7 @@ describe('publication deadline sampled after mandatory writes', () => {
       expect(deliveries).toEqual(
         kind === 'delta'
           ? []
-          : [
-              { event_type: 'task.run.updated', run_status: 'failed', delta_text: null },
-              { event_type: 'conversation.invalidated', run_status: null, delta_text: null },
-            ],
+          : [{ event_type: 'task.run.updated', run_status: 'failed', delta_text: null }],
       );
     },
   );

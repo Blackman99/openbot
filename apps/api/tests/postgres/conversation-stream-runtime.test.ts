@@ -914,15 +914,10 @@ const databaseUrl = process.env.TEST_CONVERSATION_STREAM_DATABASE_URL;
       const before = await snapshot(f);
       expect((await expireAtPublication(f, admitted, 'finish')).status).toBe('fulfilled');
       const after = await snapshot(f);
-      expect(after.ledger).toEqual([
-        ...before.ledger,
-        expect.objectContaining({ event_type: 'task.limit.warning' }),
-      ]);
+      expect(after.ledger).toEqual(before.ledger);
       expect(after.progress).toEqual(before.progress);
-      expect(Number(after.tail)).toBe(Number(before.tail) + 2);
-      expect(after.tasks).toEqual([
-        expect.objectContaining({ id: task.id, status: 'waiting_budget' }),
-      ]);
+      expect(Number(after.tail)).toBe(Number(before.tail));
+      expect(after.tasks).toEqual([expect.objectContaining({ id: task.id, status: 'failed' })]);
       expect(after.runs).toEqual([
         expect.objectContaining({
           id: admitted.runId,
@@ -934,18 +929,17 @@ const databaseUrl = process.env.TEST_CONVERSATION_STREAM_DATABASE_URL;
       expect(after.delivery).toEqual([
         ...before.delivery,
         expect.objectContaining({ run_id: admitted.runId, run_status: 'failed' }),
-        expect.objectContaining({ event_type: 'conversation.invalidated' }),
       ]);
       expect(after.receipts).toEqual([
         ...before.receipts,
         expect.objectContaining({ run_id: admitted.runId, run_status: 'failed' }),
       ]);
-      expect(after.audits).toHaveLength(before.audits.length + 3);
+      expect(after.audits).toHaveLength(before.audits.length + 1);
       expect(after.audits).toContainEqual(expect.objectContaining({ event_type: 'task.failed' }));
-      expect(after.audits).toContainEqual(
+      expect(after.audits).not.toContainEqual(
         expect.objectContaining({ event_type: 'task.limit.warning' }),
       );
-      expect(after.audits).toContainEqual(
+      expect(after.audits).not.toContainEqual(
         expect.objectContaining({ event_type: 'task.waiting_budget' }),
       );
       expect(JSON.stringify(after)).not.toContain('Expired while the completion audit waited.');

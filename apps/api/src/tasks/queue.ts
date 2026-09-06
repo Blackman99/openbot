@@ -256,7 +256,10 @@ export class TaskQueue {
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
-    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
+    // The claim deadline is the snapshotted duration cap. A timeout is a
+    // terminal Run failure, not a soft warning or successor-budget hold.
+    if (error !== 'execution_timeout')
+      await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
   }
   private async failIfRunning(
     connection: SqlConnection,
@@ -275,7 +278,8 @@ export class TaskQueue {
     ]);
     await this.audit(connection, task, 'task.failed', { error });
     await appendFailedRunState(connection, task.id, this.now);
-    await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
+    if (error !== 'execution_timeout')
+      await applyTaskExecutionLimits(connection, this.limitAccess(task), { holdIfHard: true });
     return true;
   }
   async isClaimActive(claim: TaskClaim): Promise<boolean> {

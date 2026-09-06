@@ -49,7 +49,8 @@ Soft-threshold warnings and the hard-limit gate:
 Run timeout uses the remaining snapshotted duration as the claim deadline:
 
 - `claimNext` persists `deadline_at` from remaining snapshot milliseconds after lock wait, not a later Bot-config rewrite.
-- Crossing that deadline aborts the provider stream, keeps the committed partial prefix, writes `execution_timeout` audit, and holds `waiting_budget` so no further Run starts.
+- Crossing that deadline aborts the provider stream, keeps the committed partial prefix, and writes `execution_timeout` audit. The Task and Run stay `failed`. Ordinary claim/deadline timeouts do not move the Task to `waiting_budget` and do not emit `task.limit.warning`.
+- Successor hard-holds stay behind explicit usage enforcement (`writeNextAttempt` / claim), not every timeout abort.
 
 ## Fourth landed slice
 

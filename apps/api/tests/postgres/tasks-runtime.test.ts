@@ -1515,14 +1515,18 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         }),
       ).toBe(true);
       expect(await read(f, task.id)).toMatchObject({
-        status: 'waiting_budget',
+        status: 'failed',
         runs: [
           { error: 'execution_timeout', output: null, usage: { inputTokens: 2, outputTokens: 1 } },
         ],
       });
       const stored = await snapshot(f);
-      expect(stored.events).toHaveLength(2);
-      expect(stored.events[1]).toMatchObject({ event_type: 'task.limit.warning' });
+      expect(stored.events).toHaveLength(1);
+      expect(
+        stored.events.some(
+          (event: { event_type: string }) => event.event_type === 'task.limit.warning',
+        ),
+      ).toBe(false);
     });
 
     it('reads the version after its submission lock wait and pins it across subsequent current-version changes', async () => {
@@ -2730,6 +2734,48 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
           usage: { inputTokens: 2, outputTokens: 1 },
         }),
       ).toBe(true);
+      expect(await read(f, task.id)).toMatchObject({
+        status: 'failed',
+        runCount: 1,
+        runs: [{ status: 'failed', error: 'execution_timeout', output: null }],
+      });
+      const holdConnection = await runtime.connect();
+      try {
+        await holdConnection.query('BEGIN');
+        const binding = {
+          scope: { kind: 'personal' as const, id: f.ownerId },
+          connectionId: f.model.id,
+          modelId: f.model.modelId,
+        };
+        expect(
+          await writeNextAttempt(holdConnection, {
+            taskId: task.id,
+            sourceRunId: claim!.runId,
+            workspaceId: f.workspaceId,
+            conversationId: f.conversationId,
+            executionUserId: f.ownerId,
+            sourceAttempt: 1,
+            plan: {
+              origin: 'provider_retry',
+              reason: 'provider_rate_limited',
+              binding,
+              previousBinding: binding,
+              notBefore: current,
+              delayMs: 0,
+              jitterMs: 0,
+              chainRootRunId: claim!.runId,
+              previousRunId: claim!.runId,
+              chainAttemptOrdinal: 2,
+              chainLimitSnapshot: 4,
+              modelAttemptOrdinal: 1,
+            },
+            now: current,
+          }),
+        ).toEqual({ scheduled: false, reason: 'budget' });
+        await holdConnection.query('COMMIT');
+      } finally {
+        holdConnection.release();
+      }
       expect(await read(f, task.id)).toMatchObject({
         status: 'waiting_budget',
         runCount: 1,
