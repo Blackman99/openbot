@@ -4,8 +4,8 @@ This directory contains the approved implementation backlog for the open-source 
 
 - Tickets: **67**
 - Acceptance criteria: **401**
-- Implemented and independently reviewed: **50**
-- Fully complete: **50**
+- Implemented and independently reviewed: **51**
+- Fully complete: **51**
 - Complete with external verification pending: **0**
 - Dependency graph: **acyclic**
 - Initial ready ticket: **FND-01**
@@ -72,8 +72,8 @@ This directory contains the approved implementation backlog for the open-source 
 | 48 | [API-01 — Scoped API token lifecycle](48-api-01-scoped-api-token-lifecycle.md) | complete | [WS-03](05-ws-03-manage-workspace-members-and-roles.md) |
 | 49 | [API-02 — Manage bots through the public API](49-api-02-manage-bots-through-the-public-api.md) | complete | [API-01](48-api-01-scoped-api-token-lifecycle.md), [BOT-03](14-bot-03-edit-compare-and-restore-bot-versions.md), [BOT-04](15-bot-04-grant-bot-owner-editor-and-user-permissions.md), [BOT-06](17-bot-06-archive-restore-and-soft-delete-bots.md) |
 | 50 | [API-03 — Manage groups and membership through the public API](50-api-03-manage-groups-and-membership-through-the-public-api.md) | complete | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-02](19-col-02-add-bot-membership-and-history-grants.md), [COL-03](20-col-03-store-conversations-in-an-immutable-event-ledger.md), [COL-06](23-col-06-add-deterministic-group-turn-routing.md), [COL-13](30-col-13-enforce-atomic-run-concurrency-limits.md) |
-| 51 | [API-04 — Submit, retrieve, and cancel tasks idempotently](51-api-04-submit-retrieve-and-cancel-tasks-idempotently.md) | in-progress | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-18](35-col-18-price-model-usage-and-enforce-cost-budgets.md) |
-| 52 | [API-05 — Retry tasks and resolve approvals through the public API](52-api-05-retry-tasks-and-resolve-approvals-through-the-public-api.md) | blocked | [API-04](51-api-04-submit-retrieve-and-cancel-tasks-idempotently.md), [COL-19](36-col-19-pause-tasks-for-human-input-and-approval.md) |
+| 51 | [API-04 — Submit, retrieve, and cancel tasks idempotently](51-api-04-submit-retrieve-and-cancel-tasks-idempotently.md) | complete | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-18](35-col-18-price-model-usage-and-enforce-cost-budgets.md) |
+| 52 | [API-05 — Retry tasks and resolve approvals through the public API](52-api-05-retry-tasks-and-resolve-approvals-through-the-public-api.md) | in-progress | [API-04](51-api-04-submit-retrieve-and-cancel-tasks-idempotently.md), [COL-19](36-col-19-pause-tasks-for-human-input-and-approval.md) |
 | 53 | [API-06 — Resumable, permission-scoped SSE event stream](53-api-06-resumable-permission-scoped-sse-event-stream.md) | ready-for-agent | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-05](22-col-05-stream-authorized-conversation-events-over-sse.md), [COL-07](24-col-07-cancel-task-trees-safely.md), [COL-12](29-col-12-enforce-hierarchical-execution-limits.md), [COL-19](36-col-19-pause-tasks-for-human-input-and-approval.md) |
 | 54 | [ROUT-01 — Execute one-time routines end to end](54-rout-01-execute-one-time-routines-end-to-end.md) | ready-for-agent | [API-01](48-api-01-scoped-api-token-lifecycle.md), [COL-18](35-col-18-price-model-usage-and-enforce-cost-budgets.md), [COL-19](36-col-19-pause-tasks-for-human-input-and-approval.md) |
 | 55 | [ROUT-02 — Cron routines with time-zone and overlap safety](55-rout-02-cron-routines-with-time-zone-and-overlap-safety.md) | blocked | [ROUT-01](54-rout-01-execute-one-time-routines-end-to-end.md) |

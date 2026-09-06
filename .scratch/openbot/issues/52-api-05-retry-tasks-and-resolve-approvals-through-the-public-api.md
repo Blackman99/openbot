@@ -2,7 +2,7 @@
 sequence: 52
 id: API-05
 title: "Retry tasks and resolve approvals through the public API"
-status: blocked
+status: in-progress
 blocked_by:
   - API-04
   - COL-19
