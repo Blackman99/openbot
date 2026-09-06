@@ -15,6 +15,7 @@ describe('COL-12 hierarchical execution limit resolution', () => {
       maxDurationSeconds: 300,
       maxTurns: 8,
       maxDelegationDepth: 2,
+      maxTotalTokens: 32768,
     });
     expect(resolveExecutionLimits({ task })).toEqual({
       duration: { maxDurationMs: 300_000, source: 'task' },
@@ -69,6 +70,13 @@ describe('COL-12 hierarchical execution limit resolution', () => {
     expect(() => parseExecutionPolicy({ maxTurns: 1.5 })).toThrow(TaskInputError);
     expect(() => parseExecutionPolicy({ maxDurationSeconds: 0 })).toThrow(TaskInputError);
     expect(() => parseExecutionPolicy({ maxDelegationDepth: -1 })).toThrow(TaskInputError);
-    expect(() => parseExecutionPolicy({ maxTotalTokens: 100 })).toThrow(TaskInputError);
+    expect(
+      parseExecutionPolicy({ maxTotalTokens: 100, maxInputTokens: 80, maxOutputTokens: 40 }),
+    ).toEqual({
+      maxTotalTokens: 100,
+      maxInputTokens: 80,
+      maxOutputTokens: 40,
+    });
+    expect(() => parseExecutionPolicy({ maxTotalTokens: 0 })).toThrow(TaskInputError);
   });
 });

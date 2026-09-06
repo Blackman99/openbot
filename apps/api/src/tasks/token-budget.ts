@@ -2,6 +2,10 @@ import {
   EXECUTION_LIMIT_SOFT_DENOMINATOR,
   EXECUTION_LIMIT_SOFT_NUMERATOR,
 } from './execution-limit-enforcement.js';
+import type { ExecutionLimitLayer, ExecutionLimitPolicy } from './execution-limits.js';
+
+export const TOKEN_BUDGET_LAYERS = ['workspace', 'group', 'task', 'run'] as const;
+export type TokenBudgetLayer = (typeof TOKEN_BUDGET_LAYERS)[number];
 
 export type TokenCounts = {
   inputTokens: number;
@@ -104,4 +108,68 @@ export function reconcileTokenReservation(ledger: TokenLedger, usage: TokenCount
     reserved: { inputTokens: 0, outputTokens: 0 },
     used: add(ledger.used, usage),
   };
+}
+
+export function tokenBudgetFromPolicy(policy: ExecutionLimitPolicy): TokenBudget {
+  return {
+    ...(policy.maxInputTokens !== undefined ? { maxInputTokens: policy.maxInputTokens } : {}),
+    ...(policy.maxOutputTokens !== undefined ? { maxOutputTokens: policy.maxOutputTokens } : {}),
+    ...(policy.maxTotalTokens !== undefined ? { maxTotalTokens: policy.maxTotalTokens } : {}),
+  };
+}
+
+export type TokenReservationDecision = ReturnType<typeof evaluateTokenReservation>;
+
+export function evaluateScopedTokenReservation(input: {
+  request: TokenCounts;
+  scopes: Array<{
+    kind: TokenBudgetLayer;
+    budget: TokenBudget;
+    used: TokenCounts;
+    reserved: TokenCounts;
+  }>;
+}): {
+  allowed: boolean;
+  hard: boolean;
+  soft: boolean;
+  blocked?: { kind: TokenBudgetLayer } & TokenReservationDecision;
+  warnings: Array<{ kind: TokenBudgetLayer } & TokenReservationDecision>;
+} {
+  const warnings: Array<{ kind: TokenBudgetLayer } & TokenReservationDecision> = [];
+  for (const scope of input.scopes) {
+    const decision = evaluateTokenReservation({
+      budget: scope.budget,
+      used: scope.used,
+      reserved: scope.reserved,
+      request: input.request,
+    });
+    if (decision.hard)
+      return {
+        allowed: false,
+        hard: true,
+        soft: decision.soft,
+        blocked: { kind: scope.kind, ...decision },
+        warnings,
+      };
+    if (decision.soft) warnings.push({ kind: scope.kind, ...decision });
+  }
+  return { allowed: true, hard: false, soft: warnings.length > 0, warnings };
+}
+
+export function resolveTokenBudgets(
+  layers: Partial<Record<ExecutionLimitLayer, ExecutionLimitPolicy>>,
+): Partial<Record<TokenBudgetLayer, TokenBudget>> {
+  const budgets: Partial<Record<TokenBudgetLayer, TokenBudget>> = {};
+  for (const kind of TOKEN_BUDGET_LAYERS) {
+    const policy = layers[kind];
+    if (!policy) continue;
+    const budget = tokenBudgetFromPolicy(policy);
+    if (
+      budget.maxInputTokens !== undefined ||
+      budget.maxOutputTokens !== undefined ||
+      budget.maxTotalTokens !== undefined
+    )
+      budgets[kind] = budget;
+  }
+  return budgets;
 }

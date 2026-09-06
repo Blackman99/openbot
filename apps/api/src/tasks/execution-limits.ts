@@ -16,6 +16,9 @@ export interface ExecutionLimitPolicy {
   maxDelegationDepth?: number;
   maxHandoffs?: number;
   maxConcurrentRuns?: number;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxTotalTokens?: number;
 }
 
 export interface ResolvedExecutionLimits {
@@ -31,6 +34,9 @@ const POLICY_KEYS = [
   'maxDelegationDepth',
   'maxHandoffs',
   'maxConcurrentRuns',
+  'maxInputTokens',
+  'maxOutputTokens',
+  'maxTotalTokens',
 ] as const;
 
 const SPECIFICITY: readonly ExecutionLimitLayer[] = ['run', 'task', 'group', 'workspace'];
@@ -71,6 +77,18 @@ export function parseExecutionPolicy(value: unknown): ExecutionLimitPolicy {
     if (!integer(value.maxConcurrentRuns, 1)) throw new TaskInputError();
     policy.maxConcurrentRuns = value.maxConcurrentRuns;
   }
+  if ('maxInputTokens' in value) {
+    if (!integer(value.maxInputTokens, 1)) throw new TaskInputError();
+    policy.maxInputTokens = value.maxInputTokens;
+  }
+  if ('maxOutputTokens' in value) {
+    if (!integer(value.maxOutputTokens, 1)) throw new TaskInputError();
+    policy.maxOutputTokens = value.maxOutputTokens;
+  }
+  if ('maxTotalTokens' in value) {
+    if (!integer(value.maxTotalTokens, 1)) throw new TaskInputError();
+    policy.maxTotalTokens = value.maxTotalTokens;
+  }
   return policy;
 }
 
@@ -79,6 +97,7 @@ export function taskPolicyFromBotLimits(limits: BotLimits): ExecutionLimitPolicy
     maxDurationSeconds: limits.maxDurationSeconds,
     maxTurns: limits.maxTurns,
     maxDelegationDepth: limits.maxDelegationDepth,
+    maxTotalTokens: limits.maxTotalTokens,
   };
 }
 

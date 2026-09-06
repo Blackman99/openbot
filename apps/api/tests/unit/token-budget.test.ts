@@ -4,8 +4,11 @@ import {
   EXECUTION_LIMIT_SOFT_NUMERATOR,
 } from '../../src/tasks/execution-limit-enforcement.js';
 import {
+  evaluateScopedTokenReservation,
   evaluateTokenReservation,
   reconcileTokenReservation,
+  resolveTokenBudgets,
+  tokenBudgetFromPolicy,
 } from '../../src/tasks/token-budget.js';
 
 const budget = { maxInputTokens: 100, maxOutputTokens: 50, maxTotalTokens: 120 };
@@ -65,6 +68,57 @@ describe('COL-17 token reservation math', () => {
     ).toEqual({
       reserved: { inputTokens: 0, outputTokens: 0 },
       used: { inputTokens: 22, outputTokens: 9 },
+    });
+  });
+
+  it('reserves against every applicable scope and keeps token caps off COL-12 snapshots', () => {
+    expect(
+      resolveTokenBudgets({
+        workspace: { maxTotalTokens: 200 },
+        group: { maxInputTokens: 80, maxOutputTokens: 40 },
+        task: { maxDurationSeconds: 300, maxTotalTokens: 32768 },
+      }),
+    ).toEqual({
+      workspace: { maxTotalTokens: 200 },
+      group: { maxInputTokens: 80, maxOutputTokens: 40 },
+      task: { maxTotalTokens: 32768 },
+    });
+    expect(tokenBudgetFromPolicy({ maxConcurrentRuns: 4 })).toEqual({});
+    const request = { inputTokens: 10, outputTokens: 5 };
+    expect(
+      evaluateScopedTokenReservation({
+        request,
+        scopes: [
+          {
+            kind: 'workspace',
+            budget: { maxTotalTokens: 200 },
+            used: { inputTokens: 20, outputTokens: 10 },
+            reserved: { inputTokens: 0, outputTokens: 0 },
+          },
+          {
+            kind: 'group',
+            budget: { maxInputTokens: 80, maxOutputTokens: 40 },
+            used: { inputTokens: 60, outputTokens: 20 },
+            reserved: { inputTokens: 10, outputTokens: 10 },
+          },
+          {
+            kind: 'task',
+            budget: { maxTotalTokens: 32768 },
+            used: { inputTokens: 0, outputTokens: 0 },
+            reserved: { inputTokens: 0, outputTokens: 0 },
+          },
+          {
+            kind: 'run',
+            budget: { maxTotalTokens: 14 },
+            used: { inputTokens: 0, outputTokens: 0 },
+            reserved: { inputTokens: 0, outputTokens: 0 },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      allowed: false,
+      hard: true,
+      blocked: { kind: 'run', occupied: { totalTokens: 15 } },
     });
   });
 });
