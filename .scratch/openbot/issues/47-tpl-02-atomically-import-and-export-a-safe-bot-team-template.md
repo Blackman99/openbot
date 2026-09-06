@@ -2,7 +2,7 @@
 sequence: 47
 id: TPL-02
 title: "Atomically import and export a safe Bot-team template"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - TPL-01
   - COL-02
@@ -41,3 +41,7 @@ A complete group configuration with multiple safe Bot templates can be reviewed,
 - Automatic Routine activation
 - Copying human memberships
 - Cross-instance live references
+
+## Implementation note
+
+First TDD slice parses and exports `openbot.team-template.v1` with Bot templates, group roles, default Lead key, collaboration cap, and default budgets. Users, secrets, histories, memories, file bodies, and live IDs are rejected. Original acceptance texts stay unchecked.
