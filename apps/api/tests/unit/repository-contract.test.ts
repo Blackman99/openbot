@@ -412,6 +412,13 @@ describe('repository contract', () => {
     expect(workflow).toContain('"status":"unavailable"');
     expect(workflow).toContain('data-state="unavailable"');
     expect(workflow).toContain('docker compose down --volumes');
+    expect(workflow).toContain('compose-task-concurrency:');
+    expect(workflow).toContain('OPENBOT_LIMITS_SMOKE_STAGE=concurrency');
+    expect(() =>
+      execFileSync(process.execPath, ['--check', '--input-type=module'], {
+        input: readFileSync(`${repositoryRoot}/infra/verify-task-limits.mjs`),
+      }),
+    ).not.toThrow();
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-seed');
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-waiting');
     expect(workflow).toContain('OPENBOT_TASK_SMOKE_STAGE=retry-due');

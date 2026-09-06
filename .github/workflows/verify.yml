@@ -1628,6 +1628,35 @@ jobs:
           docker compose logs
           docker compose down --volumes
 
+  compose-task-concurrency:
+    needs: code
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMPOSE_FILE: compose.yaml:infra/compose-task-limits.yaml
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp .env.example .env
+      - name: Keep a default group from running a fifth concurrent Bot
+        run: |
+          docker compose up --build --detach
+          ready=false
+          for attempt in {1..60}; do
+            if curl --fail --silent http://localhost:3001/api/v1/status >/dev/null \
+              && docker compose exec -T limits-provider node -e "fetch('http://127.0.0.1:3100/stats').then((r)=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true
+          docker compose logs --no-color worker | grep --fixed-strings --quiet task_worker_unconfigured
+          docker compose exec -T -e OPENBOT_LIMITS_SMOKE_STAGE=concurrency api node --input-type=module < infra/verify-task-limits.mjs
+      - if: always()
+        run: |
+          docker compose logs
+          docker compose down --volumes
+
   compose-task-limits:
     needs: code
     runs-on: ubuntu-latest

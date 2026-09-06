@@ -39,7 +39,7 @@ Pure policy and occupancy landed first. Claim wiring and hold persistence are no
 
 ## Leftover before the original ACs can be stamped
 
-- Native `postgres-tasks` cases for default-group hold, skip-blocked, and expired-lease release are written and wait for Verify.
-- Compose evidence that a default group never runs a fifth concurrent Bot.
+- Native `postgres-tasks` cases passed on Verify `242e37a`.
+- Compose `compose-task-concurrency` evidence that a default group never runs a fifth concurrent Bot is written and waits for Verify.
 
-Do not check the five AC boxes until Tester stamps those leftovers.
+Do not check the five AC boxes until Tester stamps native and Compose leftovers.

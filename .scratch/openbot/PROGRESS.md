@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-12 is complete on `feat/openbot-collaboration-system` / draft PR #1. Tester PASS on [Verify 34008091724](https://github.com/Blackman99/openbot/actions/runs/34008091724). COL-13 is in progress: policy occupancy plus claim/hold wiring (migration `0038_task_run_concurrency_holds`). Native and Compose leftovers remain before the original COL-13 boxes can be stamped. TPL-02 is ready-for-agent and stays untouched until COL-13 is stamped. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-12 is complete on `feat/openbot-collaboration-system` / draft PR #1. COL-13 claim/hold wiring passed native Verify `242e37a`. Compose `compose-task-concurrency` is the last leftover before original COL-13 boxes can be stamped. TPL-02 stays untouched until COL-13 is stamped. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty-one of 67 tickets are implemented and independently reviewed, and all 41 are fully complete. All 401 original acceptance texts are preserved. COL-13 original acceptance texts stay unchecked.
 
