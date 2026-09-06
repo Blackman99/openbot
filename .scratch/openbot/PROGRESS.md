@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-04 is in progress on `feat/openbot-collaboration-system` / draft PR #1. First TDD slice adds public `POST /v1/tasks` with `Idempotency-Key` (ACs 1–3 and AC6 submit denial), reusing the existing task service and token admission. COL-18, COL-19, and API-03 remain complete after [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070). Retrieve/cancel ACs remain for the next cut. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** API-04 retrieve/cancel cut is on `feat/openbot-collaboration-system` / draft PR #1. Public `GET /v1/tasks/:taskId` and `POST /v1/tasks/:taskId/cancellations` cover ACs 4–5 and AC6 cancel denial (status, delegation tree, budget consumption, confirmed results; idempotent cancel), keeping ACs 1–3 intact. Ticket ACs stay unchecked pending Tester. COL-18, COL-19, and API-03 remain complete after [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070). Do not merge to main until the backlog and REL-01 gates allow it.
 
 Fifty of 67 tickets are implemented and independently reviewed, and all 50 are fully complete. All 401 original acceptance texts are preserved.
 

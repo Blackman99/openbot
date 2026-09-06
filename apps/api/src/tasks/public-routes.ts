@@ -16,6 +16,8 @@ import {
   TaskAccessError,
   TaskConflictError,
   TaskInputError,
+  type TaskConfirmedResult,
+  type TaskDelegationNode,
   type TaskService,
   type TaskView,
 } from './service.js';
@@ -28,7 +30,7 @@ function emptyQuery(query: unknown) {
 function idempotencyKey(headers: Record<string, unknown>): string {
   const raw = headers['idempotency-key'];
   const value = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof value !== 'string' || !/^[\x21-\x7e]{1,128}$/u.test(value)) throw new TaskInputError();
+  if (typeof value !== 'string' || !/^[!-~]{1,128}$/u.test(value)) throw new TaskInputError();
   return value;
 }
 
@@ -96,6 +98,19 @@ export function publicTaskView(task: TaskView, groupId: string) {
   };
 }
 
+export function publicTaskDetailView(
+  task: TaskView,
+  groupId: string,
+  delegationTree: { rootTaskId: string; nodes: TaskDelegationNode[] },
+  confirmedResults: TaskConfirmedResult[],
+) {
+  return {
+    ...publicTaskView(task, groupId),
+    delegationTree,
+    confirmedResults,
+  };
+}
+
 export function registerPublicTaskRoutes(
   app: FastifyInstance,
   tokens: ApiTokenService,
@@ -159,5 +174,48 @@ export function registerPublicTaskRoutes(
       );
       return reply.code(202).send({ task: publicTaskView(task, body.groupId) });
     });
+    routes.get<{ Params: { taskId: string } }>('/v1/tasks/:taskId', async (request) => {
+      const { identity, admit } = await tokens.authorizeResource(
+        readApiRequestToken(request),
+        'tasks:read',
+      );
+      emptyQuery(request.query);
+      const detail = await tasks.getPublic(
+        identity.user.id,
+        identity.workspace.id,
+        request.params.taskId,
+        admit,
+      );
+      return {
+        task: publicTaskDetailView(
+          detail.task,
+          detail.groupId,
+          detail.delegationTree,
+          detail.confirmedResults,
+        ),
+      };
+    });
+    routes.post<{ Params: { taskId: string } }>(
+      '/v1/tasks/:taskId/cancellations',
+      { bodyLimit: 16384 },
+      async (request) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'tasks:write',
+        );
+        emptyQuery(request.query);
+        const cancelled = await tasks.cancelPublic(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.taskId,
+          request.body,
+          admit,
+        );
+        return {
+          task: publicTaskView(cancelled.task, cancelled.groupId),
+          receipt: cancelled.receipt,
+        };
+      },
+    );
   });
 }

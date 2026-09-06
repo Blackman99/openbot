@@ -341,6 +341,108 @@ async function readHumanRequest(
     },
   };
 }
+
+export type TaskDelegationNode = {
+  id: string;
+  parentTaskId: string | null;
+  depth: number;
+  status: TaskStatus;
+};
+export type TaskConfirmedResult = {
+  runId: string;
+  attempt: number;
+  messageId: string;
+  eventId: string;
+  sequence: number;
+  body: string;
+};
+async function readDelegationTree(
+  connection: SqlConnection,
+  rootTaskId: string,
+  workspaceId: string,
+  conversationId: string,
+): Promise<{ rootTaskId: string; nodes: TaskDelegationNode[] }> {
+  const nodes = (
+    await connection.query<{
+      id: string;
+      parent_task_id: string | null;
+      depth: number;
+      status: TaskStatus;
+    }>(
+      `SELECT id,parent_task_id,depth,status FROM tasks
+       WHERE root_task_id=$1 AND workspace_id=$2 AND conversation_id=$3
+       ORDER BY depth ASC,id ASC`,
+      [rootTaskId, workspaceId, conversationId],
+    )
+  ).rows;
+  return {
+    rootTaskId,
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      parentTaskId: node.parent_task_id,
+      depth: node.depth,
+      status: node.status,
+    })),
+  };
+}
+async function readConfirmedResults(
+  connection: SqlConnection,
+  taskId: string,
+): Promise<TaskConfirmedResult[]> {
+  const rows = (
+    await connection.query<{
+      id: string;
+      attempt: number;
+      message_id: string;
+      output_event_id: string;
+      sequence: string | number;
+      body: string;
+    }>(
+      `SELECT r.id,r.attempt,e.message_id,r.output_event_id,e.sequence,e.body
+       FROM task_runs r
+       JOIN conversation_events e ON e.id=r.output_event_id
+       WHERE r.task_id=$1 AND r.status='completed' AND r.output_event_id IS NOT NULL
+         AND e.event_type='bot.message.created' AND e.body IS NOT NULL
+       ORDER BY r.attempt ASC`,
+      [taskId],
+    )
+  ).rows;
+  return rows.map((row) => ({
+    runId: row.id,
+    attempt: row.attempt,
+    messageId: row.message_id,
+    eventId: row.output_event_id,
+    sequence: Number(row.sequence),
+    body: row.body,
+  }));
+}
+async function locateGroupTask(
+  connection: SqlConnection,
+  workspaceId: string,
+  taskId: string,
+): Promise<{ id: string; conversationId: string; groupId: string; rootTaskId: string }> {
+  const row = (
+    await connection.query<{
+      id: string;
+      conversation_id: string;
+      group_id: string | null;
+      root_task_id: string;
+    }>(
+      `SELECT t.id,t.conversation_id,c.group_id,t.root_task_id
+       FROM tasks t
+       JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id
+       WHERE t.id=$1 AND t.workspace_id=$2`,
+      [taskId, workspaceId],
+    )
+  ).rows[0];
+  if (!row || !row.group_id) throw new TaskAccessError();
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    groupId: row.group_id,
+    rootTaskId: row.root_task_id,
+  };
+}
 export class TaskService {
   constructor(
     private readonly pool: SqlPool,
@@ -384,13 +486,59 @@ export class TaskService {
     conversationId: string,
     taskId: string,
     input: unknown,
+    admission?: TransactionAdmission,
   ) {
     const access = taskAccess(actorUserId, workspaceId, conversationId),
       id = conversationUuid(taskId),
       command = cancellationCommand(input);
     return this.transaction(async (connection) => {
       const receipt = await cancelTask(connection, access, id, command, this.now);
-      return { task: await readTask(connection, id), receipt };
+      const task = await readTask(connection, id);
+      await admission?.(connection);
+      return { task, receipt };
+    });
+  }
+  getPublic(
+    actorUserId: string,
+    workspaceId: string,
+    taskId: string,
+    admission?: TransactionAdmission,
+  ) {
+    const id = conversationUuid(taskId),
+      workspace = conversationUuid(workspaceId);
+    return this.transaction(async (connection) => {
+      const located = await locateGroupTask(connection, workspace, id);
+      const access = taskAccess(actorUserId, workspace, located.conversationId);
+      await ConversationTransaction.lock(connection, access, this.now, 'inspect');
+      const task = await readTask(connection, id);
+      const delegationTree = await readDelegationTree(
+        connection,
+        located.rootTaskId,
+        workspace,
+        located.conversationId,
+      );
+      const confirmedResults = await readConfirmedResults(connection, id);
+      await admission?.(connection);
+      return { task, groupId: located.groupId, delegationTree, confirmedResults };
+    });
+  }
+  cancelPublic(
+    actorUserId: string,
+    workspaceId: string,
+    taskId: string,
+    input: unknown,
+    admission?: TransactionAdmission,
+  ) {
+    const id = conversationUuid(taskId),
+      workspace = conversationUuid(workspaceId),
+      command = cancellationCommand(input);
+    return this.transaction(async (connection) => {
+      const located = await locateGroupTask(connection, workspace, id);
+      const access = taskAccess(actorUserId, workspace, located.conversationId);
+      const receipt = await cancelTask(connection, access, id, command, this.now);
+      const task = await readTask(connection, id);
+      await admission?.(connection);
+      return { task, receipt, groupId: located.groupId };
     });
   }
   pause(
