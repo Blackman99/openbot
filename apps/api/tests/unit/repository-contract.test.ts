@@ -274,7 +274,9 @@ describe('repository contract', () => {
       'GRANT SELECT, INSERT, UPDATE ON model_price_versions TO openbot_runtime',
     );
     expect(grants).toContain("to_regclass('task_cost_ledgers')");
-    expect(grants).toContain('GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime');
+    expect(grants).toContain(
+      'GRANT SELECT, INSERT, UPDATE ON task_cost_ledgers TO openbot_runtime',
+    );
     expect(grants).toContain("to_regclass('task_cost_reservations')");
     expect(grants).toContain(
       'GRANT SELECT, INSERT, DELETE ON task_cost_reservations TO openbot_runtime',
