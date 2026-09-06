@@ -2,9 +2,9 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** API-03 is complete on `feat/openbot-collaboration-system` / draft PR #1 at product `dc05dba` with Tester PASS on [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070) at `f3ba1fa`. COL-18 and COL-19 remain in progress. Forty-eight of 67 tickets are complete. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-18, COL-19, and API-03 are complete on `feat/openbot-collaboration-system` / draft PR #1 with Tester PASS on [Verify 34017551070](https://github.com/Blackman99/openbot/actions/runs/34017551070) at `f3ba1fa`. Product HEADs are `ae7f6dd`/`409aad6` (COL-18), `19044ce` (COL-19), and `dc05dba` (API-03). Fifty of 67 tickets are complete. Next ready work is API-04, API-06, ROUT-01, and DEPLOY-01. Do not merge to main until the backlog and REL-01 gates allow it.
 
-Forty-eight of 67 tickets are implemented and independently reviewed, and all 48 are fully complete. All 401 original acceptance texts are preserved.
+Fifty of 67 tickets are implemented and independently reviewed, and all 50 are fully complete. All 401 original acceptance texts are preserved.
 
 Publication remains limited to the development branch and unified draft PR1. Main remains unchanged; the separate CI automation stays paused.
 

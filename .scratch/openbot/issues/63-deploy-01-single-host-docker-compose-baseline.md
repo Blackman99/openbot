@@ -2,7 +2,7 @@
 sequence: 63
 id: DEPLOY-01
 title: "Single-host Docker Compose baseline"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - FND-01
   - WS-03

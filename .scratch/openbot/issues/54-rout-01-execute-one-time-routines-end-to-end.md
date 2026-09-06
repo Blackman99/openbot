@@ -2,7 +2,7 @@
 sequence: 54
 id: ROUT-01
 title: "Execute one-time routines end to end"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - API-01
   - COL-18

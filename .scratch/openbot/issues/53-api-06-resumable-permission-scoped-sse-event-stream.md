@@ -2,7 +2,7 @@
 sequence: 53
 id: API-06
 title: "Resumable, permission-scoped SSE event stream"
-status: blocked
+status: ready-for-agent
 blocked_by:
   - API-01
   - COL-05
