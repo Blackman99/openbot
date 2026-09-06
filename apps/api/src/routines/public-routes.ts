@@ -7,6 +7,7 @@ import {
 } from '../api-tokens/service.js';
 import {
   RoutineAccessError,
+  RoutineConflictError,
   RoutineInputError,
   type RoutineService,
   type RoutineView,
@@ -57,6 +58,8 @@ export function registerPublicRoutineRoutes(
         return reply.code(403).send({ error: { code: 'insufficient_scope' } });
       if (error instanceof RoutineAccessError)
         return reply.code(403).send({ error: { code: 'routine_forbidden' } });
+      if (error instanceof RoutineConflictError)
+        return reply.code(409).send({ error: { code: error.code } });
       if (error instanceof RoutineInputError)
         return reply.code(400).send({ error: { code: 'invalid_routine_request' } });
       if (
@@ -82,5 +85,81 @@ export function registerPublicRoutineRoutes(
       );
       return reply.code(201).send({ routine: publicRoutineView(routine) });
     });
+    routes.patch<{ Params: { routineId: string } }>(
+      '/v1/routines/:routineId',
+      { bodyLimit: 65536 },
+      async (request) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'groups:write',
+        );
+        emptyQuery(request.query);
+        const routine = await routines.edit(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.routineId,
+          request.body,
+          admit,
+        );
+        return { routine: publicRoutineView(routine) };
+      },
+    );
+    routes.post<{ Params: { routineId: string } }>(
+      '/v1/routines/:routineId/pause',
+      { bodyLimit: 1024 },
+      async (request) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'groups:write',
+        );
+        emptyQuery(request.query);
+        if (request.body !== undefined) throw new RoutineInputError();
+        const routine = await routines.pause(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.routineId,
+          admit,
+        );
+        return { routine: publicRoutineView(routine) };
+      },
+    );
+    routes.post<{ Params: { routineId: string } }>(
+      '/v1/routines/:routineId/resume',
+      { bodyLimit: 1024 },
+      async (request) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'groups:write',
+        );
+        emptyQuery(request.query);
+        if (request.body !== undefined) throw new RoutineInputError();
+        const routine = await routines.resume(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.routineId,
+          admit,
+        );
+        return { routine: publicRoutineView(routine) };
+      },
+    );
+    routes.post<{ Params: { routineId: string } }>(
+      '/v1/routines/:routineId/cancel',
+      { bodyLimit: 1024 },
+      async (request) => {
+        const { identity, admit } = await tokens.authorizeResource(
+          readApiRequestToken(request),
+          'groups:write',
+        );
+        emptyQuery(request.query);
+        if (request.body !== undefined) throw new RoutineInputError();
+        const routine = await routines.cancel(
+          identity.user.id,
+          identity.workspace.id,
+          request.params.routineId,
+          admit,
+        );
+        return { routine: publicRoutineView(routine) };
+      },
+    );
   });
 }

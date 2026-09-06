@@ -132,3 +132,145 @@ it('rejects create without groups:write and rejects URL-like query credentials',
   expect(readOnly.statusCode).toBe(403);
   expect(readOnly.json().error.code).toBe('insufficient_scope');
 });
+
+async function createActiveRoutine(
+  f: Awaited<ReturnType<typeof routineFixture>>,
+  overrides: Record<string, unknown> = {},
+) {
+  const headers = await f.bearer(['groups:write']);
+  const { groupId, leadGrantId } = await f.readyGroup();
+  const created = await f.publicApp.inject({
+    method: 'POST',
+    url: '/v1/routines',
+    headers,
+    payload: {
+      groupId,
+      prompt: 'Original one-time routine.',
+      leadGrantId,
+      timeZone: 'Asia/Shanghai',
+      executeAt: '2026-09-07T01:00:00.000Z',
+      expiresAt: '2026-09-10T01:00:00.000Z',
+      maxCostMicros: 2_500_000,
+      ...overrides,
+    },
+  });
+  expect(created.statusCode).toBe(201);
+  return { headers, groupId, leadGrantId, routine: created.json().routine };
+}
+
+it('edits mutable schedule fields while preserving owner and group', async () => {
+  const f = await routineFixture();
+  const { headers, groupId, routine } = await createActiveRoutine(f);
+  const edited = await f.publicApp.inject({
+    method: 'PATCH',
+    url: `/v1/routines/${routine.id}`,
+    headers,
+    payload: {
+      prompt: 'Edited collaboration brief.',
+      timeZone: 'UTC',
+      executeAt: '2026-09-07T05:00:00.000Z',
+      expiresAt: '2026-09-09T05:00:00.000Z',
+      maxCostMicros: 1_250_000,
+      leadGrantId: null,
+    },
+  });
+  expect(edited.statusCode).toBe(200);
+  expect(edited.headers['cache-control']).toBe('private, no-store');
+  expect(edited.json().routine).toMatchObject({
+    id: routine.id,
+    groupId,
+    ownerUserId: f.owner.user.id,
+    prompt: 'Edited collaboration brief.',
+    routingPolicy: 'group',
+    leadGrantId: null,
+    timeZone: 'UTC',
+    maxCostMicros: 1_250_000,
+    status: 'active',
+  });
+  expect(new Date(edited.json().routine.executeAt).toISOString()).toBe('2026-09-07T05:00:00.000Z');
+  expect(new Date(edited.json().routine.expiresAt).toISOString()).toBe('2026-09-09T05:00:00.000Z');
+});
+
+it('pauses, resumes, and cancels one-time routines through public lifecycle routes', async () => {
+  const f = await routineFixture();
+  const { headers, routine } = await createActiveRoutine(f);
+
+  const paused = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/pause`,
+    headers,
+  });
+  expect(paused.statusCode).toBe(200);
+  expect(paused.json().routine).toMatchObject({ id: routine.id, status: 'paused' });
+
+  const resumed = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/resume`,
+    headers,
+  });
+  expect(resumed.statusCode).toBe(200);
+  expect(resumed.json().routine).toMatchObject({ id: routine.id, status: 'active' });
+
+  const cancelled = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/cancel`,
+    headers,
+  });
+  expect(cancelled.statusCode).toBe(200);
+  expect(cancelled.json().routine).toMatchObject({ id: routine.id, status: 'cancelled' });
+
+  const audits = await f.pool.query<{ event_type: string }>(
+    `SELECT event_type FROM audit_events
+     WHERE metadata->>'routineId'=$1`,
+    [routine.id],
+  );
+  expect(audits.rows.map((row) => row.event_type).sort()).toEqual([
+    'routine.cancelled',
+    'routine.created',
+    'routine.paused',
+    'routine.resumed',
+  ]);
+});
+
+it('rejects invalid lifecycle transitions and missing groups:write on mutations', async () => {
+  const f = await routineFixture();
+  const { headers, routine } = await createActiveRoutine(f);
+
+  const resumeActive = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/resume`,
+    headers,
+  });
+  expect(resumeActive.statusCode).toBe(409);
+  expect(resumeActive.json().error.code).toBe('routine_not_paused');
+
+  await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/cancel`,
+    headers,
+  });
+  const editCancelled = await f.publicApp.inject({
+    method: 'PATCH',
+    url: `/v1/routines/${routine.id}`,
+    headers,
+    payload: { prompt: 'Too late.' },
+  });
+  expect(editCancelled.statusCode).toBe(409);
+  expect(editCancelled.json().error.code).toBe('routine_not_mutable');
+
+  const pauseCancelled = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/pause`,
+    headers,
+  });
+  expect(pauseCancelled.statusCode).toBe(409);
+  expect(pauseCancelled.json().error.code).toBe('routine_not_active');
+
+  const readOnly = await f.publicApp.inject({
+    method: 'POST',
+    url: `/v1/routines/${routine.id}/pause`,
+    headers: await f.bearer(['groups:read']),
+  });
+  expect(readOnly.statusCode).toBe(403);
+  expect(readOnly.json().error.code).toBe('insufficient_scope');
+});
