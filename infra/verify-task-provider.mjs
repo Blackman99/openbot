@@ -14,6 +14,14 @@ function complete(response, text) {
   frame(response, { choices: [{ delta: {}, finish_reason: 'stop' }] });
   response.end('data: [DONE]\n\n');
 }
+function unexpectedTools(input) {
+  if (!input.tools) return false;
+  if (!Array.isArray(input.tools)) return true;
+  return input.tools.some((tool) => {
+    const name = tool?.function?.name ?? tool?.name;
+    return name !== 'request_input' && name !== 'request_approval';
+  });
+}
 const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/stats') {
     response.setHeader('content-type', 'application/json');
@@ -42,7 +50,7 @@ const server = createServer(async (request, response) => {
     }
     const input = JSON.parse(text);
     const prompt = input.messages.at(-1)?.content;
-    if (input.tools) {
+    if (unexpectedTools(input)) {
       response.writeHead(400, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: { code: 'unsupported_parameter', param: 'tools' } }));
       return;
