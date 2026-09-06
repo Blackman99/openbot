@@ -599,8 +599,12 @@ export class TaskQueue {
       }
       const run = await this.lockRun(connection, task);
       if (run?.status !== 'running' || run.claim_token !== claim.claimToken) return false;
+      const deadlineElapsed = Boolean(
+        run.deadline_at && run.deadline_at.getTime() <= this.now().getTime(),
+      );
       if (
         !(await this.liveLease(connection, claim)) &&
+        !deadlineElapsed &&
         !('error' in outcome && outcome.error === 'execution_timeout')
       )
         return false;
@@ -621,9 +625,7 @@ export class TaskQueue {
       }
       const failure =
         denied ??
-        (run.deadline_at && run.deadline_at.getTime() <= this.now().getTime()
-          ? 'execution_timeout'
-          : undefined) ??
+        (deadlineElapsed ? 'execution_timeout' : undefined) ??
         ('error' in outcome ? outcome.error : undefined);
       if (failure) {
         await this.fail(connection, task, failure, outcome.usage);

@@ -98,6 +98,16 @@ const databaseUrl = process.env.TEST_CONVERSATION_STREAM_DATABASE_URL;
       try {
         await connection.query('BEGIN');
         await connection.query(
+          `UPDATE task_runs SET status='failed',finished_at=clock_timestamp(),error_code='worker_interrupted'
+           WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=ANY($1::uuid[]))
+           AND status='running'
+           AND EXISTS (
+             SELECT 1 FROM task_run_leases l
+             WHERE l.run_id=task_runs.id AND l.expires_at<=clock_timestamp()
+           )`,
+          [ids],
+        );
+        await connection.query(
           "UPDATE task_runs SET status='failed',finished_at=clock_timestamp(),error_code='worker_stopped' WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=ANY($1::uuid[])) AND status IN ('queued','running')",
           [ids],
         );

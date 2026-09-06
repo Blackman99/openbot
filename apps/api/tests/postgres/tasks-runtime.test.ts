@@ -98,6 +98,16 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
       try {
         await connection.query('BEGIN');
         await connection.query(
+          `UPDATE task_runs SET status='failed',finished_at=NOW(),error_code='worker_interrupted'
+       WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=ANY($1::uuid[]))
+       AND status='running'
+       AND EXISTS (
+         SELECT 1 FROM task_run_leases l
+         WHERE l.run_id=task_runs.id AND l.expires_at<=clock_timestamp()
+       )`,
+          [ids],
+        );
+        await connection.query(
           `UPDATE task_runs SET status='failed',finished_at=NOW(),error_code='worker_stopped'
        WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id=ANY($1::uuid[]))
        AND status IN ('queued','running')`,
@@ -2694,6 +2704,6 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
         runCount: 2,
         runs: [{ id: admitted[0]!.runId, attempt: 2, status: 'completed', error: null }],
       });
-    });
+    }, 15000);
   },
 );

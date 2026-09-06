@@ -237,6 +237,7 @@ describe('repository contract', () => {
     expect(grants).toContain(
       'GRANT UPDATE (heartbeat_at, expires_at) ON task_run_leases TO openbot_runtime',
     );
+    expect(grants).toContain("origin' IN ('provider_retry','model_fallback','worker_recovery')");
     expect(grants).toContain("to_regprocedure('lock_task_ancestry(uuid,boolean)')");
     expect(grants).toContain(
       'GRANT EXECUTE ON FUNCTION lock_task_ancestry(UUID, BOOLEAN) TO openbot_runtime',

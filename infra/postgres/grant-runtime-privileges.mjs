@@ -332,7 +332,7 @@ try {
         JOIN task_runs next_run ON next_run.id=run_id AND next_run.task_id=target
         WHERE a.event_type='task.queued' AND a.actor_user_id=actor
           AND a.metadata->>'taskId'=target::text AND a.metadata->>'runId'=run_id::text
-          AND a.metadata->>'origin' IN ('provider_retry','model_fallback')
+          AND a.metadata->>'origin' IN ('provider_retry','model_fallback','worker_recovery')
           AND previous.status='failed' AND previous.attempt::bigint+1=next_run.attempt
       )
     $$;
