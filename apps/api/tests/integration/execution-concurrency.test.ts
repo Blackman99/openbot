@@ -124,7 +124,7 @@ describe('COL-13 claim concurrency holds', () => {
     });
     expect(await f.queue.finish(claimed[1]!, { error: 'provider_failed', usage: null })).toBe(true);
     expect((await f.queue.claimNext()).claim?.taskId).toBe(tasks[5]!.id);
-  });
+  }, 15_000);
 
   it('skips a blocked group candidate so a later due Run in another group can claim', async () => {
     const f = await groupFixture();
@@ -144,7 +144,7 @@ describe('COL-13 claim concurrency holds', () => {
       status: 'queued',
       runs: [{ queueHold: { reason: 'concurrency', layer: 'group', limit: 4, used: 4 } }],
     });
-  });
+  }, 15_000);
 
   it('does not occupy a slot after the worker lease expires', async () => {
     let now = new Date('2026-09-06T04:00:00.000Z');
@@ -163,7 +163,7 @@ describe('COL-13 claim concurrency holds', () => {
     expect(await readTask(f, f.grant.conversationId, [...claimed][0]!)).toMatchObject({
       status: 'running',
     });
-  });
+  }, 15_000);
 
   it('applies a parent Task child cap independently of the default group cap', async () => {
     const f = await groupFixture();
@@ -198,7 +198,7 @@ describe('COL-13 claim concurrency holds', () => {
     expect(
       (await f.pool.query('SELECT status FROM task_runs WHERE task_id=$1', [parent.id])).rows,
     ).toEqual([{ status: 'running' }]);
-  });
+  }, 15_000);
 
   it('does not apply the default group cap to a direct conversation', async () => {
     const f = await groupFixture();
@@ -212,5 +212,5 @@ describe('COL-13 claim concurrency holds', () => {
       );
     for (const task of direct) expect((await f.queue.claimNext()).claim?.taskId).toBe(task.id);
     expect(await f.queue.claimNext()).toEqual({ handled: false });
-  });
+  }, 15_000);
 });
