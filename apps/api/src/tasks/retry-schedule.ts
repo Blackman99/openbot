@@ -41,7 +41,7 @@ export interface ChainAttempt {
 }
 
 export interface NextAttemptPlan {
-  origin: 'provider_retry' | 'model_fallback' | 'manual_resume';
+  origin: 'provider_retry' | 'model_fallback' | 'manual_resume' | 'worker_recovery';
   reason: string;
   binding: BotBinding;
   previousBinding: BotBinding;
