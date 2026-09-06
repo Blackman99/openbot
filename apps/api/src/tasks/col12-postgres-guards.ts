@@ -64,6 +64,95 @@ $$`,
         OR (status IN ('paused','waiting_budget') AND NOT (allow_paused AND id=target)));
     END;
     $$`,
+  `CREATE OR REPLACE FUNCTION protect_task_run() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    DECLARE parent tasks%ROWTYPE; latest task_runs%ROWTYPE;
+    BEGIN
+      IF NEW.status<>'cancelled' AND NEW.status<>'paused' AND NOT lock_task_ancestry(NEW.task_id, TG_OP='INSERT') THEN
+        RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='cancelled Task ancestry cannot create or advance a Run';
+      END IF;
+      SELECT t.* INTO parent FROM tasks t WHERE t.id=NEW.task_id FOR UPDATE;
+      SELECT r.* INTO latest FROM task_runs r WHERE r.task_id=NEW.task_id ORDER BY r.attempt DESC LIMIT 1;
+      IF TG_OP='INSERT' THEN
+        IF parent.id IS NULL OR NEW.status<>'queued' OR NEW.created_at<parent.created_at
+          OR NOT ((NEW.attempt=1 AND latest.id IS NULL AND parent.status='queued')
+            OR (latest.id IS NOT NULL AND parent.status='failed' AND latest.status='failed'
+              AND NEW.attempt::bigint=latest.attempt::bigint+1 AND NEW.created_at>=latest.finished_at)
+            OR (latest.id IS NOT NULL AND parent.status='paused' AND latest.status='paused'
+              AND NEW.attempt::bigint=latest.attempt::bigint+1 AND NEW.created_at>=latest.finished_at)
+            OR (latest.id IS NOT NULL AND parent.status='waiting_budget' AND latest.status IN ('failed','paused')
+              AND NEW.attempt::bigint=latest.attempt::bigint+1 AND NEW.created_at>=latest.finished_at)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='new Task Run must be the next queued attempt';
+        END IF;
+      ELSE
+        IF ROW(NEW.id,NEW.task_id,NEW.attempt,NEW.created_at)
+          IS DISTINCT FROM ROW(OLD.id,OLD.task_id,OLD.attempt,OLD.created_at)
+          OR NOT ((OLD.status='queued' AND NEW.status IN ('running','failed','cancelled','paused'))
+            OR (OLD.status='running' AND NEW.status IN ('completed','failed','cancelled','paused'))) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Run identity and terminal state are immutable';
+        END IF;
+        IF parent.id IS NULL OR parent.status<>OLD.status OR latest.id<>OLD.id THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='only the current Task Run can advance';
+        END IF;
+        IF NEW.status='cancelled' AND (
+          ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+            NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+            IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+              OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id)
+          OR
+          ROW(NEW.input_tokens,NEW.output_tokens,NEW.error_code,NEW.output_event_id) IS DISTINCT FROM
+            ROW(OLD.input_tokens,OLD.output_tokens,OLD.error_code,OLD.output_event_id)
+          OR NOT EXISTS (SELECT 1 FROM task_run_cancellations m JOIN task_cancel_commands c ON c.id=m.command_id
+            WHERE m.run_id=NEW.id AND m.previous_status=OLD.status AND m.cancelled_at=NEW.finished_at
+            AND c.cancelled_at=NEW.finished_at)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='cancelled Run requires its exact command marker, retained claim and usage';
+        END IF;
+        IF NEW.status='paused' AND (
+          ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+            NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+            IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+              OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id)
+          OR
+          ROW(NEW.input_tokens,NEW.output_tokens,NEW.error_code,NEW.output_event_id) IS DISTINCT FROM
+            ROW(OLD.input_tokens,OLD.output_tokens,OLD.error_code,OLD.output_event_id)
+          OR NOT EXISTS (SELECT 1 FROM task_run_pauses m JOIN task_pause_commands c ON c.id=m.command_id
+            JOIN task_run_pause_checkpoints k ON k.command_id=c.id AND k.run_id=m.run_id
+            WHERE m.run_id=NEW.id AND m.previous_status=OLD.status AND m.paused_at=NEW.finished_at
+            AND c.paused_at=NEW.finished_at AND k.paused_at=NEW.finished_at
+            AND k.strategy='restart_from_task_input_v1' AND k.schema_version=1)) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='paused Run requires its exact command marker, checkpoint, retained claim and usage';
+        END IF;
+        IF OLD.status='running' AND ROW(NEW.started_at,NEW.claim_token,NEW.deadline_at,NEW.provider_scope_kind,
+          NEW.provider_scope_id,NEW.connection_id,NEW.connection_revision,NEW.protocol,NEW.model_id)
+          IS DISTINCT FROM ROW(OLD.started_at,OLD.claim_token,OLD.deadline_at,OLD.provider_scope_kind,
+          OLD.provider_scope_id,OLD.connection_id,OLD.connection_revision,OLD.protocol,OLD.model_id) THEN
+          RAISE EXCEPTION USING ERRCODE='55000', MESSAGE='Run claim and provider identity are immutable';
+        END IF;
+        IF NEW.started_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM tasks t
+          JOIN bot_versions v ON v.id=t.bot_version_id AND v.bot_id=t.bot_id
+          WHERE t.id=NEW.task_id
+          AND ((NEW.provider_scope_kind='personal' AND NEW.provider_scope_id=t.execution_user_id)
+            OR (NEW.provider_scope_kind='workspace' AND NEW.provider_scope_id=t.workspace_id))
+          AND (
+            (
+              v.configuration->'modelBinding'->'scope'->>'kind'=NEW.provider_scope_kind
+              AND v.configuration->'modelBinding'->'scope'->>'id'=NEW.provider_scope_id::text
+              AND v.configuration->'modelBinding'->>'connectionId'=NEW.connection_id::text
+              AND v.configuration->'modelBinding'->>'modelId'=NEW.model_id
+            )
+            OR task_run_has_listed_continuation_binding(
+              NEW.task_id, NEW.id, NEW.provider_scope_kind, NEW.provider_scope_id, NEW.connection_id, NEW.model_id)
+          )) THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='Run must retain its admitted model binding';
+        END IF;
+        IF NEW.status='completed' AND NOT EXISTS (SELECT 1 FROM conversation_events e
+          JOIN tasks t ON t.id=NEW.task_id WHERE e.id=NEW.output_event_id AND e.bot_run_id=NEW.id
+          AND e.conversation_id=t.conversation_id AND e.event_type='bot.message.created') THEN
+          RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='completed Run requires its Bot output';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $$`,
   `CREATE OR REPLACE FUNCTION protect_task() RETURNS TRIGGER LANGUAGE plpgsql AS $$
     DECLARE latest task_runs%ROWTYPE;
     BEGIN
