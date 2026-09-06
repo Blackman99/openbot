@@ -2,7 +2,7 @@
 
 ## Current frontier (supersedes historical notes)
 
-**Frontier (2026-09-06):** COL-14 is complete after Tester PASS on [Verify 34012044549](https://github.com/Blackman99/openbot/actions/runs/34012044549) at `eef3ba4`. COL-15, COL-16, COL-17, and API-03 are ready-for-agent on `feat/openbot-collaboration-system` / draft PR #1. Do not merge to main until the backlog and REL-01 gates allow it.
+**Frontier (2026-09-06):** COL-14 is complete after Tester PASS on [Verify 34012044549](https://github.com/Blackman99/openbot/actions/runs/34012044549) at `eef3ba4`. COL-17 is in progress with a first TDD slice that stores provider usage as actual and local counts as estimated. COL-15, COL-16, and API-03 remain ready-for-agent. Do not merge to main until the backlog and REL-01 gates allow it.
 
 Forty-four of 67 tickets are implemented and independently reviewed, and all 44 are fully complete. All 401 original acceptance texts are preserved.
 

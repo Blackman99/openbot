@@ -2,7 +2,7 @@
 sequence: 34
 id: COL-17
 title: "Meter and enforce token budgets"
-status: ready-for-agent
+status: in-progress
 blocked_by:
   - COL-12
   - COL-13
@@ -41,3 +41,7 @@ Input, output, and total token budgets are atomically reserved and reconciled ac
 - Provider invoice reconciliation
 - Cost enforcement
 - A required embedding API
+
+## Implementation note
+
+First TDD slice classifies Run usage: provider counts are actual (`estimated=false`); omitted usage falls back to a local UTF-8/4 estimate (`estimated=true`). Invalid provider counts are rejected. Original acceptance texts stay unchecked.
