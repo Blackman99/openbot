@@ -21,6 +21,7 @@ import {
 } from '../../src/conversations/postgres-repository.js';
 import { ConversationService } from '../../src/conversations/service.js';
 import { migrateDatabase } from '../../src/database/migrations.js';
+import { lockWorkspaceAuthority } from '../../src/database/workspace-lock.js';
 import { PostgresGroupBotRepository } from '../../src/group-bots/postgres-repository.js';
 import { GroupBotService } from '../../src/group-bots/service.js';
 import { PostgresGroupRepository } from '../../src/groups/postgres-group-repository.js';
@@ -374,7 +375,8 @@ describe.skipIf(!databaseUrl)('group memories with deployed PostgreSQL privilege
     let pending: Promise<PromiseSettledResult<T>[]> | undefined;
     try {
       await holder.query('BEGIN');
-      await holder.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [f.workspaceId]);
+      if (!(await lockWorkspaceAuthority(holder, f.workspaceId)))
+        throw new Error('workspace missing');
       const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
       pending = Promise.allSettled([action(observed)]);
       await vi.waitFor(

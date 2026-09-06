@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../auth/postgres-auth-repository.js';
 import { lockAuthorizedBot } from '../bots/postgres-bot-access.js';
+import { lockWorkspaceAuthority } from '../database/workspace-lock.js';
 import { ConversationTransaction } from '../conversations/postgres-repository.js';
 import { lockAuthorizedGroup } from '../groups/postgres-group-access.js';
 import {
@@ -149,7 +150,8 @@ export async function lockWorkspaceMember(
   connection: SqlConnection,
   access: CandidateAccess,
 ): Promise<{ role: string }> {
-  await connection.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE', [access.workspaceId]);
+  if (!(await lockWorkspaceAuthority(connection, access.workspaceId)))
+    throw new MemoryAccessError();
   const member = (
     await connection.query<{ role: string }>(
       'SELECT role FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2',
