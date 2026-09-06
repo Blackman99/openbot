@@ -410,6 +410,10 @@ describe('repository contract', () => {
     expect(workflow).toContain('0038_task_run_concurrency_holds');
     expect(workflow).toContain('0039_group_imported_routines');
     expect(workflow).toContain('0040_task_delegation');
+    expect(workflow).toContain('0041_task_token_usage');
+    expect(workflow).toContain(
+      "has_column_privilege('openbot_runtime', 'task_runs', 'usage_estimated', 'UPDATE')",
+    );
     expect(workflow).toContain(
       "has_table_privilege('openbot_runtime', 'group_imported_routines', 'SELECT')",
     );

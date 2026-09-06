@@ -74,6 +74,7 @@ describe('database migrations', () => {
       '0038_task_run_concurrency_holds',
       '0039_group_imported_routines',
       '0040_task_delegation',
+      '0041_task_token_usage',
     ]);
 
     const database: DatabaseClient = {
@@ -193,7 +194,7 @@ describe('database migrations', () => {
 
     await expect(
       pool.query('SELECT version FROM openbot_schema_migrations ORDER BY version DESC LIMIT 1'),
-    ).resolves.toMatchObject({ rows: [{ version: '0040_task_delegation' }] });
+    ).resolves.toMatchObject({ rows: [{ version: '0041_task_token_usage' }] });
   });
 
   it('serializes real PostgreSQL migrators before inspecting the ledger', async () => {

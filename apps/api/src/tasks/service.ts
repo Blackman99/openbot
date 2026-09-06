@@ -20,6 +20,7 @@ import {
 import type { ProviderProtocol } from '../providers/model-events.js';
 import { admitUsableModel } from '../providers/postgres-model-admission.js';
 import type { TaskFailure, Usage } from './queue.js';
+import { readStoredTokenUsage } from './token-usage.js';
 import { cancelTask, cancellationCommand } from './cancellation.js';
 import { pauseTask, pauseCommand } from './pause.js';
 import { resumeTask, resumeCommand } from './resume.js';
@@ -112,6 +113,7 @@ async function readRuns(
       model_id: string | null;
       input_tokens: string | number | null;
       output_tokens: string | number | null;
+      usage_estimated: boolean | null;
       error_code: TaskFailure | null;
       output_event_id: string | null;
       message_id: string | null;
@@ -129,10 +131,7 @@ async function readRuns(
     startedAt: run.started_at,
     finishedAt: run.finished_at,
     provider: run.protocol ? { protocol: run.protocol, modelId: run.model_id! } : null,
-    usage:
-      run.input_tokens === null
-        ? null
-        : { inputTokens: Number(run.input_tokens), outputTokens: Number(run.output_tokens) },
+    usage: readStoredTokenUsage(run.input_tokens, run.output_tokens, run.usage_estimated),
     error: run.error_code,
     output: run.output_event_id
       ? { messageId: run.message_id!, eventId: run.output_event_id, sequence: Number(run.sequence) }

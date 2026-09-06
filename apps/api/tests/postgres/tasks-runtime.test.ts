@@ -815,6 +815,7 @@ const databaseUrl = process.env.TEST_TASK_DATABASE_URL;
                 'model_id',
                 'input_tokens',
                 'output_tokens',
+                'usage_estimated',
                 'error_code',
                 'output_event_id',
               ].sort(),

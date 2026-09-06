@@ -44,4 +44,4 @@ Input, output, and total token budgets are atomically reserved and reconciled ac
 
 ## Implementation note
 
-First TDD slice classifies Run usage: provider counts are actual (`estimated=false`); omitted usage falls back to a local UTF-8/4 estimate (`estimated=true`). Invalid provider counts are rejected. Original acceptance texts stay unchecked.
+First TDD slice classifies Run usage: provider counts are actual (`estimated=false`); omitted usage falls back to a local UTF-8/4 estimate (`estimated=true`). Invalid provider counts are rejected. Migration `0041_task_token_usage` stores `usage_estimated` paired with token counts. The UI labels stored usage Actual or Estimated. Original acceptance texts stay unchecked.

@@ -3,6 +3,7 @@ import type { ProviderProtocol } from '../providers/model-events.js';
 import type { ExecutionState } from '../conversations/stream-protocol.js';
 import type { RoutingSummary } from '../routing/matcher.js';
 import type { TaskFailure } from './queue.js';
+import { readStoredTokenUsage } from './token-usage.js';
 import type { TaskStatus } from './service.js';
 import { loadRunContinuation, wireContinuation } from './continuation.js';
 
@@ -31,6 +32,7 @@ export async function readRunExecution(connection: SqlConnection, runId: string)
       model_id: string | null;
       input_tokens: string | number | null;
       output_tokens: string | number | null;
+      usage_estimated: boolean | null;
       error_code: TaskFailure | null;
       output_event_id: string | null;
       message_id: string | null;
@@ -66,10 +68,7 @@ export async function readRunExecution(connection: SqlConnection, runId: string)
     startedAt: row.started_at?.toISOString() ?? null,
     finishedAt: row.finished_at?.toISOString() ?? null,
     provider: row.protocol ? { protocol: row.protocol, modelId: row.model_id! } : null,
-    usage:
-      row.input_tokens === null
-        ? null
-        : { inputTokens: Number(row.input_tokens), outputTokens: Number(row.output_tokens) },
+    usage: readStoredTokenUsage(row.input_tokens, row.output_tokens, row.usage_estimated),
     error: row.error_code,
     output: row.output_event_id
       ? { messageId: row.message_id!, eventId: row.output_event_id, sequence: Number(row.sequence) }

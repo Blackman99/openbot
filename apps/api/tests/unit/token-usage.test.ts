@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordTokenUsage } from '../../src/tasks/token-usage.js';
+import { persistTokenUsage, recordTokenUsage } from '../../src/tasks/token-usage.js';
 
 describe('COL-17 token usage classification', () => {
   it('stores provider usage as actual', () => {
@@ -34,5 +34,15 @@ describe('COL-17 token usage classification', () => {
         provider: { inputTokens: -1, outputTokens: 2 },
       }),
     ).toBeUndefined();
+  });
+
+  it('persists provider usage as actual and local counts as estimated', () => {
+    expect(persistTokenUsage({ inputTokens: 12, outputTokens: 4 })).toEqual([12, 4, false]);
+    expect(persistTokenUsage({ inputTokens: 8, outputTokens: 2, estimated: true })).toEqual([
+      8,
+      2,
+      true,
+    ]);
+    expect(persistTokenUsage(null)).toEqual([null, null, null]);
   });
 });

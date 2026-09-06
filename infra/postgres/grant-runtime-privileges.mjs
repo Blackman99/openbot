@@ -310,7 +310,7 @@ try {
     GRANT UPDATE (status) ON tasks TO openbot_runtime;
     GRANT UPDATE (status, started_at, finished_at, claim_token, deadline_at, provider_scope_kind,
       provider_scope_id, connection_id, connection_revision, protocol, model_id, input_tokens,
-      output_tokens, error_code, output_event_id) ON task_runs TO openbot_runtime;
+      output_tokens, usage_estimated, error_code, output_event_id) ON task_runs TO openbot_runtime;
     GRANT UPDATE (close_event_id, close_sequence, closed_at, closure_reason) ON group_bot_grants TO openbot_runtime;
     GRANT UPDATE (revoked_at, consumed_at, consumed_by_user_id) ON workspace_invitations TO openbot_runtime;
     GRANT UPDATE (role) ON workspace_memberships TO openbot_runtime;

@@ -13,6 +13,35 @@ export function estimateTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
 }
 
+export function readStoredTokenUsage(
+  inputTokens: string | number | null,
+  outputTokens: string | number | null,
+  estimated: boolean | null,
+): TokenUsageRecord | null {
+  if (inputTokens === null || outputTokens === null || estimated === null) return null;
+  return {
+    inputTokens: Number(inputTokens),
+    outputTokens: Number(outputTokens),
+    estimated,
+  };
+}
+
+export function persistTokenUsage(
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    estimated?: boolean;
+  } | null,
+): [number | null, number | null, boolean | null] {
+  if (!usage) return [null, null, null];
+  if (usage.estimated === true) return [usage.inputTokens, usage.outputTokens, true];
+  const recorded = recordTokenUsage({
+    provider: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+  });
+  if (!recorded) return [null, null, null];
+  return [recorded.inputTokens, recorded.outputTokens, false];
+}
+
 export function recordTokenUsage(input: {
   provider?: { inputTokens: number; outputTokens: number } | null;
   localInput?: string;

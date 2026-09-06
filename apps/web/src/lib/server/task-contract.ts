@@ -47,7 +47,7 @@ export interface TaskRun {
     protocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
     modelId: string;
   };
-  usage: null | { inputTokens: number; outputTokens: number };
+  usage: null | { inputTokens: number; outputTokens: number; estimated: boolean };
   error: TaskErrorCode | null;
   output: MessageReceipt | null;
   continuation?: RunContinuation;
@@ -107,6 +107,19 @@ export function taskDate(value: unknown): value is string {
     new Date(value).toISOString() === value
   );
 }
+function parseTaskUsage(value: unknown): TaskRun['usage'] | undefined {
+  if (value === null) return null;
+  if (
+    !taskKeys(value, 'inputTokens,outputTokens') &&
+    !taskKeys(value, 'estimated,inputTokens,outputTokens')
+  )
+    return undefined;
+  if (!taskInteger(value.inputTokens, 0) || !taskInteger(value.outputTokens, 0)) return undefined;
+  const estimated = 'estimated' in value ? value.estimated : false;
+  if (typeof estimated !== 'boolean') return undefined;
+  return { inputTokens: value.inputTokens, outputTokens: value.outputTokens, estimated };
+}
+
 function receipt(value: unknown): MessageReceipt | undefined {
   return taskKeys(value, 'eventId,messageId,sequence') &&
     isConversationUuid(value.eventId) &&
@@ -157,13 +170,9 @@ export function parseTaskRun(value: unknown, createdAt?: string): TaskRun | unde
     provider = { protocol: p.protocol, modelId: p.modelId };
   }
   if (value.usage !== null) {
-    if (
-      !taskKeys(value.usage, 'inputTokens,outputTokens') ||
-      !taskInteger(value.usage.inputTokens, 0) ||
-      !taskInteger(value.usage.outputTokens, 0)
-    )
-      return undefined;
-    usage = { inputTokens: value.usage.inputTokens, outputTokens: value.usage.outputTokens };
+    const parsed = parseTaskUsage(value.usage);
+    if (!parsed) return undefined;
+    usage = parsed;
   }
   const output = value.output === null ? null : receipt(value.output);
   if (output === undefined) return undefined;

@@ -51,6 +51,7 @@ import {
 } from './delegate-child.js';
 import { DELEGATE_TOOL } from './delegate.js';
 import type { DelegateAction } from './delegate-action.js';
+import { persistTokenUsage } from './token-usage.js';
 import { readQueuedAuditMetadata } from './queued-audit.js';
 import {
   selectRunMemoryContribution,
@@ -88,6 +89,7 @@ export type TaskFailure =
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
+  estimated?: boolean;
 }
 type LockedRun = {
   status: string;
@@ -266,8 +268,8 @@ export class TaskQueue {
     usage: Usage | null = null,
   ) {
     await connection.query(
-      "UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5 WHERE id=$1",
-      [task.id, this.now(), error, usage?.inputTokens ?? null, usage?.outputTokens ?? null],
+      "UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5,usage_estimated=$6 WHERE id=$1",
+      [task.id, this.now(), error, ...persistTokenUsage(usage)],
     );
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1", [task.task_id]);
     await this.audit(connection, task, 'task.failed', { error });
@@ -284,9 +286,9 @@ export class TaskQueue {
     usage: Usage | null = null,
   ) {
     const marked = await connection.query<{ id: string }>(
-      `UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5
+      `UPDATE task_runs SET status='failed',finished_at=$2,error_code=$3,input_tokens=$4,output_tokens=$5,usage_estimated=$6
        WHERE id=$1 AND status='running' RETURNING id`,
-      [task.id, this.now(), error, usage?.inputTokens ?? null, usage?.outputTokens ?? null],
+      [task.id, this.now(), error, ...persistTokenUsage(usage)],
     );
     if (!marked.rows.length) return false;
     await connection.query("UPDATE tasks SET status='failed' WHERE id=$1 AND status='running'", [
@@ -723,14 +725,8 @@ export class TaskQueue {
         return true;
       }
       await connection.query(
-        "UPDATE task_runs SET status='completed',finished_at=$2,input_tokens=$3,output_tokens=$4,output_event_id=$5 WHERE id=$1",
-        [
-          task.id,
-          this.now(),
-          outcome.usage?.inputTokens ?? null,
-          outcome.usage?.outputTokens ?? null,
-          output.eventId,
-        ],
+        "UPDATE task_runs SET status='completed',finished_at=$2,input_tokens=$3,output_tokens=$4,usage_estimated=$5,output_event_id=$6 WHERE id=$1",
+        [task.id, this.now(), ...persistTokenUsage(outcome.usage), output.eventId],
       );
       await connection.query("UPDATE tasks SET status='completed' WHERE id=$1", [task.task_id]);
       await connection.query('DELETE FROM task_run_partial_outputs WHERE run_id=$1', [task.id]);

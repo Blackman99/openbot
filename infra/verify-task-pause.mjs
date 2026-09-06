@@ -69,7 +69,7 @@ try {
     ),
     MIGRATION_VERSIONS,
   );
-  assert.equal(MIGRATION_VERSIONS.at(-1), '0040_task_delegation');
+  assert.equal(MIGRATION_VERSIONS.at(-1), '0041_task_token_usage');
   assert.deepEqual(
     (
       await pool.query(

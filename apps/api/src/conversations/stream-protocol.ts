@@ -219,7 +219,11 @@ export function streamExecutionState(state: ExecutionState): ExecutionState {
       ? { protocol: state.provider.protocol, modelId: state.provider.modelId }
       : null,
     usage: state.usage
-      ? { inputTokens: state.usage.inputTokens, outputTokens: state.usage.outputTokens }
+      ? {
+          inputTokens: state.usage.inputTokens,
+          outputTokens: state.usage.outputTokens,
+          estimated: state.usage.estimated === true,
+        }
       : null,
     error: state.error,
     output: state.output

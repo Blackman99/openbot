@@ -121,7 +121,7 @@ for (const lostResponse of ['server', 'browser'] as const) {
       page.getByRole('heading', { name: 'Attempt 1 · Failed', exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText('Input tokens: 5 · Output tokens: 1', { exact: true }),
+      page.getByText('Input tokens: 5 · Output tokens: 1 · Actual', { exact: true }),
     ).toBeVisible();
     await expect(page.getByText('The model request failed.', { exact: true })).toBeVisible();
     await page.reload();
@@ -183,7 +183,7 @@ test('direct tasks reload queued, running and completed state with actual usage 
     page.getByText('Model: actual-direct-model · openai-responses', { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Input tokens: 12 · Output tokens: 0', { exact: true }),
+    page.getByText('Input tokens: 12 · Output tokens: 0 · Actual', { exact: true }),
   ).toBeVisible();
   await page.request.post(`${api}/__task/state`, {
     data: { taskId, status: 'completed', usage: { inputTokens: 12, outputTokens: 7 } },
@@ -194,7 +194,7 @@ test('direct tasks reload queued, running and completed state with actual usage 
     page.getByRole('heading', { name: 'Researcher · Completed', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Input tokens: 12 · Output tokens: 7', { exact: true }),
+    page.getByText('Input tokens: 12 · Output tokens: 7 · Actual', { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText('Configuration version 3 · Submitted by Ada', { exact: true }),

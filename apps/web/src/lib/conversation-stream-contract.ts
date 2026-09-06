@@ -51,7 +51,7 @@ export interface ExecutionState {
     protocol: 'openai-chat' | 'openai-responses' | 'anthropic-messages';
     modelId: string;
   } | null;
-  usage: { inputTokens: number; outputTokens: number } | null;
+  usage: { inputTokens: number; outputTokens: number; estimated: boolean } | null;
   error: StreamTaskFailure | null;
   output: { messageId: string; eventId: string; sequence: number } | null;
   routing?: RoutingSummary;
@@ -138,6 +138,18 @@ function uuid(value: unknown): value is string {
 }
 function integer(value: unknown, minimum = 0): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
+}
+function parseStreamUsage(value: unknown): ExecutionState['usage'] | undefined {
+  if (value === null) return null;
+  if (
+    !keys(value, 'inputTokens,outputTokens') &&
+    !keys(value, 'estimated,inputTokens,outputTokens')
+  )
+    return undefined;
+  if (!integer(value.inputTokens) || !integer(value.outputTokens)) return undefined;
+  const estimated = 'estimated' in value ? value.estimated : false;
+  if (typeof estimated !== 'boolean') return undefined;
+  return { inputTokens: value.inputTokens, outputTokens: value.outputTokens, estimated };
 }
 function date(value: unknown): value is string {
   return (
@@ -313,13 +325,9 @@ export function parseExecutionState(value: unknown): ExecutionState | undefined 
     provider = { protocol: p.protocol, modelId: p.modelId };
   }
   if (value.usage !== null) {
-    if (
-      !keys(value.usage, 'inputTokens,outputTokens') ||
-      !integer(value.usage.inputTokens) ||
-      !integer(value.usage.outputTokens)
-    )
-      return undefined;
-    usage = { inputTokens: value.usage.inputTokens, outputTokens: value.usage.outputTokens };
+    const parsed = parseStreamUsage(value.usage);
+    if (!parsed) return undefined;
+    usage = parsed;
   }
   if (value.output !== null) {
     if (
