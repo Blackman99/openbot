@@ -97,7 +97,6 @@ export function taskPolicyFromBotLimits(limits: BotLimits): ExecutionLimitPolicy
     maxDurationSeconds: limits.maxDurationSeconds,
     maxTurns: limits.maxTurns,
     maxDelegationDepth: limits.maxDelegationDepth,
-    maxTotalTokens: limits.maxTotalTokens,
   };
 }
 

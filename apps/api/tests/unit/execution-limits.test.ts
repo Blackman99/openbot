@@ -15,7 +15,6 @@ describe('COL-12 hierarchical execution limit resolution', () => {
       maxDurationSeconds: 300,
       maxTurns: 8,
       maxDelegationDepth: 2,
-      maxTotalTokens: 32768,
     });
     expect(resolveExecutionLimits({ task })).toEqual({
       duration: { maxDurationMs: 300_000, source: 'task' },

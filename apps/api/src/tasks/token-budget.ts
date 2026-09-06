@@ -107,7 +107,7 @@ export function reservationRequestForRun(
   maxTotalTokens: number,
   estimatedInputTokens: number,
 ): TokenCounts {
-  const inputTokens = Math.max(0, estimatedInputTokens);
+  const inputTokens = Math.min(maxTotalTokens, Math.max(0, estimatedInputTokens));
   return {
     inputTokens,
     outputTokens: Math.max(0, maxTotalTokens - inputTokens),

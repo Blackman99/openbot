@@ -254,10 +254,7 @@ export class TaskQueue {
     return resolveTokenBudgets({
       workspace: layers.workspace,
       group: layers.group,
-      task: {
-        ...parseExecutionPolicy(taskPolicy?.execution_policy),
-        maxTotalTokens,
-      },
+      task: parseExecutionPolicy(taskPolicy?.execution_policy),
       run: { maxTotalTokens },
     });
   }

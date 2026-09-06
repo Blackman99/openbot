@@ -92,6 +92,7 @@ describe('COL-17 token ledger reservation', () => {
       'run',
     ]);
     expect(reservationRequestForRun(50, 12)).toEqual({ inputTokens: 12, outputTokens: 38 });
+    expect(reservationRequestForRun(50, 80)).toEqual({ inputTokens: 50, outputTokens: 0 });
     const { connection, ledgers, reservations } = memoryConnection();
     const budgets = {
       workspace: { maxTotalTokens: 80 },
